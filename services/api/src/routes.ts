@@ -16,6 +16,8 @@ export const apiRoutes: ApiRoute[] = [
   },
   { method: "GET", path: "/api/me", service: "User Service" },
   { method: "PATCH", path: "/api/me/preferences", service: "User Service", eventType: "graph_updated" },
+  { method: "GET", path: "/api/privacy/export", service: "Privacy Service" },
+  { method: "DELETE", path: "/api/privacy/data", service: "Privacy Service" },
   { method: "GET", path: "/api/me/capabilities", service: "Wearable Integration Service" },
   { method: "GET", path: "/api/goals", service: "User Service" },
   { method: "POST", path: "/api/goals", service: "User Service", eventType: "graph_updated" },

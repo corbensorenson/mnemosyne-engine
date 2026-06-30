@@ -27,8 +27,11 @@ import {
 import type {
   CreatorSubmissionRecord,
   CreatorSubmissionStatus,
+  DataDeletionScope,
   MnemosyneStore,
-  SessionRecord
+  SessionRecord,
+  UserDataDeletionSummary,
+  UserDataExportBundle
 } from "@mnemosyne/persistence-core";
 import type {
   AssessmentItem,
@@ -106,6 +109,8 @@ import {
   generateDailyPacketRequestSchema,
   humanOverrideRequestSchema,
   morningForgeCompleteRequestSchema,
+  privacyDeletionRequestSchema,
+  privacyExportRequestSchema,
   proposalCreateRequestSchema,
   proposalCommentRequestSchema,
   proposalReleaseRequestSchema,
@@ -361,6 +366,16 @@ type UpdatePreferencesRequest = {
   modalityPreferences?: Record<string, unknown>;
 };
 
+type PrivacyExportRequest = {
+  userId: string;
+};
+
+type PrivacyDeletionRequest = {
+  userId: string;
+  scope: DataDeletionScope;
+  confirmation: "DELETE";
+};
+
 type CompleteOnboardingRequest = {
   userId?: string;
   displayName: string;
@@ -598,6 +613,30 @@ export function createApiHandlers(store: MnemosyneStore) {
         }
       });
       return envelope(updated, audit.id);
+    },
+
+    async exportUserData(input: unknown): Promise<HandlerEnvelope<UserDataExportBundle>> {
+      const request = validateRequest(privacyExportRequestSchema, input) as PrivacyExportRequest;
+      await requireUser(store, request.userId);
+      const bundle = await store.exportUserData(request.userId);
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "user_data_exported",
+        object_type: "privacy_export",
+        object_id: request.userId,
+        payload: {
+          schema_version: bundle.schema_version,
+          counts: exportBundleCounts(bundle)
+        }
+      });
+      return envelope(bundle, audit.id);
+    },
+
+    async deleteUserData(input: unknown): Promise<HandlerEnvelope<UserDataDeletionSummary>> {
+      const request = validateRequest(privacyDeletionRequestSchema, input) as PrivacyDeletionRequest;
+      await requireUser(store, request.userId);
+      const summary = await store.deleteUserData(request.userId, request.scope);
+      return envelope(summary, summary.retained_audit_event_ids.at(-1));
     },
 
     async completeOnboarding(input: unknown): Promise<HandlerEnvelope<OnboardingResponse>> {
@@ -2340,6 +2379,26 @@ async function refreshAwardedBadges(
     if (!existing.has(badge.badge_id)) await store.saveAwardedBadge(badge);
   }
   return earned;
+}
+
+function exportBundleCounts(bundle: UserDataExportBundle): Record<string, number> {
+  return {
+    goals: bundle.goals.length,
+    concept_states: bundle.user_graph.states.length,
+    daily_packets: bundle.daily_packets.length,
+    sleep_cue_packets: bundle.sleep_cue_packets.length,
+    audio_plans: bundle.audio_plans.length,
+    assessment_responses: bundle.assessment_responses.length,
+    learning_events: bundle.learning_events.length,
+    audit_events: bundle.audit_events.length,
+    sessions: bundle.sessions.length,
+    installed_packs: bundle.installed_packs.length,
+    experiment_assignments: bundle.experiment_assignments.length,
+    social_challenges: bundle.social_challenges.length,
+    awarded_badges: bundle.awarded_badges.length,
+    wearable_connections: bundle.wearable_connections.length,
+    wearable_sleep_sessions: bundle.wearable_sleep_sessions.length
+  };
 }
 
 async function wearableDashboardFor(

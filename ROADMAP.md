@@ -489,6 +489,15 @@ Deliverables:
 - Admin moderation tools.
 - Data export and deletion.
 
+Current implementation progress:
+
+- GitHub repository visibility is public and GitHub license detection reports MIT.
+- API privacy flow now supports user data export and scoped deletion for voice, sleep, health, and full account data with explicit confirmation, deletion summaries, and retained audit events.
+- Persistence layer can produce export bundles across user profile, goals, graph state, packets, sessions, events, experiments, social state, and wearable data, while account deletion removes user-owned records and anonymizes retained audit entries.
+- PWA Admin surface includes Privacy Ops cards for export, voice deletion, health deletion, and account deletion alongside the service map and audit log.
+- Production release runbook covers deployment environments, required services and secrets, monitoring, backup/restore, accessibility, load/reliability, and release checklist.
+- Privacy documentation covers export bundle contents, deletion scopes, audit rules, product requirements, and test coverage.
+
 Exit criteria:
 
 - A real user can safely use the app for 30 consecutive days.

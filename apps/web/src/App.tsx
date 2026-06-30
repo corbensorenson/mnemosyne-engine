@@ -3887,6 +3887,7 @@ function LabView({
 }
 
 function AdminView({ eventLog }: { eventLog: string[] }) {
+  const [privacyStatus, setPrivacyStatus] = useState("export ready");
   const services = [
     "Auth",
     "Graph",
@@ -3897,9 +3898,36 @@ function AdminView({ eventLog }: { eventLog: string[] }) {
     "Audio Renderer",
     "SleepCue",
     "Wearables",
+    "Privacy",
     "Content Court",
     "AI Orchestrator",
     "Analytics"
+  ];
+  const privacyOps = [
+    {
+      title: "Data Export",
+      endpoint: "GET /api/privacy/export",
+      action: () => setPrivacyStatus("export bundle prepared"),
+      icon: Database
+    },
+    {
+      title: "Voice Delete",
+      endpoint: "DELETE voice scope",
+      action: () => setPrivacyStatus("voice payloads scrubbed"),
+      icon: AudioLines
+    },
+    {
+      title: "Health Delete",
+      endpoint: "DELETE health scope",
+      action: () => setPrivacyStatus("health tokens and sleep imports queued"),
+      icon: Activity
+    },
+    {
+      title: "Account Delete",
+      endpoint: "DELETE account scope",
+      action: () => setPrivacyStatus("account deletion requires confirmation"),
+      icon: ShieldCheck
+    }
   ];
   return (
     <div className="page-grid admin-grid">
@@ -3912,6 +3940,25 @@ function AdminView({ eventLog }: { eventLog: string[] }) {
               <span>{service}</span>
             </div>
           ))}
+        </div>
+      </section>
+      <section className="panel privacy-ops-panel">
+        <PanelTitle icon={ShieldCheck} title="Privacy Ops" meta={privacyStatus} />
+        <div className="privacy-op-grid">
+          {privacyOps.map((operation) => {
+            const Icon = operation.icon;
+            return (
+              <article className="privacy-op-card" key={operation.title}>
+                <Icon size={20} />
+                <h3>{operation.title}</h3>
+                <ObjectLine label="Route" value={operation.endpoint} />
+                <button className="command" onClick={operation.action}>
+                  <ClipboardCheck size={18} />
+                  Stage
+                </button>
+              </article>
+            );
+          })}
         </div>
       </section>
       <section className="panel">

@@ -1979,6 +1979,28 @@ input[type="range"] {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.privacy-op-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.privacy-op-card {
+  min-height: 172px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.privacy-op-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
 .workbench-grid > .metric-strip {
   grid-column: 1 / -1;
 }
@@ -2150,6 +2172,7 @@ input[type="range"] {
   .badge-grid,
   .challenge-list,
   .service-grid,
+  .privacy-op-grid,
   .guard-grid,
   .provider-grid,
   .wearable-stage-grid,

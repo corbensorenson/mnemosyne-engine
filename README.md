@@ -6,7 +6,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 
 ## What Exists Now
 
-- `apps/web`: installable PWA shell with the core product surfaces: Today, Graph, Morning Forge, GraphFeed, WalkMode, Evening Lock-In, Sleep, Stats, Packs, Content Court, Lab, and Admin.
+- `apps/web`: installable PWA shell with the core product surfaces: Today, Graph, Morning Forge, GraphFeed, WalkMode, Evening Lock-In, Sleep, Stats, Social, Wear, Packs, Content Court, Lab, Workbench, and Admin.
 - `packages/schema`: shared Zod schemas and TypeScript types for graph, user state, sessions, sleep cues, content court, experiments, packs, videos, and events.
 - `packages/graph-core`: graph gap analysis, prerequisite debt, pathing, and user graph snapshots.
 - `packages/scheduler-core`: daily packet builder joining graph, assessment, video, walk, evening, and sleep planning.
@@ -15,10 +15,12 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/video-core`: bounded GraphFeed ranking and watch packet generation.
 - `packages/flashread-core`: graph-aware chunking and effective WPM calculations.
 - `packages/technique-lab`: evidence registry and experiment templates for learning techniques.
+- `packages/social-core`: outcome-safe badges, challenges, privacy-aware dashboards, and contributor reputation.
+- `packages/wearables-core`: optional wearable connection, token envelope, sleep normalization, readiness, and native-edge planning primitives.
 - `packages/content-court`: proposal, voting, AI arbitration, and moderation primitives.
 - `packages/audio-core`: deterministic audio timeline assembly for sparse sleep cue playback.
 - `master-graph`: open master graph layout, seed packs, schemas, policies, and release notes.
-- `services`: API, scheduler, and audio-renderer service skeletons wired to the same shared models.
+- `services`: API, scheduler, and audio-renderer service skeletons wired to the same shared models, including privacy export/deletion handlers.
 
 ## Product Principles
 

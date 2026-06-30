@@ -19,7 +19,7 @@ import type {
   UserKnowledgeGraph,
   VideoAsset
 } from "@mnemosyne/schema";
-import { createId, nowIso, todayIsoDate } from "@mnemosyne/shared-utils";
+import { createId, nowIso, stableHash, todayIsoDate } from "@mnemosyne/shared-utils";
 import type { NormalizedWearableSleepSession, WearableConnection } from "@mnemosyne/wearables-core";
 
 export type AuditEvent = {
@@ -168,6 +168,40 @@ export type MnemosyneSeedData = {
   packs?: KnowledgePackRecord[];
 };
 
+export type DataDeletionScope = "account" | "health" | "sleep" | "voice";
+
+export type UserDataExportBundle = {
+  schema_version: "mnemosyne-export-v0.1";
+  user_id: string;
+  exported_at: string;
+  user?: User;
+  goals: Goal[];
+  readiness?: ReadinessProfile;
+  user_graph: UserKnowledgeGraph;
+  daily_packets: DailyLearningPacket[];
+  sleep_cue_packets: SleepCuePacket[];
+  audio_plans: AudioPlan[];
+  assessment_responses: AssessmentResponse[];
+  learning_events: LearningEvent[];
+  audit_events: AuditEvent[];
+  sessions: SessionRecord[];
+  installed_packs: KnowledgePackRecord[];
+  experiment_assignments: ExperimentAssignmentRecord[];
+  personalization_profile?: PersonalizationProfileRecord;
+  social_challenges: SocialChallengeRecord[];
+  awarded_badges: AwardedBadgeRecord[];
+  wearable_connections: WearableConnection[];
+  wearable_sleep_sessions: NormalizedWearableSleepSession[];
+};
+
+export type UserDataDeletionSummary = {
+  user_id: string;
+  scope: DataDeletionScope;
+  deleted_at: string;
+  counts: Record<string, number>;
+  retained_audit_event_ids: string[];
+};
+
 export type AppendLearningEventInput = Omit<LearningEvent, "id" | "created_at"> & {
   id?: string;
   created_at?: string;
@@ -229,6 +263,8 @@ export interface MnemosyneStore {
   saveWearableConnection(connection: WearableConnection): Promise<WearableConnection>;
   saveWearableSleepSession(session: NormalizedWearableSleepSession): Promise<NormalizedWearableSleepSession>;
   listWearableSleepSessions(userId: string): Promise<NormalizedWearableSleepSession[]>;
+  exportUserData(userId: string): Promise<UserDataExportBundle>;
+  deleteUserData(userId: string, scope: DataDeletionScope): Promise<UserDataDeletionSummary>;
 }
 
 export class InMemoryMnemosyneStore implements MnemosyneStore {
@@ -521,10 +557,305 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
   async listWearableSleepSessions(userId: string): Promise<NormalizedWearableSleepSession[]> {
     return [...this.wearableSleepSessions.values()].filter((session) => session.user_id === userId);
   }
+
+  async exportUserData(userId: string): Promise<UserDataExportBundle> {
+    const dailyPackets = [...this.dailyPackets.values()].filter((packet) => packet.user_id === userId);
+    const sleepCuePackets = [...this.sleepCuePackets.values()].filter((packet) => packet.user_id === userId);
+    const audioPlanIds = new Set([
+      ...sleepCuePackets.map((packet) => packet.audio_plan_id),
+      ...dailyPackets.map((packet) => packet.sleep.audio_plan_id)
+    ]);
+    return {
+      schema_version: "mnemosyne-export-v0.1",
+      user_id: userId,
+      exported_at: nowIso(),
+      user: this.users.get(userId),
+      goals: await this.listGoals(userId),
+      readiness: this.readiness.get(userId),
+      user_graph: await this.getUserGraph(userId),
+      daily_packets: dailyPackets,
+      sleep_cue_packets: sleepCuePackets,
+      audio_plans: [...audioPlanIds].map((id) => this.audioPlans.get(id)).filter(isDefined),
+      assessment_responses: await this.listAssessmentResponses(userId),
+      learning_events: await this.listLearningEvents(userId),
+      audit_events: await this.listAuditEvents(userId),
+      sessions: await this.listSessions(userId),
+      installed_packs: [...this.packs.values()].filter((pack) =>
+        pack.installed_for_user_ids.includes(userId)
+      ),
+      experiment_assignments: await this.listExperimentAssignments(userId),
+      personalization_profile: this.personalizationProfiles.get(userId),
+      social_challenges: await this.listSocialChallenges(userId),
+      awarded_badges: await this.listAwardedBadges(userId),
+      wearable_connections: await this.listWearableConnections(userId),
+      wearable_sleep_sessions: await this.listWearableSleepSessions(userId)
+    };
+  }
+
+  async deleteUserData(userId: string, scope: DataDeletionScope): Promise<UserDataDeletionSummary> {
+    const deletedAt = nowIso();
+    const counts: Record<string, number> = {};
+    const count = (key: string, value: number) => {
+      if (value > 0) counts[key] = (counts[key] ?? 0) + value;
+    };
+
+    if (scope === "health" || scope === "account") {
+      count(
+        "wearable_connections",
+        deleteMapEntries(this.wearableConnections, (connection) => connection.user_id === userId)
+      );
+      count(
+        "wearable_sleep_sessions",
+        deleteMapEntries(this.wearableSleepSessions, (session) => session.user_id === userId)
+      );
+    }
+
+    if (scope === "sleep" || scope === "account") {
+      const deletedSleepAudioIds = new Set(
+        [
+          ...[...this.sleepCuePackets.values()]
+            .filter((packet) => packet.user_id === userId)
+            .map((packet) => packet.audio_plan_id),
+          ...[...this.dailyPackets.values()]
+            .filter((packet) => packet.user_id === userId)
+            .map((packet) => packet.sleep.audio_plan_id)
+        ].filter(Boolean)
+      );
+      count(
+        "sleep_cue_packets",
+        deleteMapEntries(this.sleepCuePackets, (packet) => packet.user_id === userId)
+      );
+      count(
+        "sleep_audio_plans",
+        deleteMapEntries(this.audioPlans, (plan) => deletedSleepAudioIds.has(plan.id))
+      );
+      const beforeEvents = this.learningEvents.length;
+      this.learningEvents = this.learningEvents.filter(
+        (event) =>
+          event.user_id !== userId ||
+          !(
+            event.event_type === "sleep_cue_played" ||
+            event.event_type === "cue_bound" ||
+            typeof event.payload.sleep_packet_id === "string"
+          )
+      );
+      count("sleep_learning_events", beforeEvents - this.learningEvents.length);
+      count(
+        "wearable_sleep_sessions",
+        deleteMapEntries(this.wearableSleepSessions, (session) => session.user_id === userId)
+      );
+    }
+
+    if (scope === "voice" || scope === "account") {
+      let scrubbedEvents = 0;
+      this.learningEvents = this.learningEvents.map((event) => {
+        if (event.user_id !== userId) return event;
+        const scrubbed = scrubVoicePayload(event.payload);
+        if (!scrubbed.changed) return event;
+        scrubbedEvents += 1;
+        return { ...event, payload: scrubbed.payload };
+      });
+      count("voice_payloads_scrubbed", scrubbedEvents);
+    }
+
+    if (scope === "account") {
+      count(
+        "users",
+        deleteMapEntries(this.users, (user) => user.id === userId)
+      );
+      count(
+        "goals",
+        deleteMapEntries(this.goals, (goal) => goal.user_id === userId)
+      );
+      count(
+        "readiness_profiles",
+        deleteMapEntries(this.readiness, (_readiness, key) => key === userId)
+      );
+      count(
+        "concept_states",
+        deleteMapEntries(this.states, (state) => state.user_id === userId)
+      );
+      count(
+        "daily_packets",
+        deleteMapEntries(this.dailyPackets, (packet) => packet.user_id === userId)
+      );
+      count(
+        "assessment_responses",
+        deleteMapEntries(this.assessmentResponses, (response) => response.user_id === userId)
+      );
+      const beforeLearningEvents = this.learningEvents.length;
+      this.learningEvents = this.learningEvents.filter((event) => event.user_id !== userId);
+      count("learning_events", beforeLearningEvents - this.learningEvents.length);
+      count(
+        "sessions",
+        deleteMapEntries(this.sessions, (session) => session.user_id === userId)
+      );
+      count(
+        "creator_submissions",
+        deleteMapEntries(this.creatorSubmissions, (submission) => submission.creator_id === userId)
+      );
+      count(
+        "experiment_assignments",
+        deleteMapEntries(this.experimentAssignments, (assignment) => assignment.user_id === userId)
+      );
+      count(
+        "personalization_profiles",
+        deleteMapEntries(this.personalizationProfiles, (_profile, key) => key === userId)
+      );
+      count(
+        "awarded_badges",
+        deleteMapEntries(this.awardedBadges, (badge) => badge.user_id === userId)
+      );
+      count("pack_installations", removePackInstallations(this.packs, userId));
+      count("social_challenges", removeUserFromChallenges(this.socialChallenges, userId));
+      count("audit_events_anonymized", anonymizeAuditEvents(this.auditEvents, userId, deletedAt));
+    }
+
+    const auditEvent: AuditEvent = {
+      id: createId("audit_event", `${userId}:${scope}:${deletedAt}`),
+      actor_id: scope === "account" ? deletedUserId(userId) : userId,
+      action: "user_data_deleted",
+      object_type: "privacy_request",
+      object_id: scope === "account" ? deletedUserId(userId) : userId,
+      payload: { scope, counts },
+      policy_version: "mnemosyne-audit-v0.1",
+      created_at: deletedAt
+    };
+    this.auditEvents.push(auditEvent);
+
+    return {
+      user_id: scope === "account" ? deletedUserId(userId) : userId,
+      scope,
+      deleted_at: deletedAt,
+      counts,
+      retained_audit_event_ids: [auditEvent.id]
+    };
+  }
 }
 
 export function createMemoryStore(seed?: MnemosyneSeedData): MnemosyneStore {
   return new InMemoryMnemosyneStore(seed);
+}
+
+function isDefined<T>(value: T | undefined): value is T {
+  return value !== undefined;
+}
+
+function deleteMapEntries<K, V>(map: Map<K, V>, shouldDelete: (value: V, key: K) => boolean): number {
+  let deleted = 0;
+  for (const [key, value] of map.entries()) {
+    if (!shouldDelete(value, key)) continue;
+    map.delete(key);
+    deleted += 1;
+  }
+  return deleted;
+}
+
+function scrubVoicePayload(payload: Record<string, unknown>): {
+  payload: Record<string, unknown>;
+  changed: boolean;
+} {
+  let changed = false;
+  const scrubbed: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (/transcript|raw_voice|raw_audio|voice_audio|voice_recording|audio_url|recording_url/i.test(key)) {
+      scrubbed[key] = "[deleted]";
+      changed = true;
+    } else if (Array.isArray(value)) {
+      const result = scrubVoiceArray(value);
+      scrubbed[key] = result.value;
+      changed ||= result.changed;
+    } else if (isRecord(value)) {
+      const result = scrubVoicePayload(value);
+      scrubbed[key] = result.payload;
+      changed ||= result.changed;
+    } else {
+      scrubbed[key] = value;
+    }
+  }
+  return { payload: changed ? scrubbed : payload, changed };
+}
+
+function scrubVoiceArray(value: unknown[]): { value: unknown[]; changed: boolean } {
+  let changed = false;
+  const scrubbed = value.map((item) => {
+    if (Array.isArray(item)) {
+      const result = scrubVoiceArray(item);
+      changed ||= result.changed;
+      return result.value;
+    }
+    if (!isRecord(item)) return item;
+    const result = scrubVoicePayload(item);
+    changed ||= result.changed;
+    return result.payload;
+  });
+  return { value: changed ? scrubbed : value, changed };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function removePackInstallations(packs: Map<string, KnowledgePackRecord>, userId: string): number {
+  let updated = 0;
+  for (const pack of packs.values()) {
+    if (!pack.installed_for_user_ids.includes(userId)) continue;
+    packs.set(pack.id, {
+      ...pack,
+      installed_for_user_ids: pack.installed_for_user_ids.filter(
+        (installedUserId) => installedUserId !== userId
+      )
+    });
+    updated += 1;
+  }
+  return updated;
+}
+
+function removeUserFromChallenges(challenges: Map<string, SocialChallengeRecord>, userId: string): number {
+  let changed = 0;
+  for (const challenge of [...challenges.values()]) {
+    if (challenge.creator_id === userId) {
+      challenges.delete(challenge.id);
+      changed += 1;
+      continue;
+    }
+    const participantIds = challenge.participant_ids.filter((participantId) => participantId !== userId);
+    const scoreboard = challenge.scoreboard.filter((score) => score.user_id !== userId);
+    if (
+      participantIds.length === challenge.participant_ids.length &&
+      scoreboard.length === challenge.scoreboard.length
+    ) {
+      continue;
+    }
+    challenges.set(challenge.id, { ...challenge, participant_ids: participantIds, scoreboard });
+    changed += 1;
+  }
+  return changed;
+}
+
+function anonymizeAuditEvents(events: AuditEvent[], userId: string, deletedAt: string): number {
+  let anonymized = 0;
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    if (!event || event.actor_id !== userId) continue;
+    events[index] = {
+      ...event,
+      actor_id: deletedUserId(userId),
+      object_id: event.object_type === "user" ? deletedUserId(userId) : event.object_id,
+      payload: {
+        redacted: true,
+        original_action: event.action,
+        original_object_type: event.object_type,
+        deleted_at: deletedAt
+      }
+    };
+    anonymized += 1;
+  }
+  return anonymized;
+}
+
+function deletedUserId(userId: string): string {
+  return `deleted_user:${stableHash(userId).toString(36)}`;
 }
 
 export function packetKey(userId: string, date: string): string {

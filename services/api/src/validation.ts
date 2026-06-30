@@ -77,6 +77,20 @@ export const updatePreferencesRequestSchema = z
   })
   .strict();
 
+export const privacyExportRequestSchema = z
+  .object({
+    userId: userIdSchema
+  })
+  .strict();
+
+export const privacyDeletionRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    scope: z.enum(["account", "health", "sleep", "voice"]),
+    confirmation: z.literal("DELETE")
+  })
+  .strict();
+
 export const completeOnboardingRequestSchema = z
   .object({
     userId: z.string().min(1).optional(),

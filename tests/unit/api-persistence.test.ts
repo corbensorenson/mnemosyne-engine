@@ -797,6 +797,91 @@ describe("persistence-backed API handlers", () => {
     );
   });
 
+  it("exports and deletes private user data by scoped privacy request", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+
+    await store.appendLearningEvent({
+      user_id: demoUser.id,
+      event_type: "assessment_answered",
+      payload: {
+        transcript: "private voice transcript",
+        nested: { voice_audio_url: "s3://private/raw-voice.wav" }
+      }
+    });
+    const connected = unwrap(
+      await handlers.connectOuraWearable({
+        userId: demoUser.id,
+        clientId: "oura_client_demo",
+        redirectUri: "https://mnemosyne.local/oauth/oura/callback",
+        accessToken: "oura_access_demo_token",
+        encryptionSecret: "test_secret_12345"
+      })
+    );
+    unwrap(
+      await handlers.syncWearableSleep({
+        userId: demoUser.id,
+        provider: "oura",
+        connectionId: connected.connection.id,
+        sleepSession: {
+          external_id: "sleep_privacy_test",
+          sleep_quality: 0.74,
+          stages: [{ stage: "deep", duration_minutes: 64 }]
+        }
+      })
+    );
+
+    const exported = unwrap(await handlers.exportUserData({ userId: demoUser.id }));
+    expect(exported.schema_version).toBe("mnemosyne-export-v0.1");
+    expect(exported.user?.id).toBe(demoUser.id);
+    expect(exported.user_graph.states.length).toBeGreaterThan(0);
+    expect(exported.wearable_connections).toHaveLength(1);
+    expect(exported.wearable_sleep_sessions).toHaveLength(1);
+    expect(JSON.stringify(exported)).not.toContain("oura_access_demo_token");
+
+    const voiceDeleted = unwrap(
+      await handlers.deleteUserData({
+        userId: demoUser.id,
+        scope: "voice",
+        confirmation: "DELETE"
+      })
+    );
+    expect(voiceDeleted.counts.voice_payloads_scrubbed).toBe(1);
+    expect(JSON.stringify(await store.listLearningEvents(demoUser.id))).not.toContain(
+      "private voice transcript"
+    );
+    expect(JSON.stringify(await store.listLearningEvents(demoUser.id))).not.toContain(
+      "s3://private/raw-voice.wav"
+    );
+
+    const healthDeleted = unwrap(
+      await handlers.deleteUserData({
+        userId: demoUser.id,
+        scope: "health",
+        confirmation: "DELETE"
+      })
+    );
+    expect(healthDeleted.counts.wearable_connections).toBe(1);
+    expect(healthDeleted.counts.wearable_sleep_sessions).toBe(1);
+    const afterHealthExport = unwrap(await handlers.exportUserData({ userId: demoUser.id }));
+    expect(afterHealthExport.wearable_connections).toHaveLength(0);
+    expect(afterHealthExport.wearable_sleep_sessions).toHaveLength(0);
+
+    const accountDeleted = unwrap(
+      await handlers.deleteUserData({
+        userId: demoUser.id,
+        scope: "account",
+        confirmation: "DELETE"
+      })
+    );
+    expect(accountDeleted.user_id).toMatch(/^deleted_user:/);
+    expect(accountDeleted.counts.users).toBe(1);
+    expect(await store.getUser(demoUser.id)).toBeUndefined();
+    await expect(handlers.exportUserData({ userId: demoUser.id })).rejects.toThrow("Unknown user");
+    expect((await store.listAuditEvents()).some((event) => event.actor_id === demoUser.id)).toBe(false);
+    expect((await store.listAuditEvents()).some((event) => event.action === "user_data_deleted")).toBe(true);
+  });
+
   it("assigns matched experiments and personalizes scheduling from observed outcomes", async () => {
     const store = await createSeededStore();
     const handlers = createApiHandlers(store);
