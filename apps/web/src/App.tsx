@@ -43,6 +43,15 @@ import {
   generateAssessmentForConcept,
   scoreAssessmentResponse
 } from "@mnemosyne/assessment-core";
+import {
+  buildAssessmentResponseFromTutorTurn,
+  buildTutorTurn,
+  evaluateTutorReleaseGate,
+  tutorModes,
+  type TutorMode,
+  type TutorReleaseGate,
+  type TutorTurnPlan
+} from "@mnemosyne/tutor-core";
 import { estimateCueDensity } from "@mnemosyne/audio-core";
 import {
   arbitrateProposal,
@@ -158,6 +167,7 @@ type TabId =
   | "today"
   | "graph"
   | "forge"
+  | "tutor"
   | "cinema"
   | "pacedRead"
   | "walk"
@@ -177,6 +187,7 @@ const tabs: Array<{ id: TabId; label: string; icon: typeof Home }> = [
   { id: "today", label: "Today", icon: Home },
   { id: "graph", label: "Graph", icon: Network },
   { id: "forge", label: "Forge", icon: SunMedium },
+  { id: "tutor", label: "Tutor", icon: Brain },
   { id: "cinema", label: "Cinema", icon: Video },
   { id: "pacedRead", label: "Paced Read", icon: Gauge },
   { id: "walk", label: "Walk", icon: Footprints },
@@ -285,6 +296,18 @@ export default function App() {
   const [forgeResponses, setForgeResponses] = useState(0);
   const [lastResponse, setLastResponse] = useState<AssessmentResponse | null>(null);
   const [repairTips, setRepairTips] = useState<string[]>([]);
+  const [tutorMode, setTutorMode] = useState<TutorMode>("socratic");
+  const [tutorAnswer, setTutorAnswer] = useState(
+    "The mechanism routes attention by comparing query and key vectors, then mixing value vectors."
+  );
+  const [tutorAnswerMode, setTutorAnswerMode] = useState<AnswerMode>("text");
+  const [tutorConfidence, setTutorConfidence] = useState(0.64);
+  const [tutorTranscriptDeleted, setTutorTranscriptDeleted] = useState(true);
+  const [tutorStartedAt, setTutorStartedAt] = useState(Date.now());
+  const [tutorTurn, setTutorTurn] = useState<TutorTurnPlan | null>(null);
+  const [tutorReleaseGate, setTutorReleaseGate] = useState<TutorReleaseGate | null>(null);
+  const [tutorResponse, setTutorResponse] = useState<AssessmentResponse | null>(null);
+  const [tutorCacheStatus, setTutorCacheStatus] = useState("pending");
   const [offlineCacheStatus, setOfflineCacheStatus] = useState("pending");
   const [offlineQueue, setOfflineQueue] = useState<OfflineQueueItem[]>([]);
   const [offlineSyncStatus, setOfflineSyncStatus] = useState("indexeddb loading");
@@ -383,12 +406,13 @@ export default function App() {
     () =>
       uniqueResponses([
         lastResponse,
+        tutorResponse,
         cinemaResult?.response ?? null,
         ...walkResponses,
         walkLastResponse,
         lockLastResponse
       ]),
-    [cinemaResult?.response, lastResponse, lockLastResponse, walkLastResponse, walkResponses]
+    [cinemaResult?.response, lastResponse, lockLastResponse, tutorResponse, walkLastResponse, walkResponses]
   );
   const experimentEvents = useMemo(
     () =>
@@ -640,6 +664,14 @@ export default function App() {
   const selectedNode =
     demoMasterGraph.concepts.find((concept) => concept.id === selectedNodeId) ?? demoMasterGraph.concepts[0];
   const selectedState = states.find((state) => state.concept_id === selectedNode.id);
+  const activeTutorItem = useMemo(
+    () =>
+      generateAssessmentForConcept(
+        selectedNode,
+        tutorMode === "debate_opponent" || tutorMode === "debugger" ? "transfer" : "free_recall"
+      ),
+    [selectedNode, tutorMode]
+  );
   const cueDensity = estimateCueDensity(scheduled.audioPlan);
   const sleepIntegrity = clamp(1 - cueDensity * 12 - readiness.fatigue * 0.12);
   const durableMastery = round(
@@ -991,6 +1023,94 @@ export default function App() {
     setAnswer("");
     setForgeIndex((index) => (forgeQueue.length > 0 ? (index + 1) % forgeQueue.length : index));
     setForgeStartedAt(Date.now());
+  }
+
+  function updateTutorAnswer(value: string) {
+    if (tutorAnswer.trim().length === 0 && value.trim().length > 0) {
+      setTutorStartedAt(Date.now());
+    }
+    setTutorAnswer(value);
+    setTutorCacheStatus("pending");
+  }
+
+  function submitTutorTurn() {
+    if (!activeTutorItem || tutorAnswer.trim().length === 0) return;
+    const completedAt = new Date().toISOString();
+    const rawResponse = tutorAnswer.trim();
+    const latencyMs = Math.max(1_000, Date.now() - tutorStartedAt);
+    const transcriptRetention =
+      tutorAnswerMode === "voice" && !tutorTranscriptDeleted ? "transcript_only" : "deleted";
+    const turn = buildTutorTurn({
+      userId: activeUser.id,
+      mode: tutorMode,
+      item: activeTutorItem,
+      rawResponse,
+      confidence: tutorConfidence,
+      latencyMs,
+      transcriptPolicy: transcriptRetention,
+      createdAt: completedAt
+    });
+    const releaseGate = evaluateTutorReleaseGate([turn]);
+    const response = buildAssessmentResponseFromTutorTurn({
+      userId: activeUser.id,
+      item: activeTutorItem,
+      rawResponse,
+      turn,
+      latencyMs
+    });
+    setTutorTurn(turn);
+    setTutorReleaseGate(releaseGate);
+    setTutorResponse(response);
+    if (releaseGate.passed) {
+      setStates((current) => applyResponseToLocalStates(current, response));
+    }
+    try {
+      window.localStorage.setItem(
+        "mnemosyne.tutorTurn.v1",
+        JSON.stringify({
+          cached_at: completedAt,
+          user_id: activeUser.id,
+          tutor_turn_id: turn.id,
+          concept_ids: activeTutorItem.concept_ids,
+          mode: turn.mode,
+          intent: turn.intent,
+          correctness_score: response.correctness_score,
+          release_gate_passed: releaseGate.passed,
+          graph_progress_awarded: releaseGate.passed,
+          transcript_retention: transcriptRetention
+        })
+      );
+      setTutorCacheStatus("ready");
+      stageOfflineAction({
+        actionType: "tutor_turn",
+        endpoint: "/api/tutor/turn",
+        method: "POST",
+        payload: {
+          userId: activeUser.id,
+          mode: tutorMode,
+          item: activeTutorItem,
+          rawResponse,
+          confidence: tutorConfidence,
+          latencyMs,
+          entryMode: tutorAnswerMode,
+          transcript: transcriptRetention === "deleted" ? undefined : rawResponse,
+          transcriptRetention,
+          highStakesDomain: false
+        },
+        payloadScope: tutorAnswerMode === "voice" ? "voice" : "learning",
+        idempotencyKey: `${activeUser.id}:tutor:${activeTutorItem.id}:${tutorMode}:${completedAt}`
+      });
+    } catch {
+      setTutorCacheStatus("unavailable");
+    }
+    setEventLog((current) =>
+      [
+        releaseGate.passed ? "tutor turn passed release gate" : "tutor turn held by release gate",
+        `tutor ${tutorModeLabel(turn.mode)}: ${turn.intent}`,
+        ...current
+      ].slice(0, 6)
+    );
+    setTutorStartedAt(Date.now());
   }
 
   function selectCinemaVideo(videoId: string) {
@@ -1805,6 +1925,28 @@ export default function App() {
         repairTips={repairTips}
         completedCount={forgeResponses}
         offlineCacheStatus={offlineCacheStatus}
+      />
+    ),
+    tutor: (
+      <TutorView
+        concept={selectedNode}
+        state={selectedState}
+        item={activeTutorItem}
+        mode={tutorMode}
+        setMode={setTutorMode}
+        answer={tutorAnswer}
+        setAnswer={updateTutorAnswer}
+        answerMode={tutorAnswerMode}
+        setAnswerMode={setTutorAnswerMode}
+        confidence={tutorConfidence}
+        setConfidence={setTutorConfidence}
+        transcriptDeleted={tutorTranscriptDeleted}
+        setTranscriptDeleted={setTutorTranscriptDeleted}
+        submitTurn={submitTutorTurn}
+        turn={tutorTurn}
+        releaseGate={tutorReleaseGate}
+        response={tutorResponse}
+        cacheStatus={tutorCacheStatus}
       />
     ),
     cinema: (
@@ -2749,6 +2891,161 @@ function ForgeView({
               <ObjectLine key={cue.id} label={cue.cue_type} value={cue.text ?? cue.concept_id} />
             ))}
           </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function TutorView({
+  concept,
+  state,
+  item,
+  mode,
+  setMode,
+  answer,
+  setAnswer,
+  answerMode,
+  setAnswerMode,
+  confidence,
+  setConfidence,
+  transcriptDeleted,
+  setTranscriptDeleted,
+  submitTurn,
+  turn,
+  releaseGate,
+  response,
+  cacheStatus
+}: {
+  concept: ConceptNode;
+  state?: UserConceptState;
+  item: AssessmentItem;
+  mode: TutorMode;
+  setMode: (mode: TutorMode) => void;
+  answer: string;
+  setAnswer: (value: string) => void;
+  answerMode: AnswerMode;
+  setAnswerMode: (value: AnswerMode) => void;
+  confidence: number;
+  setConfidence: (value: number) => void;
+  transcriptDeleted: boolean;
+  setTranscriptDeleted: (value: boolean) => void;
+  submitTurn: () => void;
+  turn: TutorTurnPlan | null;
+  releaseGate: TutorReleaseGate | null;
+  response: AssessmentResponse | null;
+  cacheStatus: string;
+}) {
+  const gateState = releaseGate ? (releaseGate.passed ? "passed" : "held") : "armed";
+  return (
+    <div className="page-grid forge-grid">
+      <section className="panel session-player">
+        <PanelTitle icon={Brain} title="First-Party Tutor" meta={tutorModeLabel(mode)} />
+        <div className="forge-status-grid">
+          <MiniStat label="Concept" value={concept.title} />
+          <MiniStat label="Mastery" value={`${Math.round((state?.mastery ?? 0) * 100)}%`} />
+          <MiniStat label="Gate" value={gateState} />
+          <MiniStat label="Sync" value={cacheStatus} />
+        </div>
+        <div className="prompt-box">
+          <p className="eyebrow">Tutor prompt</p>
+          <h2>{item.prompt}</h2>
+        </div>
+        <label className="form-field">
+          <span>Mode</span>
+          <select value={mode} onChange={(event) => setMode(event.target.value as TutorMode)}>
+            {tutorModes.map((candidate) => (
+              <option key={candidate} value={candidate}>
+                {tutorModeLabel(candidate)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="segmented-control" aria-label="Tutor answer mode">
+          {(["text", "voice"] as const).map((candidate) => (
+            <button
+              className={answerMode === candidate ? "is-active" : ""}
+              key={candidate}
+              onClick={() => setAnswerMode(candidate)}
+            >
+              {candidate === "voice" ? <AudioLines size={16} /> : <ClipboardCheck size={16} />}
+              <span>{candidate}</span>
+            </button>
+          ))}
+        </div>
+        <textarea
+          value={answer}
+          onChange={(event) => setAnswer(event.target.value)}
+          placeholder={answerMode === "voice" ? "Voice tutor transcript..." : "Attempt before coaching..."}
+          rows={6}
+        />
+        {answerMode === "voice" && (
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={transcriptDeleted}
+              onChange={(event) => setTranscriptDeleted(event.target.checked)}
+            />
+            <span>Delete transcript after scoring</span>
+          </label>
+        )}
+        <Slider
+          label="Confidence"
+          value={confidence}
+          onChange={setConfidence}
+          suffix={`${Math.round(confidence * 100)}%`}
+        />
+        <div className="action-row">
+          <button className="command primary" onClick={submitTurn}>
+            <CheckCircle2 size={18} />
+            Score Tutor Turn
+          </button>
+          <button
+            className="command"
+            onClick={() => setAnswer(answer || "My answer needs the mechanism, a boundary, and a test.")}
+          >
+            <Wand2 size={18} />
+            Scaffold
+          </button>
+        </div>
+        {turn && response && (
+          <div className={`feedback-band ${releaseGate?.passed ? "is-passed" : "is-held"}`}>
+            <strong>{Math.round(response.correctness_score * 100)}%</strong>
+            <span>{turn.feedback}</span>
+          </div>
+        )}
+      </section>
+      <section className="frontier-list forge-side">
+        <div className="panel compact-panel">
+          <PanelTitle icon={ShieldCheck} title="Tutor Guardrails" meta={gateState} />
+          <div className="case-grid">
+            <MiniStat
+              label="Leakage"
+              value={`${Math.round((turn?.safety_evaluation.answer_leakage_risk ?? 0) * 100)}%`}
+            />
+            <MiniStat
+              label="Unsafe"
+              value={`${Math.round((turn?.safety_evaluation.unsafe_advice_risk ?? 0) * 100)}%`}
+            />
+            <MiniStat label="Compatible" value={turn?.compatible_assessment_event ? "yes" : "pending"} />
+            <MiniStat label="Transcript" value={transcriptDeleted ? "deleted" : "retained"} />
+          </div>
+          <ObjectLine label="Next" value={turn?.next_prompt ?? "score a turn"} />
+          <ObjectLine label="Hint" value={turn?.hint ?? "pending"} />
+        </div>
+        <div className="panel compact-panel">
+          <PanelTitle icon={ClipboardCheck} title="Repair Steps" meta={turn?.intent ?? "pending"} />
+          <div className="object-list">
+            {(turn?.repair_steps ?? ["answer first", "score locally", "sync to backend"]).map((step) => (
+              <ObjectLine key={step} label="Step" value={step} />
+            ))}
+          </div>
+        </div>
+        <div className="panel compact-panel">
+          <PanelTitle icon={Network} title="Graph Context" meta={concept.status} />
+          <ObjectLine label="Domain" value={concept.domain} />
+          <ObjectLine label="Type" value={concept.concept_type} />
+          <ObjectLine label="Failures" value={state?.failure_modes.join(", ") ?? "new concept"} />
         </div>
       </section>
     </div>
@@ -5368,6 +5665,13 @@ function applyResponseToLocalStates(
 
 function conceptTitle(concepts: ConceptNode[], conceptId: string): string {
   return concepts.find((concept) => concept.id === conceptId)?.title ?? conceptId;
+}
+
+function tutorModeLabel(mode: TutorMode): string {
+  return mode
+    .split("_")
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
 }
 
 function avg(values: number[]): number {

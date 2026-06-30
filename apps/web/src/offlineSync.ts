@@ -90,6 +90,18 @@ function isDomainWritableOfflineActionItem(item: OfflineQueueItem): boolean {
     typeof item.payload.userId === "string" &&
     typeof item.payload.dailyPacketId === "string" &&
     hasAssessmentResponses;
+  const isTutorTurn =
+    item.action_type === "tutor_turn" &&
+    item.method === "POST" &&
+    item.endpoint === "/api/tutor/turn" &&
+    typeof item.payload.userId === "string" &&
+    isTutorMode(item.payload.mode) &&
+    typeof item.payload.item === "object" &&
+    item.payload.item !== null &&
+    typeof item.payload.rawResponse === "string" &&
+    typeof item.payload.latencyMs === "number" &&
+    isAnswerEntryMode(item.payload.entryMode) &&
+    isTranscriptRetention(item.payload.transcriptRetention);
   const isWalkMode =
     item.action_type === "walk_mode_completion" &&
     item.method === "POST" &&
@@ -183,6 +195,7 @@ function isDomainWritableOfflineActionItem(item: OfflineQueueItem): boolean {
     item.payload.confirmation === "DELETE";
   return (
     isMorningForge ||
+    isTutorTurn ||
     isWalkMode ||
     isEveningLockIn ||
     isGraphFeed ||
@@ -214,6 +227,28 @@ function isOpsEnvironment(value: unknown): value is "local" | "staging" | "produ
 
 function isPrivacyDeletionScope(value: unknown): value is "account" | "health" | "sleep" | "voice" {
   return value === "account" || value === "health" || value === "sleep" || value === "voice";
+}
+
+function isTutorMode(value: unknown): boolean {
+  return (
+    value === "socratic" ||
+    value === "examiner" ||
+    value === "calm_coach" ||
+    value === "debate_opponent" ||
+    value === "language_partner" ||
+    value === "debugger" ||
+    value === "oral_board" ||
+    value === "walk_coach" ||
+    value === "sleep_prep_guide"
+  );
+}
+
+function isAnswerEntryMode(value: unknown): value is "text" | "voice" {
+  return value === "text" || value === "voice";
+}
+
+function isTranscriptRetention(value: unknown): boolean {
+  return value === "deleted" || value === "transcript_only" || value === "retained";
 }
 
 function localCsrfToken(): string {

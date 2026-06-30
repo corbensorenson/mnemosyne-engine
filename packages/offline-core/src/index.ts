@@ -3,6 +3,7 @@ import { createId, nowIso, round, stableHash } from "@mnemosyne/shared-utils";
 export const offlineActionTypes = [
   "daily_packet_cache",
   "morning_forge_response",
+  "tutor_turn",
   "graphfeed_recall",
   "paced_read_completion",
   "walk_mode_completion",
@@ -103,6 +104,7 @@ export type OfflineSyncRunResult = {
 export const defaultOfflineRequiredActions: OfflineActionType[] = [
   "daily_packet_cache",
   "morning_forge_response",
+  "tutor_turn",
   "graphfeed_recall",
   "paced_read_completion",
   "walk_mode_completion",

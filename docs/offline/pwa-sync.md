@@ -10,6 +10,7 @@ Queued items include:
 
 - daily packet cache refresh
 - Morning Forge responses
+- Tutor turns
 - GraphFeed recall completions
 - Paced Read completions
 - WalkMode completions
@@ -29,7 +30,7 @@ The Workbench surface exposes the queue ledger with queued, synced, retryable, a
 
 ## API Receipts
 
-When `VITE_MNEMOSYNE_API_URL` is configured, the browser transport posts backend-compatible learning, health, privacy, and ops actions directly to their first-party domain endpoints: Morning Forge, GraphFeed, Paced Read, WalkMode, Evening Lock-In, SleepCue playback, SleepCue recall, wearable sleep sync, privacy export jobs, scoped privacy deletion, and incident report creation. Older receipt-only payloads still go to `POST /api/offline/actions/sync`, where the API validates the queue item envelope, requires the owning user to exist, writes an `offline_action_synced` audit event, and returns a receipt id.
+When `VITE_MNEMOSYNE_API_URL` is configured, the browser transport posts backend-compatible learning, health, privacy, and ops actions directly to their first-party domain endpoints: Morning Forge, Tutor, GraphFeed, Paced Read, WalkMode, Evening Lock-In, SleepCue playback, SleepCue recall, wearable sleep sync, privacy export jobs, scoped privacy deletion, and incident report creation. Older receipt-only payloads still go to `POST /api/offline/actions/sync`, where the API validates the queue item envelope, requires the owning user to exist, writes an `offline_action_synced` audit event, and returns a receipt id.
 
 When no API URL is configured, the PWA uses an explicit local dry-run receipt so development remains usable without pretending that a remote backend was contacted.
 

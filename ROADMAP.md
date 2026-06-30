@@ -396,6 +396,7 @@ Current implementation progress:
 - First-party `@mnemosyne/tutor-core` now scores rubric semantics, supports Socratic, Examiner, Calm Coach, Debate Opponent, Language Partner, Debugger, Oral Board, Walk Coach, and Sleep Prep Guide modes, and runs deterministic answer-leakage, hallucination-language, high-stakes advice, over-teaching, and assessment-compatibility release gates.
 - API `POST /api/tutor/turn` persists tutor-scored turns as compatible assessment responses, updates graph state only when the tutor release gate passes, records `assessment_answered`, and audits `tutor_turn_scored` with the safety evaluation.
 - First-party security core classifies high-stakes tutor context server-side so safety gates do not depend only on client declarations.
+- PWA Tutor now runs first-party tutor modes against the selected graph concept, shows safety/release-gate feedback, supports text and voice transcript-retention choices, updates local graph state only when the gate passes, and queues backend-compatible tutor turns to `POST /api/tutor/turn`.
 
 Exit criteria:
 

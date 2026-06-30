@@ -80,6 +80,63 @@ describe("web offline sync transport", () => {
     );
   });
 
+  it("routes backend-compatible tutor turn queue items to the tutor endpoint", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "tutor_turn",
+      endpoint: "/api/tutor/turn",
+      method: "POST",
+      payload: {
+        userId: "user_demo",
+        mode: "socratic",
+        item: prompt,
+        rawResponse: "A clear explanation.",
+        confidence: 0.74,
+        latencyMs: 14_000,
+        entryMode: "text",
+        transcriptRetention: "deleted",
+        highStakesDomain: false
+      },
+      idempotencyKey: "tutor-domain-write"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787/", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/tutor/turn",
+        method: "POST",
+        body: item.payload,
+        directDomainWrite: true
+      })
+    );
+  });
+
+  it("keeps legacy tutor turn payloads on the offline receipt route", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "tutor_turn",
+      endpoint: "/api/tutor/turn",
+      method: "POST",
+      payload: {
+        tutor_turn_id: "local_tutor_turn",
+        response_id: "local_response"
+      },
+      idempotencyKey: "legacy-tutor-receipt"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/offline/actions/sync",
+        method: "POST",
+        body: { item },
+        directDomainWrite: false
+      })
+    );
+  });
+
   it("routes backend-compatible WalkMode queue items to the domain completion endpoint", () => {
     const item = createOfflineQueueItem({
       userId: "user_demo",

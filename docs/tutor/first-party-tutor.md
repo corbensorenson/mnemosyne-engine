@@ -30,6 +30,8 @@ The package deliberately keeps feedback concise and asks before teaching. That k
 
 The handler builds a tutor turn, converts it into a normal `AssessmentResponse`, records `assessment_answered`, audits `tutor_turn_scored`, and updates graph state only when the tutor release gate passes.
 
+The PWA Tutor surface uses the same first-party package in-browser, applies local graph progress only after the release gate passes, and queues backend-compatible turns directly to `POST /api/tutor/turn` when API sync is configured.
+
 ## Safety Rules
 
 A tutor turn is blocked from graph mutation when the release gate fails. The current gate checks:
