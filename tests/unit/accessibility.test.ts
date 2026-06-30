@@ -23,6 +23,7 @@ describe("accessibility-core", () => {
         "forge",
         "tutor",
         "paced_read",
+        "speed_listen",
         "walk",
         "sleep",
         "court",

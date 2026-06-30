@@ -78,6 +78,13 @@ export function defaultPwaAccessibilitySurfaces(): AccessibilitySurfaceCheck[] {
       "rewind",
       "completion gate"
     ]),
+    surface("speed_listen", "SpeedListen", "/?tab=speedListen", [
+      "rate control",
+      "local speech plan",
+      "stop speech",
+      "comprehension gate",
+      "quiet fallback"
+    ]),
     surface("walk", "WalkMode", "/?tab=walk", [
       "screen-off prompt",
       "voice/text recall",

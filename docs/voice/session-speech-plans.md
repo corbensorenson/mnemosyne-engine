@@ -6,6 +6,7 @@ Mnemosyne keeps low-screen session speech first-party. `@mnemosyne/audio-core` b
 
 - Morning Forge: retrieval instructions, prompt playback, and scored feedback.
 - Tutor: mode framing, prompt playback, and gate-safe feedback.
+- SpeedListen: time-compressed transcript chunks with local playback and comprehension gates.
 - WalkMode: phase-aware prompt playback, repeat, and feedback.
 - Evening Lock-In: audio-first recall, phone-down status, cue count, and feedback.
 - SleepCue preview: sparse cue cadence and a few low-volume cue labels.

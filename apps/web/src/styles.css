@@ -658,6 +658,7 @@ input[type="range"] {
 .forge-grid,
 .cinema-grid,
 .paced-read-grid,
+.speed-listen-grid,
 .lock-grid,
 .sleep-grid,
 .stats-grid,
@@ -1072,6 +1073,42 @@ input[type="range"] {
   border-radius: 8px;
   background: #152722;
   color: var(--paper);
+}
+
+.speed-listen-player {
+  align-content: start;
+}
+
+.speed-listen-stage {
+  min-height: 250px;
+  display: grid;
+  align-content: center;
+  gap: 12px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #17231f;
+  color: var(--paper);
+}
+
+.speed-listen-stage .eyebrow {
+  color: rgba(247, 244, 237, 0.72);
+}
+
+.speed-listen-stage h2,
+.speed-listen-stage p {
+  margin: 0;
+}
+
+.speed-listen-stage h2 {
+  font-size: 1.5rem;
+  line-height: 1.15;
+}
+
+.speed-listen-stage p {
+  font-size: 1.08rem;
+  line-height: 1.45;
+  color: rgba(247, 244, 237, 0.84);
 }
 
 .paced-read-stage .eyebrow {

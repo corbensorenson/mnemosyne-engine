@@ -56,10 +56,15 @@ import {
   buildEveningLockInSpeechPlan,
   buildMorningForgeSpeechPlan,
   buildSleepCuePreviewSpeechPlan,
+  buildSpeedListenSession,
   buildTutorSpeechPlan,
   buildWalkModeSpeechPlan,
   estimateCueDensity,
-  type SessionSpeechPlan
+  scoreSpeedListenCompletion,
+  type SessionSpeechPlan,
+  type SpeedListenCompletionResult,
+  type SpeedListenSessionPlan,
+  type SpeedListenSource
 } from "@mnemosyne/audio-core";
 import {
   arbitrateProposal,
@@ -194,6 +199,7 @@ type TabId =
   | "tutor"
   | "cinema"
   | "pacedRead"
+  | "speedListen"
   | "walk"
   | "lock"
   | "sleep"
@@ -214,6 +220,7 @@ const tabs: Array<{ id: TabId; label: string; icon: typeof Home }> = [
   { id: "tutor", label: "Tutor", icon: Brain },
   { id: "cinema", label: "Cinema", icon: Video },
   { id: "pacedRead", label: "Paced Read", icon: Gauge },
+  { id: "speedListen", label: "Listen", icon: Volume2 },
   { id: "walk", label: "Walk", icon: Footprints },
   { id: "lock", label: "Lock-In", icon: Headphones },
   { id: "sleep", label: "Sleep", icon: Moon },
@@ -406,6 +413,15 @@ export default function App() {
   const [pacedReadStrain, setPacedReadStrain] = useState(0.24);
   const [pacedReadResult, setPacedReadResult] = useState<PacedReadEngineResult | null>(null);
   const [pacedReadCacheStatus, setPacedReadCacheStatus] = useState("pending");
+  const [speedListenSourceId, setSpeedListenSourceId] = useState(demoMasterGraph.videos[0]?.id ?? "");
+  const [speedListenRate, setSpeedListenRate] = useState(1.35);
+  const [speedListenChunkIndex, setSpeedListenChunkIndex] = useState(0);
+  const [speedListenComprehension, setSpeedListenComprehension] = useState(0.76);
+  const [speedListenRetention, setSpeedListenRetention] = useState(0.7);
+  const [speedListenStrain, setSpeedListenStrain] = useState(0.28);
+  const [speedListenDistraction, setSpeedListenDistraction] = useState(0.18);
+  const [speedListenResult, setSpeedListenResult] = useState<SpeedListenCompletionResult | null>(null);
+  const [speedListenCacheStatus, setSpeedListenCacheStatus] = useState("pending");
   const [wearableConnectionStatus, setWearableConnectionStatus] =
     useState<WearableConnectionStatus>("authorization_required");
   const [wearableSleep, setWearableSleep] = useState<NormalizedWearableSleepSession | null>(null);
@@ -673,6 +689,22 @@ export default function App() {
       activeCinemaVideo ? buildVideoRecallPrompt(activeCinemaVideo, demoMasterGraph.concepts) : undefined,
     [activeCinemaVideo]
   );
+  const speedListenSources = useMemo<SpeedListenSource[]>(
+    () => demoMasterGraph.videos.map((video) => speedListenSourceForVideo(video)),
+    []
+  );
+  const activeSpeedListenSource =
+    speedListenSources.find((source) => source.id === speedListenSourceId) ?? speedListenSources[0] ?? null;
+  const speedListenPlan = useMemo<SpeedListenSessionPlan | null>(
+    () =>
+      activeSpeedListenSource
+        ? buildSpeedListenSession(activeSpeedListenSource, {
+            requestedPlaybackRate: speedListenRate
+          })
+        : null,
+    [activeSpeedListenSource, speedListenRate]
+  );
+  const activeSpeedListenChunk = speedListenPlan?.chunks[speedListenChunkIndex] ?? "";
   const pacedReadAssets = useMemo(
     () =>
       rankPacedReadAssets(
@@ -939,6 +971,9 @@ export default function App() {
         conservative: readiness.dusk_mode || readiness.fatigue > 0.7 || sleepDisruptionReported
       });
     }
+    if (activeTab === "speedListen") {
+      return speedListenPlan?.speech_plan ?? null;
+    }
     return null;
   }, [
     activeForgePrompt?.prompt,
@@ -962,6 +997,7 @@ export default function App() {
     selectedBoundCueIds.length,
     sleepDisruptionReported,
     sleepPreviewCueLabels,
+    speedListenPlan?.speech_plan,
     tutorMode,
     tutorReleaseGate,
     tutorTurn?.feedback,
@@ -1087,6 +1123,12 @@ export default function App() {
     setPacedReadResult(null);
     setPacedReadCacheStatus("pending");
   }, [pacedReadPlan?.id]);
+
+  useEffect(() => {
+    setSpeedListenChunkIndex(0);
+    setSpeedListenResult(null);
+    setSpeedListenCacheStatus("pending");
+  }, [speedListenPlan?.id]);
 
   useEffect(() => {
     if (!pacedReadPlaying || !pacedReadPlan) return;
@@ -1694,6 +1736,62 @@ export default function App() {
     );
   }
 
+  function selectSpeedListenSource(sourceId: string) {
+    const source = speedListenSources.find((candidate) => candidate.id === sourceId);
+    setSpeedListenSourceId(sourceId);
+    if (source?.concept_ids[0]) setSelectedNodeId(source.concept_ids[0]);
+  }
+
+  function completeSpeedListenSession() {
+    if (!activeSpeedListenSource || !speedListenPlan) return;
+    const completedAt = new Date().toISOString();
+    const result = scoreSpeedListenCompletion({
+      rawListenWpm: speedListenPlan.raw_listen_wpm,
+      comprehensionScore: speedListenComprehension,
+      retentionScore: speedListenRetention,
+      strainRating: speedListenStrain,
+      distractionRating: speedListenDistraction
+    });
+    setSpeedListenResult(result);
+    setStates((current) =>
+      applySpeedListenResultToLocalStates(current, speedListenPlan, result, completedAt)
+    );
+    try {
+      window.localStorage.setItem(
+        "mnemosyne.speedListen.v1",
+        JSON.stringify({
+          cached_at: completedAt,
+          user_id: activeUser.id,
+          source_id: activeSpeedListenSource.id,
+          session_id: speedListenPlan.id,
+          source_kind: speedListenPlan.source_kind,
+          playback_rate: speedListenPlan.effective_playback_rate,
+          raw_listen_wpm: speedListenPlan.raw_listen_wpm,
+          effective_listen_wpm: result.effective_listen_wpm,
+          comprehension_score: result.comprehension_score,
+          retention_score: result.retention_score,
+          strain_rating: result.strain_rating,
+          distraction_rating: result.distraction_rating,
+          audio_load_score: result.audio_load_score,
+          screen_load_score: result.screen_load_score,
+          advance_allowed: result.advance_allowed,
+          gate_reasons: result.gate_reasons,
+          concept_ids: speedListenPlan.concept_ids
+        })
+      );
+      setSpeedListenCacheStatus("ready");
+    } catch {
+      setSpeedListenCacheStatus("unavailable");
+    }
+    setEventLog((current) =>
+      [
+        `speedlisten completed: ${result.effective_listen_wpm} effective wpm`,
+        result.advance_allowed ? "speedlisten gate advanced graph state" : "speedlisten gate held progress",
+        ...current
+      ].slice(0, 6)
+    );
+  }
+
   function submitLockInAnswer() {
     const prompt = activeLockPrompt;
     if (!prompt || lockAnswer.trim().length === 0) return;
@@ -2259,6 +2357,36 @@ export default function App() {
         result={pacedReadResult}
         cacheStatus={pacedReadCacheStatus}
         concepts={demoMasterGraph.concepts}
+      />
+    ),
+    speedListen: (
+      <SpeedListenView
+        sources={speedListenSources}
+        activeSource={activeSpeedListenSource}
+        plan={speedListenPlan}
+        chunk={activeSpeedListenChunk}
+        chunkIndex={speedListenChunkIndex}
+        selectSource={selectSpeedListenSource}
+        rate={speedListenRate}
+        setRate={setSpeedListenRate}
+        previousChunk={() => setSpeedListenChunkIndex((index) => Math.max(0, index - 1))}
+        nextChunk={() =>
+          setSpeedListenChunkIndex((index) => Math.min((speedListenPlan?.chunks.length ?? 1) - 1, index + 1))
+        }
+        restart={() => setSpeedListenChunkIndex(0)}
+        comprehension={speedListenComprehension}
+        setComprehension={setSpeedListenComprehension}
+        retention={speedListenRetention}
+        setRetention={setSpeedListenRetention}
+        strain={speedListenStrain}
+        setStrain={setSpeedListenStrain}
+        distraction={speedListenDistraction}
+        setDistraction={setSpeedListenDistraction}
+        completeSession={completeSpeedListenSession}
+        result={speedListenResult}
+        cacheStatus={speedListenCacheStatus}
+        concepts={demoMasterGraph.concepts}
+        speech={speechControls}
       />
     ),
     walk: (
@@ -3663,6 +3791,183 @@ function PacedReadView({
             <MiniStat label="Network" value="none" />
             <MiniStat label="Cache" value={cacheStatus} />
             <MiniStat label="Display" value={displayUnit} />
+          </div>
+          <div className="tag-row">
+            {activeConcepts.map((title) => (
+              <span className="tag" key={title}>
+                {title}
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SpeedListenView({
+  sources,
+  activeSource,
+  plan,
+  chunk,
+  chunkIndex,
+  selectSource,
+  rate,
+  setRate,
+  previousChunk,
+  nextChunk,
+  restart,
+  comprehension,
+  setComprehension,
+  retention,
+  setRetention,
+  strain,
+  setStrain,
+  distraction,
+  setDistraction,
+  completeSession,
+  result,
+  cacheStatus,
+  concepts,
+  speech
+}: {
+  sources: SpeedListenSource[];
+  activeSource: SpeedListenSource | null;
+  plan: SpeedListenSessionPlan | null;
+  chunk: string;
+  chunkIndex: number;
+  selectSource: (sourceId: string) => void;
+  rate: number;
+  setRate: (value: number) => void;
+  previousChunk: () => void;
+  nextChunk: () => void;
+  restart: () => void;
+  comprehension: number;
+  setComprehension: (value: number) => void;
+  retention: number;
+  setRetention: (value: number) => void;
+  strain: number;
+  setStrain: (value: number) => void;
+  distraction: number;
+  setDistraction: (value: number) => void;
+  completeSession: () => void;
+  result: SpeedListenCompletionResult | null;
+  cacheStatus: string;
+  concepts: ConceptNode[];
+  speech: SpeechPlanControls;
+}) {
+  const gateState = result ? (result.advance_allowed ? "passed" : "held") : "armed";
+  const activeConcepts = activeSource?.concept_ids.map((id) => conceptTitle(concepts, id)) ?? [];
+  return (
+    <div className="page-grid speed-listen-grid">
+      <section className="panel session-player speed-listen-player">
+        <PanelTitle icon={Volume2} title="SpeedListen" meta="first-party" />
+        <div className="forge-status-grid">
+          <MiniStat label="Chunk" value={`${plan ? chunkIndex + 1 : 0}/${plan?.chunks.length ?? 0}`} />
+          <MiniStat label="Rate" value={`${plan?.effective_playback_rate ?? rate}x`} />
+          <MiniStat
+            label="Effective"
+            value={
+              result ? `${result.effective_listen_wpm} wpm` : `${plan?.estimated_effective_wpm ?? 0} est`
+            }
+          />
+          <MiniStat label="Gate" value={gateState} />
+        </div>
+        <SpeechPlanStrip speech={speech} />
+        <div className="speed-listen-stage">
+          <p className="eyebrow">{activeSource?.source_kind.replaceAll("_", " ") ?? "No source"}</p>
+          <h2>{activeSource?.title ?? "No SpeedListen source selected"}</h2>
+          <p>{chunk || "Choose a graph-aligned transcript source to begin."}</p>
+        </div>
+        <div className="reader-controls">
+          <IconButton title="Restart" icon={RefreshCcw} onClick={restart} />
+          <IconButton title="Previous chunk" icon={Rewind} onClick={previousChunk} />
+          <button className="command primary" onClick={speech.play}>
+            <Play size={18} />
+            Play Local Audio
+          </button>
+          <IconButton title="Stop speech" icon={Pause} onClick={speech.stop} />
+          <IconButton title="Next chunk" icon={SkipForward} onClick={nextChunk} />
+        </div>
+        <Slider
+          label="Playback rate"
+          value={(rate - 0.75) / 1.45}
+          onChange={(value) => setRate(round(0.75 + value * 1.45, 2))}
+          suffix={`${rate.toFixed(2)}x`}
+        />
+        <div className="paced-read-gate">
+          <ObjectLine label="Comprehension gate" value={plan?.comprehension_gate ?? "none"} />
+          <ObjectLine label="Retention check" value={plan?.retention_check ?? "none"} />
+          <Slider
+            label="Comprehension"
+            value={comprehension}
+            onChange={setComprehension}
+            suffix={`${Math.round(comprehension * 100)}%`}
+          />
+          <Slider
+            label="Retention"
+            value={retention}
+            onChange={setRetention}
+            suffix={`${Math.round(retention * 100)}%`}
+          />
+          <Slider
+            label="Strain"
+            value={strain}
+            onChange={setStrain}
+            suffix={`${Math.round(strain * 100)}%`}
+          />
+          <Slider
+            label="Distraction"
+            value={distraction}
+            onChange={setDistraction}
+            suffix={`${Math.round(distraction * 100)}%`}
+          />
+          <div className="action-row">
+            <button className="command primary" onClick={completeSession}>
+              <BadgeCheck size={18} />
+              Complete Gate
+            </button>
+            <button className="command" onClick={speech.stop}>
+              <Pause size={18} />
+              Hold
+            </button>
+          </div>
+        </div>
+        {result && (
+          <div className={`feedback-band ${result.advance_allowed ? "is-passed" : "is-held"}`}>
+            <strong>{result.effective_listen_wpm}</strong>
+            <span>
+              {result.advance_allowed
+                ? "effective listen speed accepted into graph progress"
+                : `progress held: ${result.gate_reasons.join(", ") || "gate not passed"}`}
+            </span>
+          </div>
+        )}
+      </section>
+      <section className="paced-read-side">
+        <div className="panel">
+          <PanelTitle icon={Network} title="Audio Sources" meta={`${sources.length} local`} />
+          <div className="paced-read-asset-list">
+            {sources.map((source) => (
+              <button
+                className={`paced-read-asset-card ${activeSource?.id === source.id ? "is-selected" : ""}`}
+                key={source.id}
+                onClick={() => selectSource(source.id)}
+              >
+                <strong>{source.title}</strong>
+                <span>{source.concept_ids.map((id) => conceptTitle(concepts, id)).join(" + ")}</span>
+                <small>{source.source_kind.replaceAll("_", " ")}</small>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="panel">
+          <PanelTitle icon={ShieldCheck} title="Runtime" meta="local speech" />
+          <div className="case-grid">
+            <MiniStat label="Network" value="none" />
+            <MiniStat label="Cache" value={cacheStatus} />
+            <MiniStat label="Baseline" value={`${plan?.baseline_wpm ?? 0} wpm`} />
+            <MiniStat label="Compressed" value={`${plan?.estimated_minutes ?? 0}m`} />
           </div>
           <div className="tag-row">
             {activeConcepts.map((title) => (
@@ -5909,6 +6214,23 @@ function rankPacedReadAssets(
   });
 }
 
+function speedListenSourceForVideo(video: VideoAsset): SpeedListenSource {
+  const recapText = video.paced_read_recaps.map((asset) => asset.raw_text).join(" ");
+  const chapterText = video.chapter_map.map(chapterTitle).join(". ");
+  const body =
+    recapText ||
+    `${video.title}. ${chapterText}. Explain the linked concepts, the mechanism, one example, and one boundary after listening.`;
+  return {
+    id: video.id,
+    title: video.title,
+    source_kind: "video_transcript",
+    concept_ids: video.concept_ids,
+    body,
+    duration_seconds: video.duration_seconds,
+    cognitive_load_score: video.cognitive_load_score
+  };
+}
+
 function applyPacedReadResultToLocalStates(
   states: UserConceptState[],
   asset: PacedReadAsset,
@@ -5973,6 +6295,81 @@ function pacedReadStatusFor(
   if (strength > 0.78) return "fluent";
   if (strength > 0.62) return "known";
   if (strength > 0.38) return "learning";
+  return "fragile";
+}
+
+function applySpeedListenResultToLocalStates(
+  states: UserConceptState[],
+  plan: SpeedListenSessionPlan,
+  result: SpeedListenCompletionResult,
+  completedAt: string
+): UserConceptState[] {
+  const next = [...states];
+  for (const conceptId of plan.concept_ids) {
+    const index = next.findIndex((state) => state.concept_id === conceptId);
+    const state = index >= 0 ? next[index] : emptyState(conceptId);
+    const failures = new Set(state.failure_modes.filter((mode) => mode !== "none"));
+    if (result.advance_allowed) {
+      failures.delete("speed_listen_gate_held");
+      failures.delete("speed_listen_comprehension_missed");
+      failures.delete("speed_listen_strain");
+      failures.delete("speed_listen_distraction");
+    } else {
+      failures.add("speed_listen_gate_held");
+      if (result.gate_reasons.includes("comprehension_below_gate")) {
+        failures.add("speed_listen_comprehension_missed");
+      }
+      if (result.gate_reasons.includes("strain_too_high")) failures.add("speed_listen_strain");
+      if (result.gate_reasons.includes("distraction_too_high")) failures.add("speed_listen_distraction");
+    }
+    const updated: UserConceptState = {
+      ...state,
+      mastery: result.advance_allowed
+        ? clamp(state.mastery + result.comprehension_score * 0.04 + result.retention_score * 0.018)
+        : state.mastery,
+      recall_strength: result.advance_allowed
+        ? clamp(state.recall_strength + result.retention_score * 0.05)
+        : state.recall_strength,
+      transfer_score: result.advance_allowed
+        ? clamp(state.transfer_score + result.comprehension_score * 0.018)
+        : state.transfer_score,
+      answer_latency_ms: Math.max(4_000, Math.round((state.answer_latency_ms ?? 24_000) * 0.97)),
+      false_confidence_risk: result.advance_allowed
+        ? clamp(state.false_confidence_risk * 0.94)
+        : clamp(state.false_confidence_risk + 0.04),
+      failure_modes: failures.size > 0 ? Array.from(failures) : ["none"],
+      last_seen_at: completedAt,
+      last_correct_at: result.advance_allowed ? completedAt : state.last_correct_at,
+      times_seen: state.times_seen + 1,
+      times_recalled: state.times_recalled + (result.advance_allowed ? 1 : 0),
+      times_failed: state.times_failed + (result.advance_allowed ? 0 : 1),
+      modality_response_profile: {
+        ...state.modality_response_profile,
+        speed_listen_effective_wpm: result.effective_listen_wpm,
+        speed_listen_audio_load: result.audio_load_score,
+        speed_listen_distraction: result.distraction_rating
+      },
+      status: result.advance_allowed ? speedListenStatusFor(state, result) : state.status,
+      updated_at: completedAt
+    };
+    if (index >= 0) next[index] = updated;
+    else next.push(updated);
+  }
+  return next;
+}
+
+function speedListenStatusFor(
+  state: UserConceptState,
+  result: SpeedListenCompletionResult
+): UserConceptState["status"] {
+  const strength =
+    state.mastery * 0.48 +
+    state.recall_strength * 0.34 +
+    state.transfer_score * 0.18 +
+    result.retention_score * 0.04;
+  if (strength > 0.8) return "fluent";
+  if (strength > 0.64) return "known";
+  if (strength > 0.4) return "learning";
   return "fragile";
 }
 

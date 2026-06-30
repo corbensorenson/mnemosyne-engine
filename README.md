@@ -6,7 +6,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 
 ## What Exists Now
 
-- `apps/web`: installable PWA shell with the core product surfaces: Today, Graph, Morning Forge, Tutor, GraphFeed, WalkMode, Evening Lock-In, Sleep, Stats, Social, Wear, Packs, Content Court, Lab, Workbench with offline sync recovery, and Admin with incident command plus privacy operations.
+- `apps/web`: installable PWA shell with the core product surfaces: Today, Graph, Morning Forge, Tutor, GraphFeed, Paced Read, SpeedListen, WalkMode, Evening Lock-In, Sleep, Stats, Social, Wear, Packs, Content Court, Lab, Workbench with offline sync recovery, and Admin with incident command plus privacy operations.
 - `packages/schema`: shared Zod schemas and TypeScript types for graph, user state, sessions, sleep cues, content court, experiments, packs, videos, and events.
 - `packages/accessibility-core`: first-party PWA accessibility release gates for keyboard, focus, labels, reduced motion, contrast, text scaling, overflow, speech controls, and quiet fallback.
 - `packages/auth-core`: session issuance, hashed tokens, CSRF checks, RBAC, consent gates, and object-level authorization.
@@ -33,7 +33,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/social-core`: outcome-safe badges, challenges, privacy-aware dashboards, and contributor reputation.
 - `packages/wearables-core`: optional wearable connection, token envelope, sleep normalization, readiness, and native-edge planning primitives.
 - `packages/content-court`: proposal, voting, local arbitration, and first-party moderation triage primitives.
-- `packages/audio-core`: deterministic audio timeline assembly for sparse sleep cue playback plus first-party session speech plans for prompt playback, feedback, and quiet fallbacks.
+- `packages/audio-core`: deterministic audio timeline assembly for sparse sleep cue playback plus first-party session speech and SpeedListen plans for prompt playback, compressed audio intake, feedback, and quiet fallbacks.
 - `master-graph`: open master graph layout, seed packs, schemas, policies, and release notes.
 - `services`: API, scheduler, audio-renderer, and worker services wired to the same shared models, including a first-party HTTP adapter with security headers, CSRF checks, rate limits, PWA offline-sync receipts, privacy export/deletion handlers, queued creator ingestion, queued notifications, queued local arbiter review, queued analytics rollups, queued moderation triage, queued export artifacts, and executable queue workers.
 - `infra/docker`: local production-like Compose stack for Postgres, Redis, MinIO, API, scheduler, ingestion, audio, notification, local-AI, analytics, moderation, export workers, and shared object storage.
@@ -62,6 +62,7 @@ The API server defaults to `http://localhost:8787` and can use memory or Postgre
 Set `VITE_MNEMOSYNE_API_URL` and `VITE_MNEMOSYNE_USER_ID` to hydrate the PWA from the first-party app bootstrap route instead of the local demo seed.
 When configured, the PWA uses the bootstrapped persisted goals, daily packet, and sleep audio plan as the primary Today, Forge, Tutor, GraphFeed, WalkMode, Lock-In, and Sleep plan.
 Morning Forge, Tutor, GraphFeed, first-party Paced Read, WalkMode, Evening Lock-In, SleepCue, wearable sleep imports, Privacy Ops, and incident reports post backend-compatible queued payloads directly to the first-party domain endpoints when API sync is configured, with the offline receipt route retained for legacy and receipt-only payloads.
+SpeedListen runs as first-party local gated evidence in the PWA: compressed audio only advances graph state after comprehension, retention, strain, and distraction checks pass.
 `npm run verify` runs lint, typecheck, unit tests, production build, and dependency audit.
 
 ## Roadmap
