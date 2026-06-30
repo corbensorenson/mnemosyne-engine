@@ -1,6 +1,6 @@
 # Queues and Object Storage
 
-Mnemosyne treats background work and stored artifacts as first-party product state. The current implementation does not depend on a vendor API for simple learner workflows; it models the queue, worker lifecycle, object manifest, audit trail, privacy export, and release gates in the repo before any Redis or object-storage adapter is attached.
+Mnemosyne treats background work and stored artifacts as first-party product state. The current implementation does not depend on a vendor API for simple learner workflows; it models the queue, worker lifecycle, object manifest, object bytes, audit trail, privacy export, and release gates in the repo before any Redis or managed object-storage adapter is attached.
 
 ## Package
 
@@ -12,7 +12,15 @@ Mnemosyne treats background work and stored artifacts as first-party product sta
 - object buckets: `audio`, `transcript`, `import`, `generated_asset`, `export`, `evidence`, `backup`
 - object safety: owner id, content type, byte size, SHA-256, retention policy, encryption status, metadata, and created time
 
-The core package is intentionally storage-agnostic. Redis workers, Postgres tables, object-storage SDKs, and local dev adapters should implement this contract rather than redefining queue semantics in each service.
+The ops package is intentionally storage-agnostic. Redis workers, Postgres tables, object-storage SDKs, and local dev adapters should implement this contract rather than redefining queue semantics in each service.
+
+`@mnemosyne/storage-core` provides the first concrete object-storage adapter:
+
+- local filesystem storage rooted at `MNEMOSYNE_OBJECT_STORAGE_ROOT`
+- safe object-key validation that blocks absolute paths, traversal, empty segments, and backslashes
+- SHA-256 and byte-size verification on writes and reads
+- JSON sidecar manifests generated from the same `ObjectManifest` contract used by ops health
+- `POST /api/objects/store` for API-mediated writes that persist both object bytes and the manifest
 
 ## API Surface
 
@@ -23,9 +31,10 @@ The API service now exposes:
 - `POST /api/jobs/:id/complete`
 - `POST /api/jobs/:id/fail`
 - `POST /api/objects`
+- `POST /api/objects/store`
 - `GET /api/ops/health`
 
-Handlers persist job records and object manifests through `MnemosyneStore`, emit audit events for job/object transitions, and restrict job operations to the audited subject owner.
+Handlers persist job records and object manifests through `MnemosyneStore`, emit audit events for job/object transitions, restrict job operations to the audited subject owner, and write uploaded object bytes through configured object storage before saving manifests.
 
 ## Health Gates
 
@@ -47,5 +56,5 @@ The next production step is to map this contract onto:
 
 - Postgres tables for canonical job and object-manifest records
 - Redis streams or sorted sets for runnable queue indexes
-- managed object storage for audio, transcripts, imports, generated assets, evidence files, backups, and privacy exports
+- managed object storage for audio, transcripts, imports, generated assets, evidence files, backups, and privacy exports, using the same manifest and integrity behavior as the local adapter
 - worker binaries for scheduler, audio rendering, analytics rollups, notifications, and moderation

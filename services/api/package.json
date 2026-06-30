@@ -23,6 +23,7 @@
     "@mnemosyne/shared-utils": "*",
     "@mnemosyne/sleep-core": "*",
     "@mnemosyne/social-core": "*",
+    "@mnemosyne/storage-core": "*",
     "@mnemosyne/technique-lab": "*",
     "@mnemosyne/tutor-core": "*",
     "@mnemosyne/video-core": "*",

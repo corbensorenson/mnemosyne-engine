@@ -258,6 +258,25 @@ export const objectManifestRequestSchema = z
   })
   .strict();
 
+export const objectPutRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    bucket: objectBucketSchema,
+    key: z.string().min(1),
+    contentType: z.string().min(3),
+    bodyBase64: z
+      .string()
+      .min(1)
+      .refine((value) => isBase64(value), "bodyBase64 must be valid base64 content."),
+    expectedSha256: z
+      .string()
+      .regex(/^[a-fA-F0-9]{64}$/)
+      .optional(),
+    retentionPolicy: objectRetentionPolicySchema.default("user_controlled"),
+    metadata: z.record(z.unknown()).default({})
+  })
+  .strict();
+
 export const securityReleaseGateRequestSchema = z
   .object({
     userId: userIdSchema,
@@ -746,4 +765,15 @@ export function validateRequest<TSchema extends z.ZodTypeAny>(
   input: unknown
 ): z.output<TSchema> {
   return schema.parse(input);
+}
+
+function isBase64(value: string): boolean {
+  const compact = value.replace(/\s+/g, "");
+  if (!compact) return false;
+  try {
+    const decoded = Buffer.from(compact, "base64");
+    return decoded.length > 0 && decoded.toString("base64").replace(/=+$/, "") === compact.replace(/=+$/, "");
+  } catch {
+    return false;
+  }
 }

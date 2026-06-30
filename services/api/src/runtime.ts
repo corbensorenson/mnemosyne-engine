@@ -8,6 +8,7 @@ import {
   type MnemosyneStore,
   type SqlExecutor
 } from "@mnemosyne/persistence-core";
+import { createLocalObjectStorage, type ObjectStorageAdapter } from "@mnemosyne/storage-core";
 import { createApiHttpHandler } from "./http";
 import { seedDemoStore } from "./seed";
 
@@ -23,11 +24,13 @@ export type ApiRuntimeConfig = {
   seedDemo: boolean;
   runMigrations: boolean;
   migrationsDir: string;
+  objectStorageRoot: string;
 };
 
 export type ApiRuntime = {
   server: Server;
   store: MnemosyneStore;
+  objectStorage: ObjectStorageAdapter;
   config: ApiRuntimeConfig;
   close: () => Promise<void>;
 };
@@ -49,21 +52,27 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ApiRuntimeC
     databaseUrl,
     seedDemo: parseBoolean(env.MNEMOSYNE_SEED_DEMO, storage === "memory"),
     runMigrations: parseBoolean(env.MNEMOSYNE_RUN_MIGRATIONS, false),
-    migrationsDir: env.MNEMOSYNE_MIGRATIONS_DIR ?? resolve(process.cwd(), "infra/migrations")
+    migrationsDir: env.MNEMOSYNE_MIGRATIONS_DIR ?? resolve(process.cwd(), "infra/migrations"),
+    objectStorageRoot:
+      env.MNEMOSYNE_OBJECT_STORAGE_ROOT ??
+      env.OBJECT_STORAGE_ROOT ??
+      resolve(process.cwd(), ".mnemosyne/objects")
   };
 }
 
 export async function createApiRuntime(config: ApiRuntimeConfig = configFromEnv()): Promise<ApiRuntime> {
   const { store, close } = await createConfiguredStore(config);
+  const objectStorage = createLocalObjectStorage(config.objectStorageRoot);
   if (config.seedDemo) await seedDemoStore(store);
   const handler = createApiHttpHandler({
     store,
-    environment: config.environment
+    environment: config.environment,
+    objectStorage
   });
   const server = createServer((request, response) => {
     void handler(request, response);
   });
-  return { server, store, config, close };
+  return { server, store, objectStorage, config, close };
 }
 
 export async function createConfiguredStore(config: ApiRuntimeConfig): Promise<{

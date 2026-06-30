@@ -23,6 +23,7 @@ Important variables:
 - `MNEMOSYNE_RUN_MIGRATIONS`: set to `true` to run migrations during startup
 - `MNEMOSYNE_SEED_DEMO`: set to `true` to seed demo data
 - `MNEMOSYNE_MIGRATIONS_DIR`: optional path to migration files
+- `MNEMOSYNE_OBJECT_STORAGE_ROOT`: local object storage root for audio, transcripts, imports, generated assets, exports, evidence, and backups
 
 If `DATABASE_URL` is present and `MNEMOSYNE_STORAGE` is unset, the runtime chooses Postgres. Without `DATABASE_URL`, it falls back to memory storage for local development.
 

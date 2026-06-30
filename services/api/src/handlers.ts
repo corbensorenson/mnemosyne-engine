@@ -98,6 +98,11 @@ import {
   type SecurityReleaseGate
 } from "@mnemosyne/security-core";
 import { clamp, createId, nowIso, todayIsoDate, unique } from "@mnemosyne/shared-utils";
+import {
+  ObjectStorageInputError,
+  type ObjectStorageAdapter,
+  type ObjectStoragePutResult
+} from "@mnemosyne/storage-core";
 import { buildSleepCuePacket } from "@mnemosyne/sleep-core";
 import {
   buildSocialDashboard,
@@ -162,6 +167,7 @@ import {
   jobTransitionRequestSchema,
   morningForgeCompleteRequestSchema,
   objectManifestRequestSchema,
+  objectPutRequestSchema,
   outcomeDashboardRequestSchema,
   pacedReadCompleteRequestSchema,
   pacedReadGenerateRequestSchema,
@@ -203,6 +209,10 @@ export type HandlerEnvelope<T> =
         message: string;
       };
     };
+
+export type ApiHandlerOptions = {
+  objectStorage?: ObjectStorageAdapter;
+};
 
 export type GenerateDailyPacketRequest = {
   userId: string;
@@ -518,6 +528,25 @@ type ObjectManifestRequest = {
   metadata: Record<string, unknown>;
 };
 
+type ObjectPutRequest = {
+  userId: string;
+  bucket: ObjectBucket;
+  key: string;
+  contentType: string;
+  bodyBase64: string;
+  expectedSha256?: string;
+  retentionPolicy: ObjectRetentionPolicy;
+  metadata: Record<string, unknown>;
+};
+
+type ObjectPutResponse = {
+  manifest: ObjectManifest;
+  storage: {
+    bytes_written: number;
+    sha256: string;
+  };
+};
+
 type SecurityReleaseGateRequest = {
   userId: string;
   environment: "local" | "staging" | "production";
@@ -699,7 +728,7 @@ type WalkModeCompletionResponse = {
   };
 };
 
-export function createApiHandlers(store: MnemosyneStore) {
+export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOptions = {}) {
   return {
     async issueAuthSession(input: unknown): Promise<HandlerEnvelope<SessionIssueResult>> {
       const request = validateRequest(authSessionIssueRequestSchema, input) as AuthSessionIssueRequest;
@@ -1020,6 +1049,58 @@ export function createApiHandlers(store: MnemosyneStore) {
         }
       });
       return envelope(manifest, audit.id);
+    },
+
+    async putObject(input: unknown): Promise<HandlerEnvelope<ObjectPutResponse>> {
+      const request = validateRequest(objectPutRequestSchema, input) as ObjectPutRequest;
+      await requireUser(store, request.userId);
+      if (!options.objectStorage) {
+        return notFound<ObjectPutResponse>("object_storage_not_configured");
+      }
+      let stored: ObjectStoragePutResult;
+      try {
+        stored = await options.objectStorage.putObject({
+          bucket: request.bucket,
+          key: request.key,
+          contentType: request.contentType,
+          body: decodeBase64(request.bodyBase64),
+          ownerId: request.userId,
+          retentionPolicy: request.retentionPolicy,
+          metadata: request.metadata,
+          expectedSha256: request.expectedSha256
+        });
+      } catch (error) {
+        if (error instanceof ObjectStorageInputError) {
+          return invalidRequest<ObjectPutResponse>(error.code, error.message);
+        }
+        throw error;
+      }
+      const manifest = await store.saveObjectManifest(stored.manifest);
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "object_stored",
+        object_type: "object_manifest",
+        object_id: manifest.id,
+        payload: {
+          bucket: manifest.bucket,
+          key: manifest.key,
+          content_type: manifest.content_type,
+          size_bytes: manifest.size_bytes,
+          sha256: manifest.sha256,
+          retention_policy: manifest.retention_policy,
+          encryption_status: manifest.encryption.status
+        }
+      });
+      return envelope(
+        {
+          manifest,
+          storage: {
+            bytes_written: stored.bytes_written,
+            sha256: stored.sha256
+          }
+        },
+        audit.id
+      );
     },
 
     async getOpsHealth(userId: string): Promise<HandlerEnvelope<OpsHealthDashboard>> {
@@ -3415,12 +3496,12 @@ function notFound<T = never>(code: string): HandlerEnvelope<T> {
   };
 }
 
-function invalidRequest<T = never>(code: string): HandlerEnvelope<T> {
+function invalidRequest<T = never>(code: string, message = code.replaceAll("_", " ")): HandlerEnvelope<T> {
   return {
     ok: false,
     error: {
       code,
-      message: code.replaceAll("_", " ")
+      message
     }
   };
 }
@@ -3540,6 +3621,15 @@ function stringifyForClassification(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function decodeBase64(value: string): Uint8Array {
+  const compact = value.replace(/\s+/g, "");
+  const decoded = Buffer.from(compact, "base64");
+  if (decoded.length === 0 || decoded.toString("base64").replace(/=+$/, "") !== compact.replace(/=+$/, "")) {
+    throw new Error("bodyBase64 must be valid base64 content.");
+  }
+  return decoded;
 }
 
 type CreatorProposalDraft = {

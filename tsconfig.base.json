@@ -37,6 +37,7 @@
       "@mnemosyne/audio-core": ["packages/audio-core/src/index.ts"],
       "@mnemosyne/scheduler-core": ["packages/scheduler-core/src/index.ts"],
       "@mnemosyne/security-core": ["packages/security-core/src/index.ts"],
+      "@mnemosyne/storage-core": ["packages/storage-core/src/index.ts"],
       "@mnemosyne/demo-fixtures": ["packages/demo-fixtures/src/index.ts"]
     }
   }

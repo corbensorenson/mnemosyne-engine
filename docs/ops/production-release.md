@@ -123,6 +123,7 @@ The system should preserve audit events even when downstream analytics or person
 - `/api/security/release-gate` passes for the target environment.
 - The API HTTP adapter is serving CSP/security headers, CSRF enforcement, bounded JSON parsing, and rate-limit responses in the target environment.
 - Postgres migrations through `0002_postgres_record_store.sql` are applied and the API is constructed with `createPostgresStore`.
+- Object storage root is mounted durably, and `/api/objects/store` writes bytes, validates SHA-256 integrity, and persists manifests.
 - `GET /healthz` and `GET /readyz` return healthy responses from the deployed API runtime.
 - Production secrets are rotated into the target environment.
 - Database migrations are applied in staging first.

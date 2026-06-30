@@ -8,6 +8,7 @@ import {
   type SecurityHeaders
 } from "@mnemosyne/security-core";
 import { createMemoryStore, type MnemosyneStore } from "@mnemosyne/persistence-core";
+import type { ObjectStorageAdapter } from "@mnemosyne/storage-core";
 import { ZodError } from "zod";
 import { createApiHandlers, type HandlerEnvelope } from "./handlers";
 import { seedDemoStore } from "./seed";
@@ -25,6 +26,7 @@ export type ApiHttpOptions = {
   maxBodyBytes?: number;
   rateLimitPolicies?: RateLimitPolicy[];
   rateLimitStore?: InMemoryRateLimitStore;
+  objectStorage?: ObjectStorageAdapter;
 };
 
 type RouteContext = {
@@ -96,7 +98,7 @@ export function createApiHttpHandler(options: ApiHttpOptions) {
   const policies = new Map(
     (options.rateLimitPolicies ?? defaultRateLimitPolicies()).map((policy) => [policy.key, policy])
   );
-  const handlers = createApiHandlers(options.store);
+  const handlers = createApiHandlers(options.store, { objectStorage: options.objectStorage });
   const routes = createHttpRoutes(handlers);
 
   return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
@@ -268,6 +270,9 @@ function createHttpRoutes(handlers: ReturnType<typeof createApiHandlers>): Route
       { rateLimitKey: "ops_job" }
     ),
     route("POST", "/api/objects", (context) => handlers.createObjectManifest(context.body), {
+      rateLimitKey: "ops_job"
+    }),
+    route("POST", "/api/objects/store", (context) => handlers.putObject(context.body), {
       rateLimitKey: "ops_job"
     }),
     route("GET", "/api/ops/health", (context) => handlers.getOpsHealth(requiredQuery(context, "userId"))),

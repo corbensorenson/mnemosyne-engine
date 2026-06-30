@@ -11,6 +11,7 @@ import {
 } from "@mnemosyne/api";
 import { demoUser } from "@mnemosyne/demo-fixtures";
 import type { SqlExecutor, SqlQueryResult } from "@mnemosyne/persistence-core";
+import { sha256Hex } from "@mnemosyne/storage-core";
 import { describe, expect, it } from "vitest";
 
 type ApiJson = {
@@ -79,7 +80,8 @@ describe("API runtime", () => {
       storage: "memory",
       seedDemo: true,
       runMigrations: false,
-      migrationsDir: "unused"
+      migrationsDir: "unused",
+      objectStorageRoot: await mkdtemp(join(tmpdir(), "mnemosyne-api-objects-"))
     };
     const runtime = await createApiRuntime(config);
     const baseUrl = await startApiRuntime(runtime);
@@ -103,6 +105,97 @@ describe("API runtime", () => {
     } finally {
       await close(runtime.server);
       await runtime.close();
+      await rm(config.objectStorageRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("stores uploaded object bytes through the API runtime", async () => {
+    const objectStorageRoot = await mkdtemp(join(tmpdir(), "mnemosyne-api-objects-"));
+    const config: ApiRuntimeConfig = {
+      host: "127.0.0.1",
+      port: 0,
+      environment: "local",
+      storage: "memory",
+      seedDemo: true,
+      runMigrations: false,
+      migrationsDir: "unused",
+      objectStorageRoot
+    };
+    const runtime = await createApiRuntime(config);
+    const baseUrl = await startApiRuntime(runtime);
+    const rawBody = JSON.stringify({ exported: true });
+    const bodyBase64 = Buffer.from(rawBody).toString("base64");
+    const expectedSha256 = sha256Hex(rawBody);
+
+    try {
+      const invalid = await fetch(`${baseUrl}/api/objects/store`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: demoUser.id,
+          bucket: "export",
+          key: "exports/user_demo/invalid.json",
+          contentType: "application/json",
+          bodyBase64: "not base64"
+        })
+      });
+      const invalidBody = (await invalid.json()) as ApiJson;
+      expect(invalid.status).toBe(400);
+      expect(invalidBody.error?.code).toBe("validation_error");
+
+      const mismatch = await fetch(`${baseUrl}/api/objects/store`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: demoUser.id,
+          bucket: "export",
+          key: "exports/user_demo/mismatch.json",
+          contentType: "application/json",
+          bodyBase64,
+          expectedSha256: "b".repeat(64)
+        })
+      });
+      const mismatchBody = (await mismatch.json()) as ApiJson;
+      expect(mismatch.status).toBe(400);
+      expect(mismatchBody.error?.code).toBe("object_hash_mismatch");
+
+      const response = await fetch(`${baseUrl}/api/objects/store`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: demoUser.id,
+          bucket: "export",
+          key: "exports/user_demo/export.json",
+          contentType: "application/json",
+          bodyBase64,
+          expectedSha256,
+          metadata: { source: "api_runtime_test" }
+        })
+      });
+      const upload = (await response.json()) as ApiJson;
+      expect(response.status).toBe(200);
+      expect(upload.data?.manifest).toEqual(
+        expect.objectContaining({
+          bucket: "export",
+          sha256: expectedSha256,
+          size_bytes: Buffer.byteLength(rawBody)
+        })
+      );
+
+      const health = await fetch(`${baseUrl}/api/ops/health?userId=${demoUser.id}`);
+      const healthBody = (await health.json()) as ApiJson;
+      expect(health.status).toBe(200);
+      expect(healthBody.data?.totals).toEqual(expect.objectContaining({ objects: 1 }));
+      expect(healthBody.data?.release_gates).toEqual(
+        expect.objectContaining({
+          objects_encrypted: true,
+          object_integrity_tracked: true
+        })
+      );
+    } finally {
+      await close(runtime.server);
+      await runtime.close();
+      await rm(objectStorageRoot, { recursive: true, force: true });
     }
   });
 

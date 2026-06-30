@@ -15,6 +15,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/graph-core`: graph gap analysis, prerequisite debt, pathing, and user graph snapshots.
 - `packages/scheduler-core`: daily packet builder joining graph, assessment, video, walk, evening, and sleep planning.
 - `packages/security-core`: CSP, rate-limit, high-stakes-domain, and audit-safety release gates.
+- `packages/storage-core`: first-party local object storage with safe keys, SHA-256 integrity checks, sidecar manifests, and API/runtime wiring.
 - `packages/assessment-core`: answer scoring, false-confidence detection, failure modes, and user graph updates.
 - `packages/sleep-core`: sleep cue packet selection with matched controls and rendered audio-plan metadata.
 - `packages/video-core`: bounded GraphFeed ranking and watch packet generation.
