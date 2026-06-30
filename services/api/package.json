@@ -29,6 +29,10 @@
     ".": {
       "types": "./src/routes.ts",
       "import": "./src/routes.ts"
+    },
+    "./http": {
+      "types": "./src/http.ts",
+      "import": "./src/http.ts"
     }
   }
 }

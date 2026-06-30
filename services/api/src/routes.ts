@@ -184,5 +184,11 @@ export function packetSummary(packet: DailyLearningPacket) {
 }
 
 export { createApiHandlers } from "./handlers";
+export {
+  InMemoryRateLimitStore,
+  createApiHttpHandler,
+  createApiHttpServer,
+  createSeededDemoApiHttpServer
+} from "./http";
 export { createDemoSeedData, demoKnowledgePacks, seedDemoStore } from "./seed";
 export * from "./validation";

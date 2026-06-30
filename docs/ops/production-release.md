@@ -121,6 +121,7 @@ The system should preserve audit events even when downstream analytics or person
 - GitHub license detection reports MIT.
 - `README.md`, `ROADMAP.md`, `SECURITY.md`, and docs are current.
 - `/api/security/release-gate` passes for the target environment.
+- The API HTTP adapter is serving CSP/security headers, CSRF enforcement, bounded JSON parsing, and rate-limit responses in the target environment.
 - Production secrets are rotated into the target environment.
 - Database migrations are applied in staging first.
 - Restore drill completed for the release window.

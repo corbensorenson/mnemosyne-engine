@@ -508,6 +508,7 @@ Current implementation progress:
 - Outcome analytics now exposes `GET /api/outcomes/dashboard` and `POST /api/outcomes/refresh` with quality gates for immediate recall, 24h recall, 7d recall, 30d recall, transfer, latency, calibration, screen load, and SleepCue controls.
 - First-party ops core now models queue names, job lifecycle, idempotency, retries, dead letters, object manifests, encryption/integrity gates, and an ops health dashboard; API routes persist and audit jobs and object manifests.
 - First-party security core now exposes `GET /api/security/release-gate` with CSP/header policy, rate-limit profiles, high-stakes labels, CSRF expectations, and audit-safety checks.
+- The API service now has a first-party Node HTTP adapter that dispatches every route to handlers, attaches security headers, enforces production CSRF headers, bounds JSON bodies, maps route params, and applies the rate-limit profiles before expensive handlers.
 - Production release runbook covers deployment environments, required services and secrets, monitoring, backup/restore, accessibility, load/reliability, and release checklist.
 - Privacy documentation covers export bundle contents, deletion scopes, audit rules, product requirements, and test coverage.
 

@@ -17,7 +17,15 @@ The API service exposes:
 
 - `GET /api/security/release-gate`
 
-The handler returns the security headers that an HTTP adapter should attach, the rate-limit policy count, and the release-gate result. It also audits `security_release_gate_checked`.
+The handler returns the security headers, rate-limit policy count, and release-gate result. It also audits `security_release_gate_checked`.
+
+The API package also exports a first-party Node HTTP adapter:
+
+- `createApiHttpHandler`
+- `createApiHttpServer`
+- `createSeededDemoApiHttpServer`
+
+The adapter attaches the security headers to every response, parses bounded JSON request bodies, maps route parameters onto handler inputs, enforces CSRF headers for mutating production requests, and returns stable JSON envelopes for handler, validation, route, rate-limit, and server errors.
 
 ## High-Stakes Content
 
@@ -33,7 +41,7 @@ Tutor turns also classify prompt and response text. High-stakes context is passe
 
 ## Rate Limits
 
-The current package returns deterministic policy definitions rather than a network adapter. The production HTTP server should enforce these profiles before expensive or abuse-prone work:
+The current package returns deterministic policy definitions, and the first-party HTTP adapter enforces these profiles before expensive or abuse-prone work:
 
 - auth session issuance
 - tutor turns
@@ -43,7 +51,7 @@ The current package returns deterministic policy definitions rather than a netwo
 - wearable sync
 - service job operations
 
-Adapters should use the same policy keys so audit dashboards and incident response can compare local, staging, and production behavior.
+External adapters should use the same policy keys so audit dashboards and incident response can compare local, staging, and production behavior.
 
 ## Audit Safety
 
