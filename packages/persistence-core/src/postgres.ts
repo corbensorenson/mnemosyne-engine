@@ -32,6 +32,7 @@ import type {
   PersonalizationProfileRecord,
   SessionRecord,
   SocialChallengeRecord,
+  SystemDataBackupBundle,
   UserDataDeletionSummary,
   UserDataExportBundle
 } from "./index";
@@ -83,6 +84,10 @@ export class PostgresMnemosyneStore implements MnemosyneStore {
 
   async getUser(userId: string): Promise<User | undefined> {
     return this.getRecord<User>("user", userId);
+  }
+
+  async listUsers(): Promise<User[]> {
+    return (await this.listRecords<User>("user")).sort((left, right) => left.id.localeCompare(right.id));
   }
 
   async saveUser(user: User): Promise<User> {
@@ -534,6 +539,48 @@ export class PostgresMnemosyneStore implements MnemosyneStore {
       outcome_dashboards: await this.listRecords<OutcomeDashboard>("outcome_dashboard", userId),
       jobs: (await this.listJobs()).filter((job) => job.audit_subject_id === userId),
       object_manifests: await this.listObjectManifests(userId)
+    };
+  }
+
+  async exportSystemData(): Promise<SystemDataBackupBundle> {
+    const users = await this.listUsers();
+    const userBundles = await Promise.all(users.map((user) => this.exportUserData(user.id)));
+    const jobs = await this.listJobs();
+    const objectManifests = await this.listObjectManifests();
+    const auditEvents = await this.listAuditEvents();
+    const proposals = await this.listProposals();
+    const creatorSubmissions = await this.listCreatorSubmissions();
+    const knowledgePacks = await this.listPacks();
+    const experiments = await this.listExperiments();
+    const socialChallenges = await this.listSocialChallenges();
+
+    return {
+      schema_version: "mnemosyne-system-backup-v0.1",
+      generated_at: nowIso(),
+      counts: {
+        users: users.length,
+        user_export_bundles: userBundles.length,
+        jobs: jobs.length,
+        object_manifests: objectManifests.length,
+        audit_events: auditEvents.length,
+        proposals: proposals.length,
+        creator_submissions: creatorSubmissions.length,
+        knowledge_packs: knowledgePacks.length,
+        experiments: experiments.length,
+        social_challenges: socialChallenges.length
+      },
+      master_graph: await this.getMasterGraph(),
+      users: userBundles,
+      global: {
+        proposals,
+        creator_submissions: creatorSubmissions,
+        knowledge_packs: knowledgePacks,
+        experiments,
+        social_challenges: socialChallenges,
+        jobs,
+        object_manifests: objectManifests,
+        audit_events: auditEvents
+      }
     };
   }
 

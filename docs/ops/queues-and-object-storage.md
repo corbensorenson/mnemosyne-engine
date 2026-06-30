@@ -50,6 +50,8 @@ The analytics worker registers `analytics:refresh_outcome_dashboard`. The handle
 
 The privacy export worker registers `export:build_privacy_export`. The handler loads the user export bundle from `MnemosyneStore`, writes the bundle as JSON through configured object storage, persists the `export` object manifest, and audits the stored artifact.
 
+The system backup worker registers `export:build_system_backup`. The handler loads the store-wide backup bundle from `MnemosyneStore`, writes the bundle as JSON through configured object storage, persists the `backup` object manifest, and audits the stored artifact with bundle counts for restore drills.
+
 `@mnemosyne/worker-service` is the executable process wrapper. `npm run worker:start` uses the same `MNEMOSYNE_STORAGE`, `DATABASE_URL`, migration, demo-seed, and object-root settings as the API runtime, plus worker-specific queue, mode, batch, poll, and audio-format settings.
 
 ## API Surface
@@ -66,6 +68,7 @@ The API service now exposes:
 - `POST /api/proposals/:id/arbiter/jobs`
 - `POST /api/proposals/:id/moderation/jobs`
 - `POST /api/privacy/export/jobs`
+- `POST /api/ops/backups/jobs`
 - `POST /api/objects`
 - `POST /api/objects/store`
 - `GET /api/ops/monitoring`
@@ -97,6 +100,10 @@ The dashboard reports `nominal`, `degraded`, or `critical`, alert counts, indivi
 ## Privacy
 
 User data export includes owned jobs and object manifests. Full account deletion removes user-owned job records and object manifests, while scoped sleep deletion removes owned audio manifests. Audit events are retained or anonymized according to the privacy deletion policy.
+
+## Backups
+
+System backups are queued with `POST /api/ops/backups/jobs` using an `operatorId`. The worker stores a `mnemosyne-system-backup-v0.1` JSON artifact in the `backup` bucket with managed encryption metadata, SHA-256 integrity, a durable object manifest, global jobs/object/audit records, the master graph, and per-user export bundles. Restore drills should verify the backup object's manifest, schema version, counts, user graph content, audit log continuity, and privacy export/deletion flows before promotion.
 
 ## Next Adapter Work
 

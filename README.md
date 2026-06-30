@@ -12,7 +12,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/notification-core`: first-party learning reminder planning for morning, evening, phone-down, and SleepCue recall prompts.
 - `packages/outcome-core`: immediate, 24h, 7d, and 30d learning outcome rollups with quality gates.
 - `packages/ops-core`: first-party queue, job lifecycle, object manifest, ops health, and monitoring alert primitives.
-- `packages/persistence-core`: in-memory and Postgres-backed stores for users, graphs, sessions, events, privacy, ops, and product state.
+- `packages/persistence-core`: in-memory and Postgres-backed stores for users, graphs, sessions, events, privacy, backups, ops, and product state.
 - `packages/graph-core`: graph gap analysis, prerequisite debt, pathing, and user graph snapshots.
 - `packages/replay-core`: first-party replay of persisted assessments and learning events into touched personal graph state.
 - `packages/scheduler-core`: daily packet builder joining graph, assessment, video, walk, evening, and sleep planning.

@@ -192,6 +192,79 @@ describe("worker-service", () => {
     }
   });
 
+  it("builds system backup artifacts through the export worker", async () => {
+    const objectStorageRoot = await mkdtemp(join(tmpdir(), "mnemosyne-worker-backup-"));
+    const config = workerServiceConfigFromEnv({
+      MNEMOSYNE_STORAGE: "memory",
+      MNEMOSYNE_SEED_DEMO: "true",
+      MNEMOSYNE_OBJECT_STORAGE_ROOT: objectStorageRoot,
+      MNEMOSYNE_WORKER_ID: "worker-backup-test",
+      MNEMOSYNE_WORKER_MODE: "batch",
+      MNEMOSYNE_WORKER_QUEUES: "export",
+      MNEMOSYNE_WORKER_MAX_JOBS: "1"
+    });
+    const runtime = await createWorkerServiceRuntime(config);
+
+    try {
+      const backupJob = await runtime.store.saveJob(
+        createJob({
+          queue: "export",
+          type: "build_system_backup",
+          payload: { operator_id: demoUser.id, requested_at: "2026-06-29T12:00:00.000Z" },
+          priority: "high",
+          idempotencyKey: "worker-service-backup",
+          auditSubjectId: demoUser.id,
+          createdAt: "2026-06-29T12:00:00.000Z"
+        })
+      );
+
+      const result = await runWorkerServiceBatch(runtime);
+      expect(result.completed).toBe(1);
+      expect(result.failed).toBe(0);
+      expect((await runtime.store.getJob(backupJob.id))?.result).toEqual(
+        expect.objectContaining({
+          operator_id: demoUser.id,
+          schema_version: "mnemosyne-system-backup-v0.1",
+          counts: expect.objectContaining({ users: 1 })
+        })
+      );
+
+      const manifest = (await runtime.store.listObjectManifests(demoUser.id)).find(
+        (candidate) => candidate.bucket === "backup"
+      );
+      expect(manifest).toEqual(
+        expect.objectContaining({
+          content_type: "application/json",
+          retention_policy: "backup"
+        })
+      );
+      const stored = await runtime.objectStorage.getObject({
+        bucket: "backup",
+        key: manifest?.key ?? ""
+      });
+      const backup = JSON.parse(Buffer.from(stored?.body ?? []).toString("utf8")) as {
+        schema_version?: string;
+        counts?: { users?: number; jobs?: number };
+        users?: Array<{ user_id?: string }>;
+        global?: { jobs?: Array<{ id?: string }> };
+      };
+      expect(backup).toEqual(
+        expect.objectContaining({
+          schema_version: "mnemosyne-system-backup-v0.1",
+          counts: expect.objectContaining({ users: 1, jobs: 1 })
+        })
+      );
+      expect(backup.users?.map((bundle) => bundle.user_id)).toContain(demoUser.id);
+      expect(backup.global?.jobs?.map((job) => job.id)).toContain(backupJob.id);
+      expect((await runtime.store.listAuditEvents(demoUser.id)).map((event) => event.action)).toEqual(
+        expect.arrayContaining(["system_backup_object_stored", "job_completed"])
+      );
+    } finally {
+      await runtime.close();
+      await rm(objectStorageRoot, { recursive: true, force: true });
+    }
+  });
+
   it("refreshes outcome dashboards through the analytics worker", async () => {
     const objectStorageRoot = await mkdtemp(join(tmpdir(), "mnemosyne-worker-analytics-"));
     const generatedAt = "2026-06-30T12:00:00.000Z";

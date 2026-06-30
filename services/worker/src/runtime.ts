@@ -84,6 +84,7 @@ export async function createWorkerServiceRuntime(
     ...createLocalArbiterWorkerHandlers(),
     ...createOutcomeAnalyticsWorkerHandlers(),
     ...createPrivacyExportWorkerHandlers(),
+    ...createSystemBackupWorkerHandlers(),
     ...createModerationWorkerHandlers()
   ]);
   return {
@@ -211,6 +212,66 @@ export function createPrivacyExportWorkerHandlers(): WorkerHandlerDefinition[] {
           sha256: stored.sha256,
           audit_event_id: audit.id,
           schema_version: bundle.schema_version
+        };
+      }
+    }
+  ];
+}
+
+export function createSystemBackupWorkerHandlers(): WorkerHandlerDefinition[] {
+  return [
+    {
+      queue: "export",
+      type: "build_system_backup",
+      async handle(context) {
+        if (!context.objectStorage) throw new Error("system backup worker requires object storage");
+        const operatorId = payloadString(context.job.payload, "operator_id");
+        const bundle = await context.store.exportSystemData();
+        const body = JSON.stringify(bundle, null, 2);
+        const stored = await context.objectStorage.putObject({
+          bucket: "backup",
+          key: `backups/system/${safePathSegment(context.job.id)}.json`,
+          contentType: "application/json",
+          body,
+          ownerId: operatorId,
+          retentionPolicy: "backup",
+          metadata: {
+            job_id: context.job.id,
+            schema_version: bundle.schema_version,
+            users: bundle.counts.users,
+            jobs: bundle.counts.jobs,
+            object_manifests: bundle.counts.object_manifests,
+            requested_at:
+              typeof context.job.payload.requested_at === "string"
+                ? context.job.payload.requested_at
+                : undefined
+          }
+        });
+        const manifest = await context.store.saveObjectManifest(stored.manifest);
+        const audit = await context.store.appendAuditEvent({
+          actor_id: operatorId,
+          action: "system_backup_object_stored",
+          object_type: "object_manifest",
+          object_id: manifest.id,
+          payload: {
+            job_id: context.job.id,
+            bucket: manifest.bucket,
+            key: manifest.key,
+            size_bytes: manifest.size_bytes,
+            sha256: manifest.sha256,
+            schema_version: bundle.schema_version,
+            counts: bundle.counts
+          }
+        });
+        return {
+          operator_id: operatorId,
+          object_manifest_id: manifest.id,
+          object_key: manifest.key,
+          bytes_written: stored.bytes_written,
+          sha256: stored.sha256,
+          audit_event_id: audit.id,
+          schema_version: bundle.schema_version,
+          counts: bundle.counts
         };
       }
     }

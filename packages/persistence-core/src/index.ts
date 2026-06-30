@@ -206,6 +206,35 @@ export type UserDataExportBundle = {
   object_manifests: ObjectManifest[];
 };
 
+export type SystemDataBackupBundle = {
+  schema_version: "mnemosyne-system-backup-v0.1";
+  generated_at: string;
+  counts: {
+    users: number;
+    user_export_bundles: number;
+    jobs: number;
+    object_manifests: number;
+    audit_events: number;
+    proposals: number;
+    creator_submissions: number;
+    knowledge_packs: number;
+    experiments: number;
+    social_challenges: number;
+  };
+  master_graph: MasterGraph;
+  users: UserDataExportBundle[];
+  global: {
+    proposals: Proposal[];
+    creator_submissions: CreatorSubmissionRecord[];
+    knowledge_packs: KnowledgePackRecord[];
+    experiments: Experiment[];
+    social_challenges: SocialChallengeRecord[];
+    jobs: JobRecord[];
+    object_manifests: ObjectManifest[];
+    audit_events: AuditEvent[];
+  };
+};
+
 export type UserDataDeletionSummary = {
   user_id: string;
   scope: DataDeletionScope;
@@ -234,6 +263,7 @@ export type AppendAuditEventInput = Omit<AuditEvent, "id" | "created_at" | "poli
 
 export interface MnemosyneStore {
   getUser(userId: string): Promise<User | undefined>;
+  listUsers(): Promise<User[]>;
   saveUser(user: User): Promise<User>;
   listGoals(userId: string): Promise<Goal[]>;
   saveGoal(goal: Goal): Promise<Goal>;
@@ -292,6 +322,7 @@ export interface MnemosyneStore {
   getObjectManifest(objectId: string): Promise<ObjectManifest | undefined>;
   listObjectManifests(ownerId?: string): Promise<ObjectManifest[]>;
   exportUserData(userId: string): Promise<UserDataExportBundle>;
+  exportSystemData(): Promise<SystemDataBackupBundle>;
   deleteUserData(userId: string, scope: DataDeletionScope): Promise<UserDataDeletionSummary>;
 }
 
@@ -342,6 +373,10 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
 
   async getUser(userId: string): Promise<User | undefined> {
     return this.users.get(userId);
+  }
+
+  async listUsers(): Promise<User[]> {
+    return [...this.users.values()].sort((left, right) => left.id.localeCompare(right.id));
   }
 
   async saveUser(user: User): Promise<User> {
@@ -676,6 +711,48 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
       outcome_dashboards: this.outcomeDashboards.get(userId) ?? [],
       jobs: (await this.listJobs()).filter((job) => job.audit_subject_id === userId),
       object_manifests: await this.listObjectManifests(userId)
+    };
+  }
+
+  async exportSystemData(): Promise<SystemDataBackupBundle> {
+    const users = await this.listUsers();
+    const userBundles = await Promise.all(users.map((user) => this.exportUserData(user.id)));
+    const jobs = await this.listJobs();
+    const objectManifests = await this.listObjectManifests();
+    const auditEvents = await this.listAuditEvents();
+    const proposals = await this.listProposals();
+    const creatorSubmissions = await this.listCreatorSubmissions();
+    const knowledgePacks = await this.listPacks();
+    const experiments = await this.listExperiments();
+    const socialChallenges = await this.listSocialChallenges();
+
+    return {
+      schema_version: "mnemosyne-system-backup-v0.1",
+      generated_at: nowIso(),
+      counts: {
+        users: users.length,
+        user_export_bundles: userBundles.length,
+        jobs: jobs.length,
+        object_manifests: objectManifests.length,
+        audit_events: auditEvents.length,
+        proposals: proposals.length,
+        creator_submissions: creatorSubmissions.length,
+        knowledge_packs: knowledgePacks.length,
+        experiments: experiments.length,
+        social_challenges: socialChallenges.length
+      },
+      master_graph: await this.getMasterGraph(),
+      users: userBundles,
+      global: {
+        proposals,
+        creator_submissions: creatorSubmissions,
+        knowledge_packs: knowledgePacks,
+        experiments,
+        social_challenges: socialChallenges,
+        jobs,
+        object_manifests: objectManifests,
+        audit_events: auditEvents
+      }
     };
   }
 

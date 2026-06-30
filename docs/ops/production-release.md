@@ -79,6 +79,7 @@ High-priority alerts:
 
 - Postgres point-in-time recovery enabled.
 - Object storage versioning enabled for production buckets.
+- `POST /api/ops/backups/jobs` produces a `mnemosyne-system-backup-v0.1` artifact in the `backup` bucket with a persisted object manifest and `system_backup_object_stored` audit event.
 - Queue jobs are idempotent or deduplicated by object id.
 - Backups are restored into staging on a recurring schedule.
 - Restore drills must verify user graph, audit log, sleep packets, and export/deletion flows.

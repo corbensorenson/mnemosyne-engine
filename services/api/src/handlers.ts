@@ -208,6 +208,7 @@ import {
   sleepPacketRequestSchema,
   sleepRecallCompleteRequestSchema,
   startSessionRequestSchema,
+  systemBackupJobRequestSchema,
   tutorTurnRequestSchema,
   updatePreferencesRequestSchema,
   userGraphReplayRequestSchema,
@@ -527,6 +528,14 @@ type PrivacyExportRequest = {
 
 type PrivacyExportJobRequest = {
   userId: string;
+  priority: JobPriority;
+  runAfter?: string;
+  idempotencyKey?: string;
+  maxAttempts: number;
+};
+
+type SystemBackupJobRequest = {
+  operatorId: string;
   priority: JobPriority;
   runAfter?: string;
   idempotencyKey?: string;
@@ -1023,6 +1032,42 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
       const audit = await store.appendAuditEvent({
         actor_id: request.userId,
         action: "privacy_export_queued",
+        object_type: "service_job",
+        object_id: job.id,
+        payload: {
+          queue: job.queue,
+          type: job.type,
+          priority: job.priority,
+          run_after: job.run_after,
+          idempotency_key: job.idempotency_key
+        }
+      });
+      return envelope(job, audit.id);
+    },
+
+    async queueSystemBackup(input: unknown): Promise<HandlerEnvelope<JobRecord>> {
+      const request = validateRequest(systemBackupJobRequestSchema, input) as SystemBackupJobRequest;
+      await requireUser(store, request.operatorId);
+      const queuedAt = nowIso();
+      const job = await store.saveJob(
+        createOpsJob({
+          queue: "export",
+          type: "build_system_backup",
+          payload: {
+            operator_id: request.operatorId,
+            requested_at: queuedAt
+          },
+          priority: request.priority,
+          runAfter: request.runAfter,
+          idempotencyKey: request.idempotencyKey ?? `system_backup:${request.operatorId}:${queuedAt}`,
+          maxAttempts: request.maxAttempts,
+          auditSubjectId: request.operatorId,
+          createdAt: queuedAt
+        })
+      );
+      const audit = await store.appendAuditEvent({
+        actor_id: request.operatorId,
+        action: "system_backup_queued",
         object_type: "service_job",
         object_id: job.id,
         payload: {

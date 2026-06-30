@@ -1361,6 +1361,19 @@ describe("persistence-backed API handlers", () => {
       "privacy_export_queued"
     );
 
+    const queuedBackup = unwrap(
+      await handlers.queueSystemBackup({
+        operatorId: demoUser.id,
+        idempotencyKey: "system_backup_worker_test"
+      })
+    );
+    expect(queuedBackup.queue).toBe("export");
+    expect(queuedBackup.type).toBe("build_system_backup");
+    expect(queuedBackup.payload.operator_id).toBe(demoUser.id);
+    expect((await store.listAuditEvents(demoUser.id)).map((event) => event.action)).toContain(
+      "system_backup_queued"
+    );
+
     const voiceDeleted = unwrap(
       await handlers.deleteUserData({
         userId: demoUser.id,

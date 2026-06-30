@@ -236,6 +236,16 @@ export const privacyExportJobRequestSchema = z
   })
   .strict();
 
+export const systemBackupJobRequestSchema = z
+  .object({
+    operatorId: userIdSchema,
+    priority: jobPrioritySchema.default("high"),
+    runAfter: z.string().optional(),
+    idempotencyKey: z.string().min(3).optional(),
+    maxAttempts: z.number().int().positive().max(25).default(3)
+  })
+  .strict();
+
 export const notificationScheduleRequestSchema = z
   .object({
     userId: userIdSchema,

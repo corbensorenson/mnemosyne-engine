@@ -131,10 +131,14 @@ describe("PostgresMnemosyneStore", () => {
     const generated = unwrap(await handlers.generateDailyPacket({ userId: demoUser.id }));
     const persisted = unwrap(await handlers.getTodayPacket(demoUser.id, generated.packet.date));
     const exportBundle = unwrap(await handlers.exportUserData({ userId: demoUser.id }));
+    const systemBackup = await store.exportSystemData();
 
     expect(persisted.packet.id).toBe(generated.packet.id);
     expect(exportBundle.user?.id).toBe(demoUser.id);
     expect(exportBundle.daily_packets.map((packet) => packet.id)).toContain(generated.packet.id);
+    expect(systemBackup.schema_version).toBe("mnemosyne-system-backup-v0.1");
+    expect(systemBackup.counts.users).toBe(1);
+    expect(systemBackup.users.map((bundle) => bundle.user_id)).toContain(demoUser.id);
     expect(sql.records.has(`daily_packet:${demoUser.id}:${generated.packet.date}`)).toBe(true);
     expect(sql.statements.every((statement) => !statement.includes(demoUser.id))).toBe(true);
   });
