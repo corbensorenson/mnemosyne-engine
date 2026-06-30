@@ -46,7 +46,8 @@ export type SessionRecord = {
   id: string;
   user_id: string;
   daily_packet_id?: string;
-  session_type: "morning_forge" | "graphfeed" | "walk_mode" | "evening_lock_in" | "sleep" | "paced_read";
+  session_type:
+    "morning_forge" | "graphfeed" | "walk_mode" | "evening_lock_in" | "sleep" | "paced_read" | "speed_listen";
   status: "planned" | "running" | "completed" | "abandoned";
   started_at?: string;
   completed_at?: string;

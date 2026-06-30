@@ -17,6 +17,22 @@ describe("replay-core", () => {
       },
       created_at: "2026-06-30T11:00:00.000Z"
     };
+    const speedListenEvent: LearningEvent = {
+      id: "event_speed_listen_replay",
+      user_id: "user_replay",
+      event_type: "speed_listen_completed",
+      payload: {
+        concept_ids: ["transformer_blocks"],
+        advance_allowed: true,
+        gate_reasons: [],
+        comprehension_score: 0.84,
+        retention_score: 0.76,
+        effective_listen_wpm: 151,
+        audio_load_score: 0.35,
+        distraction_rating: 0.16
+      },
+      created_at: "2026-06-30T12:00:00.000Z"
+    };
     const sleepEvent: LearningEvent = {
       id: "event_sleep_replay",
       user_id: "user_replay",
@@ -39,24 +55,28 @@ describe("replay-core", () => {
       userId: "user_replay",
       baselineStates: [staleState],
       assessmentResponses: [response],
-      learningEvents: [videoEvent, sleepEvent],
+      learningEvents: [videoEvent, speedListenEvent, sleepEvent],
       replayedAt: "2026-07-01T08:00:00.000Z"
     });
 
     const attention = replay.states.find((state) => state.concept_id === "attention_qkv");
     const vectors = replay.states.find((state) => state.concept_id === "ai_vectors");
+    const transformer = replay.states.find((state) => state.concept_id === "transformer_blocks");
     expect(replay.applied).toEqual({
       assessment_response: 1,
       video_event: 1,
       paced_read_event: 0,
+      speed_listen_event: 1,
       sleep_cue_event: 1
     });
-    expect(replay.touched_concept_ids).toEqual(["ai_vectors", "attention_qkv"]);
+    expect(replay.touched_concept_ids).toEqual(["ai_vectors", "attention_qkv", "transformer_blocks"]);
     expect(attention?.times_seen).toBe(1);
     expect(attention?.sleep_replays).toBe(1);
     expect(attention?.mastery).toBeGreaterThan(0.08);
     expect(vectors?.times_recalled).toBe(1);
     expect(vectors?.modality_response_profile.video_recall_gate_passed).toBe(true);
+    expect(transformer?.times_recalled).toBe(1);
+    expect(transformer?.modality_response_profile.speed_listen_effective_wpm).toBe(151);
   });
 });
 

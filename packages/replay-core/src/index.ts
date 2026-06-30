@@ -8,7 +8,8 @@ import type {
 } from "@mnemosyne/schema";
 import { clamp, nowIso, unique } from "@mnemosyne/shared-utils";
 
-export type ReplaySourceKind = "assessment_response" | "video_event" | "paced_read_event" | "sleep_cue_event";
+export type ReplaySourceKind =
+  "assessment_response" | "video_event" | "paced_read_event" | "speed_listen_event" | "sleep_cue_event";
 
 export type GraphReplaySummary = {
   user_id: string;
@@ -39,6 +40,7 @@ type ReplayTimelineItem =
   | { kind: "assessment_response"; at: string; id: string; response: AssessmentResponse }
   | { kind: "video_event"; at: string; id: string; event: LearningEvent }
   | { kind: "paced_read_event"; at: string; id: string; event: LearningEvent }
+  | { kind: "speed_listen_event"; at: string; id: string; event: LearningEvent }
   | { kind: "sleep_cue_event"; at: string; id: string; event: LearningEvent };
 
 export function replayUserGraph(input: ReplayUserGraphInput): GraphReplayResult {
@@ -61,6 +63,7 @@ export function replayUserGraph(input: ReplayUserGraphInput): GraphReplayResult 
     assessment_response: 0,
     video_event: 0,
     paced_read_event: 0,
+    speed_listen_event: 0,
     sleep_cue_event: 0
   };
   const timeline = buildTimeline(responses, events);
@@ -89,6 +92,16 @@ export function replayUserGraph(input: ReplayUserGraphInput): GraphReplayResult 
       }
       states = applyPacedReadEvent(states, input.userId, conceptIds, item.event);
       applied.paced_read_event += 1;
+      continue;
+    }
+    if (item.kind === "speed_listen_event") {
+      const conceptIds = stringArray(item.event.payload.concept_ids);
+      if (conceptIds.length === 0) {
+        skippedEventIds.push(item.id);
+        continue;
+      }
+      states = applySpeedListenEvent(states, input.userId, conceptIds, item.event);
+      applied.speed_listen_event += 1;
       continue;
     }
     const conceptIds = stringArray(item.event.payload.cued_concept_ids);
@@ -162,6 +175,9 @@ function buildTimeline(responses: AssessmentResponse[], events: LearningEvent[])
     if (event.event_type === "paced_read_completed") {
       return [{ kind: "paced_read_event", at: event.created_at, id: event.id, event }];
     }
+    if (event.event_type === "speed_listen_completed") {
+      return [{ kind: "speed_listen_event", at: event.created_at, id: event.id, event }];
+    }
     if (event.event_type === "graph_updated" && event.payload.action === "sleep_cue_recall_completed") {
       return [{ kind: "sleep_cue_event", at: event.created_at, id: event.id, event }];
     }
@@ -184,6 +200,7 @@ function touchedConceptsFor(
         return conceptIdsForVideoEvent(event, masterGraph);
       }
       if (event.event_type === "paced_read_completed") return stringArray(event.payload.concept_ids);
+      if (event.event_type === "speed_listen_completed") return stringArray(event.payload.concept_ids);
       if (event.event_type === "graph_updated" && event.payload.action === "sleep_cue_recall_completed") {
         return stringArray(event.payload.cued_concept_ids);
       }
@@ -273,6 +290,67 @@ function applyPacedReadEvent(
         status: advanceAllowed ? strongerStatus(state, 0.42) : state.status,
         updated_at: event.created_at
       })),
+    states
+  );
+}
+
+function applySpeedListenEvent(
+  states: UserConceptState[],
+  userId: string,
+  conceptIds: string[],
+  event: LearningEvent
+): UserConceptState[] {
+  const advanceAllowed = event.payload.advance_allowed === true;
+  const gateReasons = stringArray(event.payload.gate_reasons);
+  return conceptIds.reduce(
+    (next, conceptId) =>
+      upsertState(next, userId, conceptId, (state) => {
+        const failures = new Set(state.failure_modes.filter((mode) => mode !== "none"));
+        if (advanceAllowed) {
+          failures.delete("speed_listen_gate_held");
+          failures.delete("speed_listen_comprehension_missed");
+          failures.delete("speed_listen_strain");
+          failures.delete("speed_listen_distraction");
+        } else {
+          failures.add("speed_listen_gate_held");
+          if (gateReasons.includes("comprehension_below_gate"))
+            failures.add("speed_listen_comprehension_missed");
+          if (gateReasons.includes("strain_too_high")) failures.add("speed_listen_strain");
+          if (gateReasons.includes("distraction_too_high")) failures.add("speed_listen_distraction");
+        }
+        const comprehension = numberPayload(event.payload.comprehension_score, 0);
+        const retention = numberPayload(event.payload.retention_score, 0);
+        return {
+          ...state,
+          mastery: advanceAllowed
+            ? clamp(state.mastery + comprehension * 0.04 + retention * 0.018)
+            : state.mastery,
+          recall_strength: advanceAllowed
+            ? clamp(state.recall_strength + retention * 0.05)
+            : state.recall_strength,
+          transfer_score: advanceAllowed
+            ? clamp(state.transfer_score + comprehension * 0.018)
+            : state.transfer_score,
+          answer_latency_ms: Math.max(4_000, Math.round((state.answer_latency_ms ?? 24_000) * 0.97)),
+          false_confidence_risk: advanceAllowed
+            ? clamp(state.false_confidence_risk * 0.94)
+            : clamp(state.false_confidence_risk + 0.04),
+          failure_modes: failures.size > 0 ? Array.from(failures) : ["none"],
+          last_seen_at: event.created_at,
+          last_correct_at: advanceAllowed ? event.created_at : state.last_correct_at,
+          times_seen: state.times_seen + 1,
+          times_recalled: state.times_recalled + (advanceAllowed ? 1 : 0),
+          times_failed: state.times_failed + (advanceAllowed ? 0 : 1),
+          modality_response_profile: {
+            ...state.modality_response_profile,
+            speed_listen_effective_wpm: numberPayload(event.payload.effective_listen_wpm, 0),
+            speed_listen_audio_load: numberPayload(event.payload.audio_load_score, 0),
+            speed_listen_distraction: numberPayload(event.payload.distraction_rating, 0)
+          },
+          status: advanceAllowed ? strongerStatus(state, 0.4) : state.status,
+          updated_at: event.created_at
+        };
+      }),
     states
   );
 }

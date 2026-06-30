@@ -22,6 +22,11 @@ import {
 import { buildRenderManifest } from "@mnemosyne/audio-renderer-service";
 import type { RenderManifest } from "@mnemosyne/audio-renderer-service";
 import {
+  scoreSpeedListenCompletion,
+  type SpeedListenCompletionResult,
+  type SpeedListenSource
+} from "@mnemosyne/audio-core";
+import {
   arbitrateProposal,
   castVote,
   computeBridgingPriority,
@@ -207,6 +212,7 @@ import {
   outcomeDashboardRequestSchema,
   pacedReadCompleteRequestSchema,
   pacedReadGenerateRequestSchema,
+  speedListenCompleteRequestSchema,
   privacyDeletionRequestSchema,
   privacyExportJobRequestSchema,
   privacyExportRequestSchema,
@@ -548,6 +554,22 @@ type PacedReadCompleteRequest = {
   completedAt?: string;
 };
 
+type SpeedListenCompleteRequest = {
+  userId: string;
+  sessionId?: string;
+  speedListenSessionId: string;
+  sourceId: string;
+  sourceKind: SpeedListenSource["source_kind"];
+  rawListenWpm: number;
+  playbackRate: number;
+  comprehensionScore: number;
+  retentionScore: number;
+  strainRating: number;
+  distractionRating: number;
+  audioMinutes: number;
+  completedAt?: string;
+};
+
 type GoalDraftRequest = {
   title: string;
   description: string;
@@ -842,6 +864,14 @@ type PacedReadCompletionResponse = {
   result: ReturnType<typeof scorePacedReadCompletion>;
   updated_states: UserConceptState[];
   summary: ReturnType<typeof pacedReadCompletionSummary>;
+};
+
+type SpeedListenCompletionResponse = {
+  session: SessionRecord;
+  source: SpeedListenSource;
+  result: SpeedListenCompletionResult;
+  updated_states: UserConceptState[];
+  summary: ReturnType<typeof speedListenCompletionSummary>;
 };
 
 type CreatorIngestionResponse = {
@@ -2847,6 +2877,94 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
         {
           session: completedSession,
           asset,
+          result,
+          updated_states: updatedStates,
+          summary
+        },
+        audit.id
+      );
+    },
+
+    async completeSpeedListen(input: unknown): Promise<HandlerEnvelope<SpeedListenCompletionResponse>> {
+      const request = validateRequest(speedListenCompleteRequestSchema, input) as SpeedListenCompleteRequest;
+      await requireUser(store, request.userId);
+      const masterGraph = await store.getMasterGraph();
+      const source = speedListenSourceForMasterGraph(masterGraph, request);
+      if (!source) return notFound<SpeedListenCompletionResponse>("speed_listen_source_not_found");
+      let session = request.sessionId ? await store.getSession(request.sessionId) : undefined;
+      if (
+        request.sessionId &&
+        (!session || session.user_id !== request.userId || session.session_type !== "speed_listen")
+      ) {
+        return notFound<SpeedListenCompletionResponse>("session_not_found");
+      }
+      const eventIds = session?.event_ids ? [...session.event_ids] : [];
+      if (!session) {
+        session = {
+          id: createId("session"),
+          user_id: request.userId,
+          session_type: "speed_listen",
+          status: "running",
+          started_at: nowIso(),
+          event_ids: []
+        };
+        await store.saveSession(session);
+      }
+
+      const result = scoreSpeedListenCompletion({
+        rawListenWpm: request.rawListenWpm,
+        comprehensionScore: request.comprehensionScore,
+        retentionScore: request.retentionScore,
+        strainRating: request.strainRating,
+        distractionRating: request.distractionRating
+      });
+      const completedAt = request.completedAt ?? nowIso();
+      const updatedGraph = await store.saveUserConceptStates(
+        request.userId,
+        applySpeedListenCompletionToStates(
+          (await store.getUserGraph(request.userId)).states,
+          source,
+          result,
+          completedAt,
+          request.userId
+        )
+      );
+      const updatedStates = updatedGraph.states.filter((state) =>
+        source.concept_ids.includes(state.concept_id)
+      );
+      const summary = speedListenCompletionSummary(source, request, result);
+      const event = await store.appendLearningEvent({
+        user_id: request.userId,
+        event_type: "speed_listen_completed",
+        created_at: completedAt,
+        payload: {
+          session_id: session.id,
+          ...summary
+        }
+      });
+      eventIds.push(event.id);
+      const completedSession = await store.saveSession({
+        ...session,
+        status: "completed",
+        completed_at: completedAt,
+        event_ids: Array.from(new Set(eventIds))
+      });
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "speed_listen_completed",
+        object_type: "speed_listen_source",
+        object_id: source.id,
+        payload: {
+          session_id: completedSession.id,
+          event_id: event.id,
+          ...summary
+        }
+      });
+
+      return envelope(
+        {
+          session: completedSession,
+          source,
           result,
           updated_states: updatedStates,
           summary
@@ -4894,6 +5012,39 @@ function allPacedReadAssets(masterGraph: MasterGraph): PacedReadAsset[] {
   ].filter((asset, index, assets) => assets.findIndex((candidate) => candidate.id === asset.id) === index);
 }
 
+function speedListenSourceForMasterGraph(
+  masterGraph: MasterGraph,
+  request: SpeedListenCompleteRequest
+): SpeedListenSource | undefined {
+  if (request.sourceKind === "paced_read_recap") {
+    const asset = allPacedReadAssets(masterGraph).find((candidate) => candidate.id === request.sourceId);
+    if (!asset) return undefined;
+    return {
+      id: asset.id,
+      title: asset.title,
+      source_kind: "paced_read_recap",
+      concept_ids: asset.concept_ids,
+      body: asset.raw_text,
+      cognitive_load_score: asset.cognitive_load_score
+    };
+  }
+
+  if (request.sourceKind !== "video_transcript") return undefined;
+  const video = masterGraph.videos.find((candidate) => candidate.id === request.sourceId);
+  if (!video) return undefined;
+  const recapText = video.paced_read_recaps.map((asset) => asset.raw_text).join(" ");
+  const body = recapText || `${video.title}. Explain the linked concepts, mechanism, example, and boundary.`;
+  return {
+    id: video.id,
+    title: video.title,
+    source_kind: "video_transcript",
+    concept_ids: video.concept_ids,
+    body,
+    duration_seconds: video.duration_seconds,
+    cognitive_load_score: video.cognitive_load_score
+  };
+}
+
 function selectPacedReadAsset(
   masterGraph: MasterGraph,
   request: PacedReadGenerateRequest,
@@ -4950,6 +5101,32 @@ function pacedReadCompletionSummary(
     screen_load_score: result.screenLoadScore,
     advance_allowed: result.advanceAllowed,
     screen_minutes: request.screenMinutes
+  };
+}
+
+function speedListenCompletionSummary(
+  source: SpeedListenSource,
+  request: SpeedListenCompleteRequest,
+  result: SpeedListenCompletionResult
+) {
+  return {
+    speed_listen_source_id: source.id,
+    speed_listen_session_id: request.speedListenSessionId,
+    source_kind: source.source_kind,
+    concept_ids: source.concept_ids,
+    playback_rate: request.playbackRate,
+    raw_listen_wpm: request.rawListenWpm,
+    effective_listen_wpm: result.effective_listen_wpm,
+    comprehension_score: result.comprehension_score,
+    retention_score: result.retention_score,
+    strain_rating: result.strain_rating,
+    distraction_rating: result.distraction_rating,
+    screen_load_score: result.screen_load_score,
+    audio_load_score: result.audio_load_score,
+    advance_allowed: result.advance_allowed,
+    revisit_recommended: result.revisit_recommended,
+    gate_reasons: result.gate_reasons,
+    audio_minutes: request.audioMinutes
   };
 }
 
@@ -5049,6 +5226,82 @@ function applyPacedReadCompletionToStates(
     else next.push(updated);
   }
   return next;
+}
+
+function applySpeedListenCompletionToStates(
+  states: UserConceptState[],
+  source: SpeedListenSource,
+  result: SpeedListenCompletionResult,
+  updatedAt: string,
+  userId: string
+): UserConceptState[] {
+  const next = [...states];
+  for (const conceptId of new Set(source.concept_ids)) {
+    const index = next.findIndex((state) => state.concept_id === conceptId);
+    const state = index >= 0 ? next[index] : initialConceptState(userId, conceptId);
+    const failures = new Set(state.failure_modes.filter((mode) => mode !== "none"));
+    if (result.advance_allowed) {
+      failures.delete("speed_listen_gate_held");
+      failures.delete("speed_listen_comprehension_missed");
+      failures.delete("speed_listen_strain");
+      failures.delete("speed_listen_distraction");
+    } else {
+      failures.add("speed_listen_gate_held");
+      if (result.gate_reasons.includes("comprehension_below_gate")) {
+        failures.add("speed_listen_comprehension_missed");
+      }
+      if (result.gate_reasons.includes("strain_too_high")) failures.add("speed_listen_strain");
+      if (result.gate_reasons.includes("distraction_too_high")) failures.add("speed_listen_distraction");
+    }
+    const updated: UserConceptState = {
+      ...state,
+      mastery: result.advance_allowed
+        ? clamp(state.mastery + result.comprehension_score * 0.04 + result.retention_score * 0.018)
+        : state.mastery,
+      recall_strength: result.advance_allowed
+        ? clamp(state.recall_strength + result.retention_score * 0.05)
+        : state.recall_strength,
+      transfer_score: result.advance_allowed
+        ? clamp(state.transfer_score + result.comprehension_score * 0.018)
+        : state.transfer_score,
+      answer_latency_ms: Math.max(4_000, Math.round((state.answer_latency_ms ?? 24_000) * 0.97)),
+      false_confidence_risk: result.advance_allowed
+        ? clamp(state.false_confidence_risk * 0.94)
+        : clamp(state.false_confidence_risk + 0.04),
+      failure_modes: failures.size > 0 ? Array.from(failures) : ["none"],
+      last_seen_at: updatedAt,
+      last_correct_at: result.advance_allowed ? updatedAt : state.last_correct_at,
+      times_seen: state.times_seen + 1,
+      times_recalled: state.times_recalled + (result.advance_allowed ? 1 : 0),
+      times_failed: state.times_failed + (result.advance_allowed ? 0 : 1),
+      modality_response_profile: {
+        ...state.modality_response_profile,
+        speed_listen_effective_wpm: result.effective_listen_wpm,
+        speed_listen_audio_load: result.audio_load_score,
+        speed_listen_distraction: result.distraction_rating
+      },
+      status: result.advance_allowed ? speedListenStatusFor(state, result) : state.status,
+      updated_at: updatedAt
+    };
+    if (index >= 0) next[index] = updated;
+    else next.push(updated);
+  }
+  return next;
+}
+
+function speedListenStatusFor(
+  state: UserConceptState,
+  result: SpeedListenCompletionResult
+): UserConceptState["status"] {
+  const strength =
+    state.mastery * 0.48 +
+    state.recall_strength * 0.34 +
+    state.transfer_score * 0.18 +
+    result.retention_score * 0.04;
+  if (strength > 0.8) return "fluent";
+  if (strength > 0.64) return "known";
+  if (strength > 0.4) return "learning";
+  return "fragile";
 }
 
 async function buildPlanningContext(

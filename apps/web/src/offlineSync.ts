@@ -143,6 +143,21 @@ function isDomainWritableOfflineActionItem(item: OfflineQueueItem): boolean {
     typeof item.payload.retentionScore === "number" &&
     typeof item.payload.strainRating === "number" &&
     typeof item.payload.screenMinutes === "number";
+  const isSpeedListen =
+    item.action_type === "speed_listen_completion" &&
+    item.method === "POST" &&
+    item.endpoint === "/api/speed-listen/complete" &&
+    typeof item.payload.userId === "string" &&
+    typeof item.payload.speedListenSessionId === "string" &&
+    typeof item.payload.sourceId === "string" &&
+    typeof item.payload.sourceKind === "string" &&
+    typeof item.payload.rawListenWpm === "number" &&
+    typeof item.payload.playbackRate === "number" &&
+    typeof item.payload.comprehensionScore === "number" &&
+    typeof item.payload.retentionScore === "number" &&
+    typeof item.payload.strainRating === "number" &&
+    typeof item.payload.distractionRating === "number" &&
+    typeof item.payload.audioMinutes === "number";
   const isSleepPlayback =
     item.action_type === "sleep_playback_event" &&
     item.method === "POST" &&
@@ -200,6 +215,7 @@ function isDomainWritableOfflineActionItem(item: OfflineQueueItem): boolean {
     isEveningLockIn ||
     isGraphFeed ||
     isPacedRead ||
+    isSpeedListen ||
     isSleepPlayback ||
     isSleepRecall ||
     isWearableSleepSync ||

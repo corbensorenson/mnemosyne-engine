@@ -29,3 +29,9 @@ Progress is held when comprehension or retention miss the gate, or when strain/d
 ## PWA Surface
 
 The Listen tab lets the learner choose a graph-aligned source, adjust playback rate, play/stop local speech, inspect chunks, and complete the gate. Passing sessions update local graph state; held sessions log failure modes without advancing mastery.
+
+## Persistence
+
+The PWA stages backend-compatible `speed_listen_completion` queue items to `POST /api/speed-listen/complete`. The API looks up the graph-owned video transcript or Paced Read recap source, rescoring comprehension, retention, strain, and distraction with `@mnemosyne/audio-core` before it updates concept state.
+
+Successful sync records `speed_listen_completed`, writes an audit event, and feeds graph replay. The client does not send a trusted pass/fail flag; it sends the evidence needed for the first-party backend to recompute the gate.

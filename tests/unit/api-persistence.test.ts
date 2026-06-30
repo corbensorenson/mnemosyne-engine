@@ -1169,6 +1169,41 @@ describe("persistence-backed API handlers", () => {
     );
     expect(pacedReadAfterState?.times_seen).toBeGreaterThan(pacedReadBeforeState?.times_seen ?? 0);
 
+    const speedListenSource = demoMasterGraph.videos.find((video) =>
+      video.concept_ids.includes("attention_qkv")
+    );
+    if (!speedListenSource) throw new Error("missing attention SpeedListen source");
+    const speedListenBeforeState = (await store.getUserGraph(demoUser.id)).states.find(
+      (state) => state.concept_id === "attention_qkv"
+    );
+    const completedSpeedListen = unwrap(
+      await handlers.completeSpeedListen({
+        userId: demoUser.id,
+        speedListenSessionId: "speed_listen_session_attention_demo",
+        sourceId: speedListenSource.id,
+        sourceKind: "video_transcript",
+        rawListenWpm: 209,
+        playbackRate: 1.35,
+        comprehensionScore: 0.82,
+        retentionScore: 0.76,
+        strainRating: 0.24,
+        distractionRating: 0.16,
+        audioMinutes: 2.8
+      })
+    );
+    expect(completedSpeedListen.session.session_type).toBe("speed_listen");
+    expect(completedSpeedListen.session.status).toBe("completed");
+    expect(completedSpeedListen.result.advance_allowed).toBe(true);
+    expect(completedSpeedListen.summary.effective_listen_wpm).toBeLessThan(
+      completedSpeedListen.summary.raw_listen_wpm
+    );
+    expect(completedSpeedListen.summary.audio_minutes).toBe(2.8);
+    expect(completedSpeedListen.updated_states.map((state) => state.concept_id)).toContain("attention_qkv");
+    const speedListenAfterState = (await store.getUserGraph(demoUser.id)).states.find(
+      (state) => state.concept_id === "attention_qkv"
+    );
+    expect(speedListenAfterState?.times_seen).toBeGreaterThan(speedListenBeforeState?.times_seen ?? 0);
+
     const sleep = unwrap(await handlers.generateSleepPacket({ userId: demoUser.id, conservative: true }));
     expect(sleep.summary.controls).toBeGreaterThan(0);
 
@@ -1308,6 +1343,10 @@ describe("persistence-backed API handlers", () => {
         expect.objectContaining({
           event_type: "paced_read_completed",
           payload: expect.objectContaining({ paced_read_asset_id: pacedRead.asset.id })
+        }),
+        expect.objectContaining({
+          event_type: "speed_listen_completed",
+          payload: expect.objectContaining({ speed_listen_source_id: speedListenSource.id })
         }),
         expect.objectContaining({
           event_type: "sleep_cue_played",

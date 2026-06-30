@@ -116,7 +116,7 @@ Exercise:
 - next-morning recall completion
 - GraphFeed recall completion
 - Paced Read completion
-- SpeedListen local gated evidence
+- SpeedListen gated completion
 - proposal release
 - wearable sync
 - export and deletion
@@ -127,7 +127,7 @@ The system should preserve audit events even when downstream analytics or person
 
 ## Offline Sync Gate
 
-Before production release, the PWA must register its service worker, expose a valid manifest, persist learning actions to IndexedDB, attach idempotency keys, avoid secrets in queued payloads, recover stale sync locks, and cover the core daily actions: packet cache, Morning Forge, Tutor, GraphFeed, Paced Read, SpeedListen gated evidence, WalkMode, Evening Lock-In, SleepCue playback, and SleepCue recall.
+Before production release, the PWA must register its service worker, expose a valid manifest, persist learning actions to IndexedDB, attach idempotency keys, avoid secrets in queued payloads, recover stale sync locks, and cover the core daily actions: packet cache, Morning Forge, Tutor, GraphFeed, Paced Read, SpeedListen gated completion, WalkMode, Evening Lock-In, SleepCue playback, and SleepCue recall.
 
 `@mnemosyne/offline-core` provides `buildOfflineReleaseGate` for deterministic release checks. The Workbench surface exposes queue state and recovery controls. See [`../offline/pwa-sync.md`](../offline/pwa-sync.md).
 

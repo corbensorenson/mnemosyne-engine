@@ -99,6 +99,12 @@ export const apiRoutes: ApiRoute[] = [
     service: "Paced Read Engine",
     eventType: "paced_read_completed"
   },
+  {
+    method: "POST",
+    path: "/api/speed-listen/complete",
+    service: "SpeedListen Engine",
+    eventType: "speed_listen_completed"
+  },
   { method: "POST", path: "/api/sleep/packet/generate", service: "SleepCue Service", eventType: "cue_bound" },
   { method: "GET", path: "/api/sleep/packet/tonight", service: "SleepCue Service" },
   { method: "POST", path: "/api/sleep/audio/render", service: "Audio Render Service" },

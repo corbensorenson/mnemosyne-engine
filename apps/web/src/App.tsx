@@ -1752,6 +1752,8 @@ export default function App() {
       strainRating: speedListenStrain,
       distractionRating: speedListenDistraction
     });
+    const speedListenWordCount = speedListenPlan.chunks.reduce((sum, chunk) => sum + wordCount(chunk), 0);
+    const audioMinutes = round(speedListenWordCount / speedListenPlan.raw_listen_wpm, 2);
     setSpeedListenResult(result);
     setStates((current) =>
       applySpeedListenResultToLocalStates(current, speedListenPlan, result, completedAt)
@@ -1767,6 +1769,7 @@ export default function App() {
           source_kind: speedListenPlan.source_kind,
           playback_rate: speedListenPlan.effective_playback_rate,
           raw_listen_wpm: speedListenPlan.raw_listen_wpm,
+          audio_minutes: audioMinutes,
           effective_listen_wpm: result.effective_listen_wpm,
           comprehension_score: result.comprehension_score,
           retention_score: result.retention_score,
@@ -1780,6 +1783,26 @@ export default function App() {
         })
       );
       setSpeedListenCacheStatus("ready");
+      stageOfflineAction({
+        actionType: "speed_listen_completion",
+        endpoint: "/api/speed-listen/complete",
+        method: "POST",
+        payload: {
+          userId: activeUser.id,
+          speedListenSessionId: speedListenPlan.id,
+          sourceId: activeSpeedListenSource.id,
+          sourceKind: speedListenPlan.source_kind,
+          rawListenWpm: speedListenPlan.raw_listen_wpm,
+          playbackRate: speedListenPlan.effective_playback_rate,
+          comprehensionScore: result.comprehension_score,
+          retentionScore: result.retention_score,
+          strainRating: result.strain_rating,
+          distractionRating: result.distraction_rating,
+          audioMinutes,
+          completedAt
+        },
+        idempotencyKey: `${activeUser.id}:speed_listen:${speedListenPlan.id}:${completedAt}`
+      });
     } catch {
       setSpeedListenCacheStatus("unavailable");
     }

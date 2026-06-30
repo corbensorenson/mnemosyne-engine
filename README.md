@@ -61,8 +61,8 @@ The dev server runs the PWA at the URL printed by Vite, normally `http://localho
 The API server defaults to `http://localhost:8787` and can use memory or Postgres storage through `.env` settings.
 Set `VITE_MNEMOSYNE_API_URL` and `VITE_MNEMOSYNE_USER_ID` to hydrate the PWA from the first-party app bootstrap route instead of the local demo seed.
 When configured, the PWA uses the bootstrapped persisted goals, daily packet, and sleep audio plan as the primary Today, Forge, Tutor, GraphFeed, WalkMode, Lock-In, and Sleep plan.
-Morning Forge, Tutor, GraphFeed, first-party Paced Read, WalkMode, Evening Lock-In, SleepCue, wearable sleep imports, Privacy Ops, and incident reports post backend-compatible queued payloads directly to the first-party domain endpoints when API sync is configured, with the offline receipt route retained for legacy and receipt-only payloads.
-SpeedListen runs as first-party local gated evidence in the PWA: compressed audio only advances graph state after comprehension, retention, strain, and distraction checks pass.
+Morning Forge, Tutor, GraphFeed, first-party Paced Read, SpeedListen, WalkMode, Evening Lock-In, SleepCue, wearable sleep imports, Privacy Ops, and incident reports post backend-compatible queued payloads directly to the first-party domain endpoints when API sync is configured, with the offline receipt route retained for legacy and receipt-only payloads.
+SpeedListen runs as first-party gated evidence in the PWA and API: compressed audio only advances graph state after comprehension, retention, strain, and distraction checks pass, and completion sync records replayable `speed_listen_completed` events without a third-party playback API.
 `npm run verify` runs lint, typecheck, unit tests, production build, and dependency audit.
 
 ## Roadmap

@@ -405,6 +405,65 @@ describe("web offline sync transport", () => {
     );
   });
 
+  it("routes backend-compatible SpeedListen completion queue items to the completion endpoint", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "speed_listen_completion",
+      endpoint: "/api/speed-listen/complete",
+      method: "POST",
+      payload: {
+        userId: "user_demo",
+        speedListenSessionId: "speed_listen_session_demo",
+        sourceId: "video_demo",
+        sourceKind: "video_transcript",
+        rawListenWpm: 209,
+        playbackRate: 1.35,
+        comprehensionScore: 0.84,
+        retentionScore: 0.76,
+        strainRating: 0.22,
+        distractionRating: 0.14,
+        audioMinutes: 2.8,
+        completedAt: "2026-06-30T19:35:00.000Z"
+      },
+      idempotencyKey: "speed-listen-domain-write"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787/", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/speed-listen/complete",
+        body: item.payload,
+        directDomainWrite: true
+      })
+    );
+  });
+
+  it("keeps legacy SpeedListen completion payloads on the offline receipt route", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "speed_listen_completion",
+      endpoint: "/api/speed-listen/complete",
+      method: "POST",
+      payload: {
+        speed_listen_session_id: "speed_listen_session_demo",
+        effective_listen_wpm: 148,
+        advance_allowed: true
+      },
+      idempotencyKey: "legacy-speed-listen-receipt"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/offline/actions/sync",
+        body: { item },
+        directDomainWrite: false
+      })
+    );
+  });
+
   it("routes backend-compatible SleepCue playback queue items to the playback endpoint", () => {
     const item = createOfflineQueueItem({
       userId: "user_demo",

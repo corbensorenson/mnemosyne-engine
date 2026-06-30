@@ -484,6 +484,7 @@ export const learningEventSchema = z.object({
     "sleep_cue_played",
     "video_watched",
     "paced_read_completed",
+    "speed_listen_completed",
     "walk_recall_completed",
     "graph_updated",
     "proposal_submitted",

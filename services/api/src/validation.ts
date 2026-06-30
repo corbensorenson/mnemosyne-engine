@@ -123,6 +123,7 @@ const learningEventTypeSchema = z.enum([
   "sleep_cue_played",
   "video_watched",
   "paced_read_completed",
+  "speed_listen_completed",
   "walk_recall_completed",
   "graph_updated",
   "proposal_submitted",
@@ -478,7 +479,15 @@ export const startSessionRequestSchema = z
   .object({
     userId: userIdSchema,
     dailyPacketId: z.string().min(1),
-    sessionType: z.enum(["morning_forge", "graphfeed", "walk_mode", "evening_lock_in", "sleep", "paced_read"])
+    sessionType: z.enum([
+      "morning_forge",
+      "graphfeed",
+      "walk_mode",
+      "evening_lock_in",
+      "sleep",
+      "paced_read",
+      "speed_listen"
+    ])
   })
   .strict();
 
@@ -630,6 +639,24 @@ export const pacedReadCompleteRequestSchema = z
     retentionScore: z.number().min(0).max(1),
     strainRating: z.number().min(0).max(1),
     screenMinutes: z.number().nonnegative().default(0),
+    completedAt: z.string().optional()
+  })
+  .strict();
+
+export const speedListenCompleteRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    sessionId: z.string().min(1).optional(),
+    speedListenSessionId: z.string().min(1),
+    sourceId: z.string().min(1),
+    sourceKind: z.enum(["video_transcript", "paced_read_recap", "note"]).default("video_transcript"),
+    rawListenWpm: z.number().int().min(80).max(500),
+    playbackRate: z.number().min(0.75).max(2.2),
+    comprehensionScore: z.number().min(0).max(1),
+    retentionScore: z.number().min(0).max(1),
+    strainRating: z.number().min(0).max(1),
+    distractionRating: z.number().min(0).max(1),
+    audioMinutes: z.number().nonnegative().default(0),
     completedAt: z.string().optional()
   })
   .strict();
