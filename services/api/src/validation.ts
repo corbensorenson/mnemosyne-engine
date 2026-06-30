@@ -258,6 +258,14 @@ export const objectManifestRequestSchema = z
   })
   .strict();
 
+export const securityReleaseGateRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    environment: z.enum(["local", "staging", "production"]).default("production"),
+    reportUri: z.string().url().optional()
+  })
+  .strict();
+
 export const completeOnboardingRequestSchema = z
   .object({
     userId: z.string().min(1).optional(),

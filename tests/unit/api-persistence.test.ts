@@ -278,6 +278,76 @@ describe("persistence-backed API handlers", () => {
     );
   });
 
+  it("labels high-stakes proposal content and exposes security release gates", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+
+    const security = unwrap(
+      await handlers.getSecurityReleaseGate({
+        userId: demoUser.id,
+        environment: "production"
+      })
+    );
+    expect(security.headers["Content-Security-Policy"]).toContain("default-src 'self'");
+    expect(security.release_gate.passed).toBe(true);
+    expect(security.rate_limit_policy_count).toBeGreaterThan(0);
+
+    const submitted = unwrap(
+      await handlers.createProposal({
+        proposerId: demoUser.id,
+        proposalType: "add_claim",
+        affectedObjectIds: ["claim_medical_demo"],
+        diff: {
+          add_claim: {
+            subject_id: "sleep",
+            predicate_id: "improves",
+            object_value: "medical diagnosis and dosage advice for insomnia symptoms"
+          }
+        },
+        rationale: "Medical sleep content requires source labels, review dates, and expert oversight.",
+        evidenceFor: [
+          {
+            id: "source_medical_demo",
+            title: "Clinical guideline",
+            citation: "medical dosage diagnosis",
+            source_type: "expert",
+            quality_score: 0.9
+          }
+        ],
+        riskLevel: "low"
+      })
+    );
+
+    expect(submitted.proposal.risk_level).toBe("high");
+    expect(submitted.proposal.status).toBe("human_review_required");
+    expect(submitted.high_stakes.detected).toBe(true);
+    expect(submitted.proposal.diff.security_review).toEqual(
+      expect.objectContaining({
+        high_stakes_detected: true,
+        requires_expert_review: true,
+        canonical_blocked_without_review: true
+      })
+    );
+
+    const audits = await store.listAuditEvents(demoUser.id);
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "security_release_gate_checked",
+          payload: expect.objectContaining({ csp_present: true })
+        }),
+        expect.objectContaining({
+          action: "proposal_submitted",
+          object_id: submitted.proposal.id,
+          payload: expect.objectContaining({
+            high_stakes_detected: true,
+            requires_expert_review: true
+          })
+        })
+      ])
+    );
+  });
+
   it("starts sessions, records events, and updates graph state from assessment responses", async () => {
     const store = await createSeededStore();
     const handlers = createApiHandlers(store);

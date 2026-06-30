@@ -34,6 +34,7 @@ The repository already has the first foundation:
 - Shared schemas for graph, user state, sessions, video, sleep, governance, experiments, and events.
 - Core packages for graph analysis, scheduling, assessment scoring, sleep packets, audio timelines, video ranking, the first-party Paced Read engine, Technique Lab, and Content Court.
 - First-party tutor core for rubric semantics, tutor modes, feedback safety gates, and compatible assessment events.
+- First-party security core for CSP headers, rate-limit policies, high-stakes labels, and audit-safety release gates.
 - Seed master graph layout, schemas, packs, arbiter policy, source rubric, and release notes.
 - API, scheduler, and audio-renderer service skeletons.
 - First-party ops primitives for queues, job lifecycle, object manifests, and release health gates.
@@ -381,6 +382,7 @@ Current implementation progress:
 - First-party WalkMode completion persists voice and text answers through the same assessment response path, logs compatible `assessment_answered` events, records `walk_recall_completed`, marks confusing prompts for repair, and supports deleted transcript retention.
 - First-party `@mnemosyne/tutor-core` now scores rubric semantics, supports Socratic, Examiner, Calm Coach, Debate Opponent, Language Partner, Debugger, Oral Board, Walk Coach, and Sleep Prep Guide modes, and runs deterministic answer-leakage, hallucination-language, high-stakes advice, over-teaching, and assessment-compatibility release gates.
 - API `POST /api/tutor/turn` persists tutor-scored turns as compatible assessment responses, updates graph state only when the tutor release gate passes, records `assessment_answered`, and audits `tutor_turn_scored` with the safety evaluation.
+- First-party security core classifies high-stakes tutor context server-side so safety gates do not depend only on client declarations.
 
 Exit criteria:
 
@@ -404,6 +406,7 @@ Current implementation progress:
 
 - PWA Content Court case file shows proposal rationale, affected objects, source/risk metrics, before/after diff, vote controls, comments, arbiter review, moderation accept, release action, and generated release notes.
 - First-party proposal lifecycle supports vote, comment, AI review, human override, and release endpoints; accepted definition changes can update the master graph, mark the proposal merged, and emit a graph-release audit artifact with graph version and release notes.
+- Proposal creation and creator ingestion now classify high-stakes domains, elevate risk to human review, attach required safety labels to proposal diffs, and audit review requirements before content can affect canonical graph state.
 
 Exit criteria:
 
@@ -504,6 +507,7 @@ Current implementation progress:
 - Security foundation now includes `@mnemosyne/auth-core` for RBAC, object-level authorization, consent-aware analytics access, CSRF verification, session expiry, and API audit trails for auth decisions.
 - Outcome analytics now exposes `GET /api/outcomes/dashboard` and `POST /api/outcomes/refresh` with quality gates for immediate recall, 24h recall, 7d recall, 30d recall, transfer, latency, calibration, screen load, and SleepCue controls.
 - First-party ops core now models queue names, job lifecycle, idempotency, retries, dead letters, object manifests, encryption/integrity gates, and an ops health dashboard; API routes persist and audit jobs and object manifests.
+- First-party security core now exposes `GET /api/security/release-gate` with CSP/header policy, rate-limit profiles, high-stakes labels, CSRF expectations, and audit-safety checks.
 - Production release runbook covers deployment environments, required services and secrets, monitoring, backup/restore, accessibility, load/reliability, and release checklist.
 - Privacy documentation covers export bundle contents, deletion scopes, audit rules, product requirements, and test coverage.
 

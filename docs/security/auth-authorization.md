@@ -82,6 +82,8 @@ The eventual HTTP server must:
 - apply rate limits before expensive auth or AI paths
 - audit failed authorization decisions without leaking private object payloads
 
+See [`security-release-gates.md`](./security-release-gates.md) for the first-party CSP, rate-limit, high-stakes-domain, and audit-safety release gates that should wrap these handler contracts in production.
+
 ## Test Coverage
 
 Current tests verify:

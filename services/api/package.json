@@ -15,6 +15,7 @@
     "@mnemosyne/persistence-core": "*",
     "@mnemosyne/schema": "*",
     "@mnemosyne/scheduler-core": "*",
+    "@mnemosyne/security-core": "*",
     "@mnemosyne/shared-utils": "*",
     "@mnemosyne/sleep-core": "*",
     "@mnemosyne/social-core": "*",

@@ -87,6 +87,16 @@ import type {
   VideoAsset
 } from "@mnemosyne/schema";
 import { buildDailyLearningPacket } from "@mnemosyne/scheduler-core";
+import {
+  buildSecurityHeaders,
+  buildSecurityReleaseGate,
+  classifyHighStakesContent,
+  defaultRateLimitPolicies,
+  highStakesLabelsForAudit,
+  type HighStakesAssessment,
+  type SecurityHeaders,
+  type SecurityReleaseGate
+} from "@mnemosyne/security-core";
 import { clamp, createId, nowIso, todayIsoDate, unique } from "@mnemosyne/shared-utils";
 import { buildSleepCuePacket } from "@mnemosyne/sleep-core";
 import {
@@ -164,6 +174,7 @@ import {
   proposalVoteRequestSchema,
   renderSleepAudioRequestSchema,
   sessionEventRequestSchema,
+  securityReleaseGateRequestSchema,
   sleepPlaybackEventRequestSchema,
   sleepPacketRequestSchema,
   sleepRecallCompleteRequestSchema,
@@ -505,6 +516,18 @@ type ObjectManifestRequest = {
   sha256: string;
   retentionPolicy: ObjectRetentionPolicy;
   metadata: Record<string, unknown>;
+};
+
+type SecurityReleaseGateRequest = {
+  userId: string;
+  environment: "local" | "staging" | "production";
+  reportUri?: string;
+};
+
+type SecurityReleaseGateResponse = {
+  headers: SecurityHeaders;
+  release_gate: SecurityReleaseGate;
+  rate_limit_policy_count: number;
 };
 
 type CompleteOnboardingRequest = {
@@ -1010,6 +1033,46 @@ export function createApiHandlers(store: MnemosyneStore) {
       );
     },
 
+    async getSecurityReleaseGate(input: unknown): Promise<HandlerEnvelope<SecurityReleaseGateResponse>> {
+      const request = validateRequest(securityReleaseGateRequestSchema, input) as SecurityReleaseGateRequest;
+      await requireUser(store, request.userId);
+      const headers = buildSecurityHeaders({
+        environment: request.environment,
+        reportUri: request.reportUri
+      });
+      const rateLimitPolicies = defaultRateLimitPolicies();
+      const releaseGate = buildSecurityReleaseGate({
+        headers,
+        rateLimitPolicies,
+        highStakes: classifyHighStakesContent({}),
+        mutationRequiresCsrf: true,
+        auditPayload: {
+          actor_id: request.userId,
+          action: "security_release_gate_checked",
+          policy_count: rateLimitPolicies.length
+        }
+      });
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "security_release_gate_checked",
+        object_type: "security_release_gate",
+        object_id: request.environment,
+        payload: {
+          release_gate: releaseGate,
+          rate_limit_policy_count: rateLimitPolicies.length,
+          csp_present: Boolean(headers["Content-Security-Policy"])
+        }
+      });
+      return envelope(
+        {
+          headers,
+          release_gate: releaseGate,
+          rate_limit_policy_count: rateLimitPolicies.length
+        },
+        audit.id
+      );
+    },
+
     async completeOnboarding(input: unknown): Promise<HandlerEnvelope<OnboardingResponse>> {
       const request = validateRequest(completeOnboardingRequestSchema, input) as CompleteOnboardingRequest;
       const now = nowIso();
@@ -1253,6 +1316,15 @@ export function createApiHandlers(store: MnemosyneStore) {
     async scoreTutorTurn(input: unknown): Promise<HandlerEnvelope<TutorTurnResponse>> {
       const request = validateRequest(tutorTurnRequestSchema, input) as TutorTurnRequest;
       await requireUser(store, request.userId);
+      const highStakes = classifyHighStakesContent({
+        title: request.item.prompt,
+        body: stringifyForClassification({
+          raw_response: request.rawResponse,
+          expected_answer: request.item.expected_answer,
+          rubric: request.item.rubric
+        }),
+        riskLevel: request.highStakesDomain ? "high" : "low"
+      });
       const turn = buildTutorTurn({
         userId: request.userId,
         mode: request.mode,
@@ -1263,7 +1335,7 @@ export function createApiHandlers(store: MnemosyneStore) {
         hintCount: request.hintCount,
         retries: request.retries,
         transcriptPolicy: request.transcriptRetention,
-        highStakesDomain: request.highStakesDomain
+        highStakesDomain: highStakes.detected
       });
       const releaseGate = evaluateTutorReleaseGate([turn]);
       const response = buildAssessmentResponseFromTutorTurn({
@@ -1307,7 +1379,8 @@ export function createApiHandlers(store: MnemosyneStore) {
           semantic_score: savedResponse.semantic_score,
           detected_failure_modes: savedResponse.detected_failure_modes,
           release_gate_passed: releaseGate.passed,
-          graph_progress_awarded: releaseGate.passed
+          graph_progress_awarded: releaseGate.passed,
+          ...highStakesLabelsForAudit(highStakes)
         }
       });
       const audit = await store.appendAuditEvent({
@@ -1322,6 +1395,7 @@ export function createApiHandlers(store: MnemosyneStore) {
           intent: turn.intent,
           safety_evaluation: turn.safety_evaluation,
           release_gate: releaseGate,
+          ...highStakesLabelsForAudit(highStakes),
           event_id: event.id
         }
       });
@@ -2403,15 +2477,28 @@ export function createApiHandlers(store: MnemosyneStore) {
 
     async createProposal(input: unknown) {
       const request = validateRequest(proposalCreateRequestSchema, input);
+      const evidenceFor = normalizeSourceRefs(request.evidenceFor);
+      const evidenceAgainst = normalizeSourceRefs(request.evidenceAgainst);
+      const highStakes = highStakesForProposal({
+        title: request.proposalType,
+        body: stringifyForClassification({
+          rationale: request.rationale,
+          diff: request.diff,
+          affected_object_ids: request.affectedObjectIds
+        }),
+        evidence: [...evidenceFor, ...evidenceAgainst],
+        riskLevel: request.riskLevel
+      });
+      const riskLevel = riskLevelWithHighStakes(request.riskLevel, highStakes);
       const proposal = createCourtProposal({
         proposerId: request.proposerId,
         proposalType: request.proposalType,
         affectedObjectIds: request.affectedObjectIds,
-        diff: request.diff,
+        diff: annotateDiffWithHighStakes(request.diff, highStakes),
         rationale: request.rationale,
-        evidenceFor: normalizeSourceRefs(request.evidenceFor),
-        evidenceAgainst: normalizeSourceRefs(request.evidenceAgainst),
-        riskLevel: request.riskLevel
+        evidenceFor,
+        evidenceAgainst,
+        riskLevel
       });
       await store.saveProposal(proposal);
       const event = await store.appendLearningEvent({
@@ -2420,10 +2507,23 @@ export function createApiHandlers(store: MnemosyneStore) {
         payload: {
           proposal_id: proposal.id,
           proposal_type: proposal.proposal_type,
-          risk_level: proposal.risk_level
+          risk_level: proposal.risk_level,
+          ...highStakesLabelsForAudit(highStakes)
         }
       });
-      return envelope({ proposal, event });
+      const audit = await store.appendAuditEvent({
+        actor_id: request.proposerId === "ai_agent" ? "system" : request.proposerId,
+        action: "proposal_submitted",
+        object_type: "proposal",
+        object_id: proposal.id,
+        payload: {
+          proposal_type: proposal.proposal_type,
+          risk_level: proposal.risk_level,
+          status: proposal.status,
+          ...highStakesLabelsForAudit(highStakes)
+        }
+      });
+      return envelope({ proposal, event, high_stakes: highStakes }, audit.id);
     },
 
     async reviewProposal(
@@ -2610,8 +2710,9 @@ export function createApiHandlers(store: MnemosyneStore) {
       const creator = await requireUser(store, request.creatorId);
       const submissionId = createId("creator_ingestion");
       const evidence = mergeSourceRefs(request.source, request.evidence);
-      const riskFlags = triageCreatorDraft(request, evidence);
-      const riskLevel = riskLevelForCreatorSubmission(riskFlags);
+      const highStakes = highStakesForCreatorSubmission(request, evidence);
+      const riskFlags = [...triageCreatorDraft(request, evidence), ...riskFlagsForHighStakes(highStakes)];
+      const riskLevel = riskLevelWithHighStakes(riskLevelForCreatorSubmission(riskFlags), highStakes);
       const proposalDrafts = buildCreatorProposalDrafts(request, submissionId);
       const proposals: Proposal[] = [];
 
@@ -2620,7 +2721,7 @@ export function createApiHandlers(store: MnemosyneStore) {
           proposerId: creator.id,
           proposalType: proposalDraft.proposalType,
           affectedObjectIds: proposalDraft.affectedObjectIds,
-          diff: proposalDraft.diff,
+          diff: annotateDiffWithHighStakes(proposalDraft.diff, highStakes),
           rationale: proposalDraft.rationale,
           evidenceFor: evidence,
           riskLevel
@@ -2633,7 +2734,8 @@ export function createApiHandlers(store: MnemosyneStore) {
             proposal_id: proposal.id,
             creator_ingestion_id: submissionId,
             proposal_type: proposal.proposal_type,
-            risk_level: proposal.risk_level
+            risk_level: proposal.risk_level,
+            ...highStakesLabelsForAudit(highStakes)
           }
         });
       }
@@ -2669,7 +2771,8 @@ export function createApiHandlers(store: MnemosyneStore) {
           status: submission.status,
           risk_flags: riskFlags,
           proposal_ids: submission.proposal_ids,
-          content_counts: creatorContentCounts(request)
+          content_counts: creatorContentCounts(request),
+          ...highStakesLabelsForAudit(highStakes)
         }
       });
       return envelope({ submission, proposals, risk_flags: riskFlags }, audit.id);
@@ -3336,6 +3439,107 @@ function normalizeSourceRefs(sources: Array<Partial<SourceRef>> | undefined): So
 function mergeSourceRefs(source: SourceRef | undefined, evidence: SourceRef[]): SourceRef[] {
   const refs = normalizeSourceRefs([...(source ? [source] : []), ...evidence]);
   return [...new Map(refs.map((ref) => [ref.id, ref])).values()];
+}
+
+function highStakesForProposal(input: {
+  title: string;
+  body: string;
+  evidence: SourceRef[];
+  riskLevel: Proposal["risk_level"];
+}): HighStakesAssessment {
+  return classifyHighStakesContent({
+    title: input.title,
+    body: input.body,
+    sourceTitles: input.evidence.map((source) => [source.title, source.citation].filter(Boolean).join(" ")),
+    riskLevel: input.riskLevel
+  });
+}
+
+function highStakesForCreatorSubmission(
+  request: CreatorIngestionRequest,
+  evidence: SourceRef[]
+): HighStakesAssessment {
+  return classifyHighStakesContent({
+    title: request.title,
+    body: stringifyForClassification({
+      notes: request.notes,
+      concepts: request.draft.concepts.map((concept) => ({
+        title: concept.title,
+        domain: concept.domain,
+        subdomain: concept.subdomain,
+        definitions: concept.definitions
+      })),
+      videos: request.draft.videos.map((video) => ({
+        title: video.title,
+        creator: video.creator,
+        source_quality_score: video.source_quality_score,
+        misinformation_risk: video.misinformation_risk,
+        chapter_map: video.chapter_map
+      })),
+      assessments: request.draft.assessments.map((assessment) => ({
+        prompt: assessment.prompt,
+        expected_answer: assessment.expected_answer,
+        rubric: assessment.rubric
+      })),
+      sleep_cues: request.draft.sleepCues.map((cue) => ({
+        text: cue.text,
+        sleep_safety_score: cue.sleep_safety_score,
+        emotional_activation_score: cue.emotional_activation_score
+      })),
+      paced_reads: request.draft.pacedReadAssets.map((asset) => ({
+        title: asset.title,
+        raw_text: asset.raw_text,
+        comprehension_gate: asset.comprehension_gate
+      }))
+    }),
+    sourceTitles: evidence.map((source) => [source.title, source.citation].filter(Boolean).join(" "))
+  });
+}
+
+function riskLevelWithHighStakes(
+  base: Proposal["risk_level"],
+  assessment: HighStakesAssessment
+): Proposal["risk_level"] {
+  if (!assessment.detected) return base;
+  if (
+    base === "critical" ||
+    assessment.domains.some((domain) => domain === "weapons" || domain === "self_harm")
+  ) {
+    return "critical";
+  }
+  return "high";
+}
+
+function riskFlagsForHighStakes(assessment: HighStakesAssessment): string[] {
+  if (!assessment.detected) return [];
+  return [
+    "high_stakes_requires_expert_review",
+    ...assessment.domains.map((domain) => `high_stakes_domain:${domain}`),
+    ...assessment.required_labels.map((label) => `security_label:${label}`)
+  ];
+}
+
+function annotateDiffWithHighStakes(
+  diff: Record<string, unknown>,
+  assessment: HighStakesAssessment
+): Record<string, unknown> {
+  if (!assessment.detected) return diff;
+  return {
+    ...diff,
+    security_review: {
+      ...highStakesLabelsForAudit(assessment),
+      canonical_blocked_without_review: assessment.canonical_blocked_without_review,
+      matched_terms: assessment.matched_terms
+    }
+  };
+}
+
+function stringifyForClassification(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 type CreatorProposalDraft = {
