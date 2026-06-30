@@ -843,7 +843,7 @@ export default function App() {
       return;
     }
     const currentChunk = pacedReadPlan.chunks[pacedReadChunkIndex] ?? "";
-    const wordsInChunk = currentChunk.split(/\s+/).filter(Boolean).length || 1;
+    const wordsInChunk = wordCount(currentChunk) || 1;
     const delayMs = Math.max(180, Math.round((wordsInChunk / pacedReadPlan.raw_wpm) * 60_000));
     const timer = window.setTimeout(() => {
       setPacedReadChunkIndex((index) => Math.min(index + 1, pacedReadPlan.chunks.length - 1));
@@ -1268,6 +1268,8 @@ export default function App() {
       retentionScore: pacedReadRetention,
       strainRating: pacedReadStrain
     };
+    const pacedReadWordCount = pacedReadPlan.chunks.reduce((sum, chunk) => sum + wordCount(chunk), 0);
+    const screenMinutes = round(pacedReadWordCount / result.rawWpm, 2);
     setPacedReadPlaying(false);
     setPacedReadResult(result);
     setStates((current) => applyPacedReadResultToLocalStates(current, activePacedReadAsset, result));
@@ -1287,6 +1289,7 @@ export default function App() {
           retention_score: result.retentionScore,
           strain_rating: result.strainRating,
           screen_load_score: result.screenLoadScore,
+          screen_minutes: screenMinutes,
           advance_allowed: result.advanceAllowed,
           concept_ids: activePacedReadAsset.concept_ids
         })
@@ -1297,16 +1300,15 @@ export default function App() {
         endpoint: "/api/paced-read/complete",
         method: "POST",
         payload: {
-          asset_id: activePacedReadAsset.id,
-          paced_read_session_id: pacedReadPlan.id,
-          raw_wpm: result.rawWpm,
-          effective_wpm: result.effectiveWpm,
-          comprehension_score: result.comprehensionScore,
-          retention_score: result.retentionScore,
-          strain_rating: result.strainRating,
-          screen_load_score: result.screenLoadScore,
-          advance_allowed: result.advanceAllowed,
-          concept_ids: activePacedReadAsset.concept_ids
+          userId: activeUser.id,
+          pacedReadSessionId: pacedReadPlan.id,
+          assetId: activePacedReadAsset.id,
+          rawWpm: result.rawWpm,
+          comprehensionScore: result.comprehensionScore,
+          retentionScore: result.retentionScore,
+          strainRating: result.strainRating,
+          screenMinutes,
+          completedAt
         },
         idempotencyKey: `${activeUser.id}:paced_read:${pacedReadPlan.id}:${completedAt}`
       });
@@ -5294,6 +5296,10 @@ function conceptTitle(concepts: ConceptNode[], conceptId: string): string {
 
 function avg(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
+}
+
+function wordCount(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
 }
 
 function repairTipsFor(response: AssessmentResponse): string[] {

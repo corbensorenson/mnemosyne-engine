@@ -276,6 +276,62 @@ describe("web offline sync transport", () => {
     );
   });
 
+  it("routes backend-compatible Paced Read completion queue items to the completion endpoint", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "paced_read_completion",
+      endpoint: "/api/paced-read/complete",
+      method: "POST",
+      payload: {
+        userId: "user_demo",
+        pacedReadSessionId: "paced_read_session_demo",
+        assetId: "paced_read_asset_demo",
+        rawWpm: 420,
+        comprehensionScore: 0.84,
+        retentionScore: 0.78,
+        strainRating: 0.22,
+        screenMinutes: 3.4,
+        completedAt: "2026-06-30T19:30:00.000Z"
+      },
+      idempotencyKey: "paced-read-domain-write"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787/", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/paced-read/complete",
+        body: item.payload,
+        directDomainWrite: true
+      })
+    );
+  });
+
+  it("keeps legacy Paced Read completion payloads on the offline receipt route", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "paced_read_completion",
+      endpoint: "/api/paced-read/complete",
+      method: "POST",
+      payload: {
+        paced_read_session_id: "paced_read_session_demo",
+        effective_wpm: 312,
+        advance_allowed: true
+      },
+      idempotencyKey: "legacy-paced-read-receipt"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/offline/actions/sync",
+        body: { item },
+        directDomainWrite: false
+      })
+    );
+  });
+
   it("routes backend-compatible SleepCue playback queue items to the playback endpoint", () => {
     const item = createOfflineQueueItem({
       userId: "user_demo",

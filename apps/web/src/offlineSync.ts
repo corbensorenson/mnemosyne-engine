@@ -116,6 +116,18 @@ function isDomainWritableOfflineActionItem(item: OfflineQueueItem): boolean {
     item.payload.videoIds.length > 0 &&
     typeof item.payload.recallPassed === "boolean" &&
     typeof item.payload.screenMinutes === "number";
+  const isPacedRead =
+    item.action_type === "paced_read_completion" &&
+    item.method === "POST" &&
+    item.endpoint === "/api/paced-read/complete" &&
+    typeof item.payload.userId === "string" &&
+    typeof item.payload.pacedReadSessionId === "string" &&
+    typeof item.payload.assetId === "string" &&
+    typeof item.payload.rawWpm === "number" &&
+    typeof item.payload.comprehensionScore === "number" &&
+    typeof item.payload.retentionScore === "number" &&
+    typeof item.payload.strainRating === "number" &&
+    typeof item.payload.screenMinutes === "number";
   const isSleepPlayback =
     item.action_type === "sleep_playback_event" &&
     item.method === "POST" &&
@@ -138,7 +150,15 @@ function isDomainWritableOfflineActionItem(item: OfflineQueueItem): boolean {
     item.payload.controlResponses.length > 0 &&
     typeof item.payload.screenMinutes === "number" &&
     typeof item.payload.voiceUsed === "boolean";
-  return isMorningForge || isWalkMode || isEveningLockIn || isGraphFeed || isSleepPlayback || isSleepRecall;
+  return (
+    isMorningForge ||
+    isWalkMode ||
+    isEveningLockIn ||
+    isGraphFeed ||
+    isPacedRead ||
+    isSleepPlayback ||
+    isSleepRecall
+  );
 }
 
 function domainReceiptId(
