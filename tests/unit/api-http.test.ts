@@ -101,7 +101,8 @@ describe("API HTTP adapter", () => {
       expect(body.data).toEqual(
         expect.objectContaining({
           user: expect.objectContaining({ id: demoUser.id }),
-          daily_packet_source: "generated"
+          daily_packet_source: "generated",
+          audio_plan: expect.objectContaining({ user_id: demoUser.id })
         })
       );
     } finally {

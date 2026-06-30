@@ -1,4 +1,5 @@
 import type {
+  AudioPlan,
   DailyLearningPacket,
   Goal,
   ReadinessProfile,
@@ -28,6 +29,7 @@ export type AppBootstrapPayload = {
   readiness: ReadinessProfile;
   user_graph: UserKnowledgeGraph;
   daily_packet?: DailyLearningPacket;
+  audio_plan?: AudioPlan;
   daily_packet_summary?: {
     id: string;
     date: string;

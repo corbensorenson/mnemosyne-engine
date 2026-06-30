@@ -84,6 +84,7 @@ import {
 } from "@mnemosyne/offline-core";
 import { buildDailyLearningPacket, type ScheduledDay } from "@mnemosyne/scheduler-core";
 import type {
+  AudioPlan,
   DailyLearningPacket,
   AssessmentItem,
   AssessmentResponse,
@@ -235,6 +236,7 @@ export default function App() {
     useState<AppBootstrapPayload["daily_packet_source"]>("missing");
   const [activeGoals, setActiveGoals] = useState<Goal[]>(demoGoals);
   const [backendPacket, setBackendPacket] = useState<DailyLearningPacket | null>(null);
+  const [backendAudioPlan, setBackendAudioPlan] = useState<AudioPlan | null>(null);
   const [readiness, setReadiness] = useState<ReadinessProfile>(defaultReadiness);
   const [states, setStates] = useState<UserConceptState[]>(initialUserStates);
   const [selectedNodeId, setSelectedNodeId] = useState("attention_qkv");
@@ -334,8 +336,8 @@ export default function App() {
     [activeGoals, activeUser, baselineConstraints, readiness, userGraph]
   );
   const baseScheduled = useMemo<ScheduledDay>(
-    () => scheduleFromPersistedPacket(backendPacket, baseLocalScheduled),
-    [backendPacket, baseLocalScheduled]
+    () => scheduleFromPersistedPacket(backendPacket, backendAudioPlan, baseLocalScheduled),
+    [backendAudioPlan, backendPacket, baseLocalScheduled]
   );
   const experimentSuite = useMemo(() => createDefaultExperimentSuite(), []);
   const experimentResponses = useMemo(
@@ -544,8 +546,8 @@ export default function App() {
     [activeGoals, activeUser, personalizedConstraints, readiness, userGraph]
   );
   const scheduled = useMemo<ScheduledDay>(
-    () => scheduleFromPersistedPacket(backendPacket, personalizedLocalScheduled),
-    [backendPacket, personalizedLocalScheduled]
+    () => scheduleFromPersistedPacket(backendPacket, backendAudioPlan, personalizedLocalScheduled),
+    [backendAudioPlan, backendPacket, personalizedLocalScheduled]
   );
   const snapshot = useMemo(() => buildGraphSnapshot(demoMasterGraph, userGraph), [userGraph]);
   const rankedVideos = useMemo(
@@ -748,6 +750,7 @@ export default function App() {
       setActiveUser(bootstrap.user);
       setActiveGoals(bootstrap.goals);
       setBackendPacket(bootstrap.daily_packet ?? null);
+      setBackendAudioPlan(bootstrap.audio_plan ?? null);
       setReadiness(bootstrap.readiness);
       if (bootstrap.user_graph.states.length > 0) {
         setStates(bootstrap.user_graph.states);
@@ -770,6 +773,9 @@ export default function App() {
           bootstrap.daily_packet
             ? `persisted packet active: ${bootstrap.daily_packet.id}`
             : "local packet fallback",
+          bootstrap.audio_plan
+            ? `persisted audio plan: ${bootstrap.audio_plan.render_status}`
+            : "audio preview fallback",
           `persisted graph states: ${bootstrap.user_graph.states.length}`,
           ...current
         ].slice(0, 6)
@@ -1557,6 +1563,7 @@ export default function App() {
   function launchFromOnboarding(config: OnboardingLaunch) {
     setActiveGoals([buildLocalGoalFromOnboarding(config, activeUser.id)]);
     setBackendPacket(null);
+    setBackendAudioPlan(null);
     setBackendPacketSource("missing");
     setReadiness(config.readiness);
     setStates(config.states);

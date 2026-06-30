@@ -18,6 +18,14 @@ describe("web API client", () => {
         dusk_mode: false
       },
       user_graph: { userId: demoUser.id, states: [] },
+      audio_plan: {
+        id: "audio_plan_demo",
+        user_id: demoUser.id,
+        duration_seconds: 120,
+        layers: [],
+        render_status: "pending",
+        created_at: "2026-06-30T08:00:00.000Z"
+      },
       daily_packet_source: "missing",
       packs: [],
       installed_packs: []
@@ -35,6 +43,7 @@ describe("web API client", () => {
     });
 
     expect(bootstrap.user.id).toBe(demoUser.id);
+    expect(bootstrap.audio_plan?.id).toBe("audio_plan_demo");
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/app/bootstrap");
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("generateMissingPacket=true");
     fetchMock.mockRestore();

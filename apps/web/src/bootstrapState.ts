@@ -3,12 +3,16 @@ import type { AudioPlan, DailyLearningPacket } from "@mnemosyne/schema";
 
 export function scheduleFromPersistedPacket(
   packet: DailyLearningPacket | null | undefined,
+  audioPlan: AudioPlan | null | undefined,
   fallback: ScheduledDay
 ): ScheduledDay {
   if (!packet) return fallback;
   return {
     packet,
-    audioPlan: audioPreviewForPacket(packet, fallback.audioPlan)
+    audioPlan:
+      audioPlan?.id === packet.sleep.audio_plan_id
+        ? audioPlan
+        : audioPreviewForPacket(packet, fallback.audioPlan)
   };
 }
 

@@ -268,6 +268,7 @@ type AppBootstrapResponse = {
   readiness: ReadinessProfile;
   user_graph: UserKnowledgeGraph;
   daily_packet?: DailyLearningPacket;
+  audio_plan?: AudioPlan;
   daily_packet_summary?: ReturnType<typeof packetSummary>;
   daily_packet_source: "existing" | "generated" | "missing";
   packs: KnowledgePackRecord[];
@@ -1020,6 +1021,9 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
           ? await generateAndPersistDailyPacket(store, request.userId, readiness, "app_bootstrap")
           : undefined;
       const packet = existingPacket ?? generated?.packet;
+      const storedAudioPlan = packet ? await store.getAudioPlan(packet.sleep.audio_plan_id) : undefined;
+      const audioPlan =
+        generated?.audioPlan ?? (storedAudioPlan?.user_id === request.userId ? storedAudioPlan : undefined);
       const [goals, userGraph, packs, latestOutcomeDashboard] = await Promise.all([
         store.listGoals(request.userId),
         store.getUserGraph(request.userId),
@@ -1033,6 +1037,7 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
         readiness,
         user_graph: userGraph,
         daily_packet: packet,
+        audio_plan: audioPlan,
         daily_packet_summary: packet ? packetSummary(packet) : undefined,
         daily_packet_source: existingPacket ? "existing" : generated ? "generated" : "missing",
         packs,
