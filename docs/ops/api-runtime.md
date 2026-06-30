@@ -16,7 +16,7 @@ npm run docker:up
 - all `/api/*` routes from the first-party HTTP adapter
 
 Release-gate routes include `/api/security/release-gate`, `/api/accessibility/release-gate`, `/api/reliability/release-gate`, and `/api/ops/monitoring`.
-The PWA app bootstrap route is `GET /api/app/bootstrap`, which returns the persisted user, goals, readiness profile, personal graph, installed packs, latest outcome dashboard, and today's packet summary for the configured learner.
+The PWA app bootstrap route is `GET /api/app/bootstrap`, which returns the persisted user, goals, readiness profile, personal graph, installed packs, latest outcome dashboard, and today's packet summary for the configured learner. When a daily packet is present, the PWA uses that persisted packet as the primary session plan and derives only a local first-party audio preview until stored audio-plan hydration is wired through the app bootstrap payload.
 The PWA offline sync receipt route is `POST /api/offline/actions/sync`.
 
 `GET /healthz` is a cheap liveness check. `GET /readyz` verifies the configured `MnemosyneStore` and object-storage adapter before returning `200`; dependency failures return `503 service_not_ready` with per-component status details.

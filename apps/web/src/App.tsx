@@ -82,11 +82,13 @@ import {
   type OfflineQueueItem,
   type OfflineQueueSummary
 } from "@mnemosyne/offline-core";
-import { buildDailyLearningPacket } from "@mnemosyne/scheduler-core";
+import { buildDailyLearningPacket, type ScheduledDay } from "@mnemosyne/scheduler-core";
 import type {
+  DailyLearningPacket,
   AssessmentItem,
   AssessmentResponse,
   ConceptNode,
+  Goal,
   PacedReadAsset,
   LearningEvent,
   Proposal,
@@ -147,6 +149,7 @@ import {
   type AppBootstrapPayload,
   type WebApiConfig
 } from "./apiClient";
+import { scheduleFromPersistedPacket } from "./bootstrapState";
 
 type TabId =
   | "onboarding"
@@ -230,6 +233,8 @@ export default function App() {
   const [backendMeta, setBackendMeta] = useState(apiConfig ? "API pending" : "local demo");
   const [backendPacketSource, setBackendPacketSource] =
     useState<AppBootstrapPayload["daily_packet_source"]>("missing");
+  const [activeGoals, setActiveGoals] = useState<Goal[]>(demoGoals);
+  const [backendPacket, setBackendPacket] = useState<DailyLearningPacket | null>(null);
   const [readiness, setReadiness] = useState<ReadinessProfile>(defaultReadiness);
   const [states, setStates] = useState<UserConceptState[]>(initialUserStates);
   const [selectedNodeId, setSelectedNodeId] = useState("attention_qkv");
@@ -316,17 +321,21 @@ export default function App() {
   const userGraph = useMemo(() => ({ userId: activeUser.id, states }), [activeUser.id, states]);
   const offlineQueueSummary = useMemo(() => summarizeOfflineQueue(offlineQueue), [offlineQueue]);
   const baselineConstraints = useMemo(() => personalizeSessionConstraints(readiness), [readiness]);
-  const baseScheduled = useMemo(
+  const baseLocalScheduled = useMemo(
     () =>
       buildDailyLearningPacket({
         user: activeUser,
         userGraph,
         masterGraph: demoMasterGraph,
-        goals: demoGoals,
+        goals: activeGoals,
         readiness,
         constraints: baselineConstraints
       }),
-    [activeUser, baselineConstraints, readiness, userGraph]
+    [activeGoals, activeUser, baselineConstraints, readiness, userGraph]
+  );
+  const baseScheduled = useMemo<ScheduledDay>(
+    () => scheduleFromPersistedPacket(backendPacket, baseLocalScheduled),
+    [backendPacket, baseLocalScheduled]
   );
   const experimentSuite = useMemo(() => createDefaultExperimentSuite(), []);
   const experimentResponses = useMemo(
@@ -522,17 +531,21 @@ export default function App() {
     () => personalizeSessionConstraints(readiness, personalizationProfile),
     [personalizationProfile, readiness]
   );
-  const scheduled = useMemo(
+  const personalizedLocalScheduled = useMemo(
     () =>
       buildDailyLearningPacket({
         user: activeUser,
         userGraph,
         masterGraph: demoMasterGraph,
-        goals: demoGoals,
+        goals: activeGoals,
         readiness,
         constraints: personalizedConstraints
       }),
-    [activeUser, personalizedConstraints, readiness, userGraph]
+    [activeGoals, activeUser, personalizedConstraints, readiness, userGraph]
+  );
+  const scheduled = useMemo<ScheduledDay>(
+    () => scheduleFromPersistedPacket(backendPacket, personalizedLocalScheduled),
+    [backendPacket, personalizedLocalScheduled]
   );
   const snapshot = useMemo(() => buildGraphSnapshot(demoMasterGraph, userGraph), [userGraph]);
   const rankedVideos = useMemo(
@@ -540,12 +553,18 @@ export default function App() {
       rankVideosForUser({
         videos: demoMasterGraph.videos,
         states,
-        goals: demoGoals,
+        goals: activeGoals,
         frontierConceptIds: scheduled.packet.morning.frontier_items.map((concept) => concept.id),
         horizonConceptIds: scheduled.packet.morning.horizon_items.map((concept) => concept.id),
         readiness
       }),
-    [readiness, scheduled.packet.morning.frontier_items, scheduled.packet.morning.horizon_items, states]
+    [
+      activeGoals,
+      readiness,
+      scheduled.packet.morning.frontier_items,
+      scheduled.packet.morning.horizon_items,
+      states
+    ]
   );
   const activeWatchPacket = scheduled.packet.optional_watch_packets[0];
   const packetVideos = useMemo(
@@ -727,6 +746,8 @@ export default function App() {
     try {
       const bootstrap = await fetchAppBootstrap(apiConfig, { generateMissingPacket: true });
       setActiveUser(bootstrap.user);
+      setActiveGoals(bootstrap.goals);
+      setBackendPacket(bootstrap.daily_packet ?? null);
       setReadiness(bootstrap.readiness);
       if (bootstrap.user_graph.states.length > 0) {
         setStates(bootstrap.user_graph.states);
@@ -736,14 +757,19 @@ export default function App() {
       if (firstGoalTarget || firstGraphState) {
         setSelectedNodeId(firstGoalTarget ?? firstGraphState ?? selectedNodeId);
       }
+      const firstPacketVideoId = bootstrap.daily_packet?.optional_watch_packets[0]?.video_ids[0];
+      if (firstPacketVideoId) setCinemaVideoId(firstPacketVideoId);
       setBackendPacketSource(bootstrap.daily_packet_source);
       setBackendStatus("connected");
       setBackendMeta(
-        `${bootstrap.daily_packet_source} packet / ${bootstrap.installed_packs.length} installed packs`
+        `${bootstrap.daily_packet_source} packet / ${bootstrap.goals.length} goals / ${bootstrap.installed_packs.length} packs`
       );
       setEventLog((current) =>
         [
           `backend ${reason} bootstrap: ${bootstrap.daily_packet_source}`,
+          bootstrap.daily_packet
+            ? `persisted packet active: ${bootstrap.daily_packet.id}`
+            : "local packet fallback",
           `persisted graph states: ${bootstrap.user_graph.states.length}`,
           ...current
         ].slice(0, 6)
@@ -1529,6 +1555,9 @@ export default function App() {
   }
 
   function launchFromOnboarding(config: OnboardingLaunch) {
+    setActiveGoals([buildLocalGoalFromOnboarding(config, activeUser.id)]);
+    setBackendPacket(null);
+    setBackendPacketSource("missing");
     setReadiness(config.readiness);
     setStates(config.states);
     setSelectedNodeId(config.targetConceptIds[0] ?? "attention_qkv");
@@ -1899,9 +1928,12 @@ type GoalTemplateId = "ai" | "travel" | "python";
 
 type OnboardingLaunch = {
   goalTitle: string;
+  goalDescription: string;
   packCount: number;
   diagnosticCount: number;
   targetConceptIds: string[];
+  targetDomainIds: string[];
+  desiredModalities: Goal["desired_modalities"];
   readiness: ReadinessProfile;
   states: UserConceptState[];
 };
@@ -1946,6 +1978,25 @@ const onboardingPacks = [
   { id: "pack_python_basics", title: "Python Basics", domain: "coding", quality: "tested" },
   { id: "pack_world_history", title: "World History", domain: "history", quality: "community" }
 ];
+
+function buildLocalGoalFromOnboarding(config: OnboardingLaunch, userId: string): Goal {
+  const createdAt = nowIso();
+  return {
+    id: createId("goal", `${userId}:${config.goalTitle}:${createdAt}`),
+    user_id: userId,
+    title: config.goalTitle,
+    description: config.goalDescription,
+    goal_type: "skill",
+    target_concept_ids: config.targetConceptIds,
+    target_domain_ids: config.targetDomainIds,
+    priority: 0.86,
+    intensity: "normal",
+    desired_modalities: config.desiredModalities,
+    avoid_modalities: [],
+    created_at: createdAt,
+    updated_at: createdAt
+  };
+}
 
 function OnboardingView({ onComplete }: { onComplete: (config: OnboardingLaunch) => void }) {
   const [step, setStep] = useState(0);
@@ -2008,9 +2059,17 @@ function OnboardingView({ onComplete }: { onComplete: (config: OnboardingLaunch)
   function finish() {
     onComplete({
       goalTitle,
+      goalDescription,
       packCount: selectedPacks.length,
       diagnosticCount: diagnostics.length,
       targetConceptIds: targetConcepts.map((concept) => concept.id),
+      targetDomainIds: template.domains,
+      desiredModalities: unique([
+        voiceFirst ? "voice" : "text",
+        walking ? "walking" : "visual",
+        pacedRead ? "text" : "visual",
+        "audio"
+      ]) as Goal["desired_modalities"],
       readiness,
       states: buildOnboardingPreviewStates(targetConcepts)
     });
@@ -2210,7 +2269,7 @@ function TodayView({
 }: {
   readiness: ReadinessProfile;
   setReadiness: (next: ReadinessProfile) => void;
-  packet: ReturnType<typeof buildDailyLearningPacket>["packet"];
+  packet: ScheduledDay["packet"];
   metrics: {
     graphVelocity: number;
     durableMastery: number;
@@ -2450,15 +2509,13 @@ function ForgeView({
   completedCount,
   offlineCacheStatus
 }: {
-  packet: ReturnType<typeof buildDailyLearningPacket>["packet"];
-  prompt:
-    | ReturnType<typeof buildDailyLearningPacket>["packet"]["morning"]["cold_retrieval_items"][number]
-    | undefined;
+  packet: ScheduledDay["packet"];
+  prompt: ScheduledDay["packet"]["morning"]["cold_retrieval_items"][number] | undefined;
   promptIndex: number;
   queueLength: number;
   frontier: ConceptNode[];
   horizon: ConceptNode[];
-  cuePreview: ReturnType<typeof buildDailyLearningPacket>["packet"]["morning"]["cue_preview_items"];
+  cuePreview: ScheduledDay["packet"]["morning"]["cue_preview_items"];
   answer: string;
   setAnswer: (value: string) => void;
   answerMode: "text" | "voice";
@@ -2962,10 +3019,8 @@ function WalkView({
   setTranscriptDeleted,
   answeredCount
 }: {
-  packet: ReturnType<typeof buildDailyLearningPacket>["packet"]["walk_packets"][number] | undefined;
-  prompt:
-    | ReturnType<typeof buildDailyLearningPacket>["packet"]["walk_packets"][number]["prompts"][number]
-    | undefined;
+  packet: ScheduledDay["packet"]["walk_packets"][number] | undefined;
+  prompt: ScheduledDay["packet"]["walk_packets"][number]["prompts"][number] | undefined;
   promptIndex: number;
   queueLength: number;
   phase: WalkPhase;
@@ -3153,7 +3208,7 @@ function LockInView({
   audioPlaying,
   setAudioPlaying
 }: {
-  packet: ReturnType<typeof buildDailyLearningPacket>["packet"];
+  packet: ScheduledDay["packet"];
   prompt: EveningPrompt | undefined;
   promptIndex: number;
   queueLength: number;
@@ -3367,8 +3422,8 @@ function SleepView({
   controlConceptIds,
   concepts
 }: {
-  packet: ReturnType<typeof buildDailyLearningPacket>["packet"]["sleep"];
-  audioPlan: ReturnType<typeof buildDailyLearningPacket>["audioPlan"];
+  packet: ScheduledDay["packet"]["sleep"];
+  audioPlan: ScheduledDay["audioPlan"];
   integrity: number;
   playbackStatus: SleepPlaybackStatus;
   startPlayback: () => void;
