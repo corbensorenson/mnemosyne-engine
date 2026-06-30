@@ -75,6 +75,18 @@ export const apiRoutes: ApiRoute[] = [
   { method: "POST", path: "/api/sleep/packet/generate", service: "SleepCue Service", eventType: "cue_bound" },
   { method: "GET", path: "/api/sleep/packet/tonight", service: "SleepCue Service" },
   { method: "POST", path: "/api/sleep/audio/render", service: "Audio Render Service" },
+  {
+    method: "POST",
+    path: "/api/sleep/playback/events",
+    service: "SleepCue Service",
+    eventType: "sleep_cue_played"
+  },
+  {
+    method: "POST",
+    path: "/api/sleep/recall/complete",
+    service: "Assessment Service",
+    eventType: "graph_updated"
+  },
   { method: "POST", path: "/api/wearables/sync", service: "Wearable Integration Service" },
   {
     method: "POST",

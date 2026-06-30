@@ -322,6 +322,11 @@ Deliverables:
 - Stop condition reporting.
 - Sleep safety dashboard.
 
+Current implementation progress:
+
+- API SleepCue playback flow logs played cue events, bucket counts, stop conditions, disruption reports, completed sleep sessions, and audit records against persisted sleep packets.
+- API next-morning SleepCue recall flow scores cued and matched-control prompts, reveals control comparison in results, updates graph state with `sleep_replays` and `cue_gain_estimate`, and records event/audit trails.
+
 Exit criteria:
 
 - User can run a sleep packet and see next-morning cue-gain comparison.

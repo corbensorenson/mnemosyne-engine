@@ -40,7 +40,7 @@ import type {
   VideoAsset
 } from "@mnemosyne/schema";
 import { buildDailyLearningPacket } from "@mnemosyne/scheduler-core";
-import { createId, nowIso, todayIsoDate } from "@mnemosyne/shared-utils";
+import { clamp, createId, nowIso, todayIsoDate } from "@mnemosyne/shared-utils";
 import { buildSleepCuePacket } from "@mnemosyne/sleep-core";
 import { buildWatchPackets, rankVideosForUser } from "@mnemosyne/video-core";
 import {
@@ -57,7 +57,9 @@ import {
   proposalReviewRequestSchema,
   renderSleepAudioRequestSchema,
   sessionEventRequestSchema,
+  sleepPlaybackEventRequestSchema,
   sleepPacketRequestSchema,
+  sleepRecallCompleteRequestSchema,
   startSessionRequestSchema,
   updatePreferencesRequestSchema,
   validateRequest,
@@ -138,6 +140,42 @@ type EveningLockInCompleteRequest = {
     chargerReady: boolean;
     alarmSet: boolean;
   };
+  screenMinutes: number;
+  voiceUsed: boolean;
+  completedAt?: string;
+};
+
+type SleepCueBucket = "reactivate" | "stabilize" | "prime" | "control";
+
+type SleepPlaybackEventRequest = {
+  userId: string;
+  sleepPacketId: string;
+  nightDate?: string;
+  audioPlanId?: string;
+  sessionId?: string;
+  playbackStartedAt?: string;
+  playbackEndedAt?: string;
+  cueEvents: Array<{
+    cueId?: string;
+    conceptId: string;
+    bucket: SleepCueBucket;
+    playedAt?: string;
+    volume?: number;
+    completed: boolean;
+    wearableStage?: string;
+  }>;
+  stopCondition:
+    "none" | "movement_detected" | "user_wake_report" | "wearable_wake_signal" | "time_limit" | "manual_stop";
+  sleepDisruptionReported: boolean;
+};
+
+type SleepRecallCompleteRequest = {
+  userId: string;
+  sleepPacketId: string;
+  nightDate?: string;
+  sessionId?: string;
+  cuedResponses: MorningForgeResponseInput[];
+  controlResponses: MorningForgeResponseInput[];
   screenMinutes: number;
   voiceUsed: boolean;
   completedAt?: string;
@@ -225,6 +263,21 @@ type DailyPacketResponse = {
 type SleepPacketResponse = {
   packet: SleepCuePacket;
   summary: ReturnType<typeof sleepPacketSummary>;
+};
+
+type SleepPlaybackResponse = {
+  session: SessionRecord;
+  event: LearningEvent;
+  summary: ReturnType<typeof sleepPlaybackSummary>;
+};
+
+type SleepCueRecallCompletionResponse = {
+  session: SessionRecord;
+  cued_responses: AssessmentResponse[];
+  control_responses: AssessmentResponse[];
+  updated_states: UserConceptState[];
+  repair_recommendations: string[];
+  summary: ReturnType<typeof sleepCueRecallSummary>;
 };
 
 type CreatorIngestionResponse = {
@@ -1004,6 +1057,220 @@ export function createApiHandlers(store: MnemosyneStore) {
       return envelope(manifest, audit.id);
     },
 
+    async recordSleepPlayback(input: unknown): Promise<HandlerEnvelope<SleepPlaybackResponse>> {
+      const request = validateRequest(sleepPlaybackEventRequestSchema, input) as SleepPlaybackEventRequest;
+      await requireUser(store, request.userId);
+      const packet = await store.getSleepCuePacket(request.userId, request.nightDate ?? todayIsoDate());
+      if (!packet || packet.id !== request.sleepPacketId) {
+        return notFound<SleepPlaybackResponse>("sleep_packet_not_found");
+      }
+      const invalidCue = request.cueEvents.find(
+        (cue) => !conceptIdsForSleepBucket(packet, cue.bucket).includes(cue.conceptId)
+      );
+      if (invalidCue) return notFound<SleepPlaybackResponse>("sleep_cue_not_found");
+      if (request.audioPlanId) {
+        const plan = await store.getAudioPlan(request.audioPlanId);
+        if (!plan || plan.user_id !== request.userId) {
+          return notFound<SleepPlaybackResponse>("audio_plan_not_found");
+        }
+      }
+
+      let session = request.sessionId ? await store.getSession(request.sessionId) : undefined;
+      if (
+        request.sessionId &&
+        (!session || session.user_id !== request.userId || session.session_type !== "sleep")
+      ) {
+        return notFound<SleepPlaybackResponse>("session_not_found");
+      }
+      const eventIds = session?.event_ids ? [...session.event_ids] : [];
+      if (!session) {
+        session = {
+          id: createId("session"),
+          user_id: request.userId,
+          session_type: "sleep",
+          status: "running",
+          started_at: request.playbackStartedAt ?? nowIso(),
+          event_ids: []
+        };
+        await store.saveSession(session);
+      }
+
+      const summary = sleepPlaybackSummary(packet, request);
+      const event = await store.appendLearningEvent({
+        user_id: request.userId,
+        event_type: "sleep_cue_played",
+        payload: {
+          session_id: session.id,
+          audio_plan_id: request.audioPlanId ?? packet.audio_plan_id,
+          cue_events: request.cueEvents,
+          ...summary
+        }
+      });
+      eventIds.push(event.id);
+      const completedSession = await store.saveSession({
+        ...session,
+        status: "completed",
+        completed_at: request.playbackEndedAt ?? nowIso(),
+        event_ids: Array.from(new Set(eventIds))
+      });
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "sleep_playback_logged",
+        object_type: "sleep_cue_packet",
+        object_id: packet.id,
+        payload: {
+          session_id: completedSession.id,
+          event_id: event.id,
+          ...summary
+        }
+      });
+
+      return envelope({ session: completedSession, event, summary }, audit.id);
+    },
+
+    async completeSleepCueRecall(input: unknown): Promise<HandlerEnvelope<SleepCueRecallCompletionResponse>> {
+      const request = validateRequest(sleepRecallCompleteRequestSchema, input) as SleepRecallCompleteRequest;
+      await requireUser(store, request.userId);
+      const packet = await store.getSleepCuePacket(request.userId, request.nightDate ?? todayIsoDate());
+      if (!packet || packet.id !== request.sleepPacketId) {
+        return notFound<SleepCueRecallCompletionResponse>("sleep_packet_not_found");
+      }
+      const cuedConceptSet = new Set(sleepCuedConceptIds(packet));
+      const controlConceptSet = new Set(packet.control_concept_ids);
+      const invalidCued = conceptIdsFromInputs(request.cuedResponses).find(
+        (conceptId) => !cuedConceptSet.has(conceptId)
+      );
+      const invalidControl = conceptIdsFromInputs(request.controlResponses).find(
+        (conceptId) => !controlConceptSet.has(conceptId)
+      );
+      if (invalidCued || invalidControl) {
+        return notFound<SleepCueRecallCompletionResponse>("sleep_recall_assignment_not_found");
+      }
+
+      let session = request.sessionId ? await store.getSession(request.sessionId) : undefined;
+      if (
+        request.sessionId &&
+        (!session || session.user_id !== request.userId || session.session_type !== "sleep")
+      ) {
+        return notFound<SleepCueRecallCompletionResponse>("session_not_found");
+      }
+      const eventIds = session?.event_ids ? [...session.event_ids] : [];
+      if (!session) {
+        session = {
+          id: createId("session"),
+          user_id: request.userId,
+          session_type: "sleep",
+          status: "running",
+          started_at: nowIso(),
+          event_ids: []
+        };
+        await store.saveSession(session);
+      }
+
+      let states = (await store.getUserGraph(request.userId)).states;
+      const cuedResponses: AssessmentResponse[] = [];
+      const controlResponses: AssessmentResponse[] = [];
+      const responseGroups: Array<{
+        assignment: "cued" | "control";
+        items: MorningForgeResponseInput[];
+        target: AssessmentResponse[];
+      }> = [
+        { assignment: "cued", items: request.cuedResponses, target: cuedResponses },
+        { assignment: "control", items: request.controlResponses, target: controlResponses }
+      ];
+
+      for (const group of responseGroups) {
+        for (const responseInput of group.items) {
+          const response = scoreAssessmentResponse({
+            userId: request.userId,
+            item: responseInput.item,
+            rawResponse: responseInput.rawResponse,
+            confidence: responseInput.confidence,
+            latencyMs: responseInput.latencyMs,
+            hintCount: responseInput.hintCount,
+            retries: responseInput.retries
+          });
+          const savedResponse = await store.saveAssessmentResponse(response);
+          group.target.push(savedResponse);
+          states = applyResponseToStates(states, savedResponse, request.userId);
+          const event = await store.appendLearningEvent({
+            user_id: request.userId,
+            event_type: "assessment_answered",
+            payload: {
+              session_id: session.id,
+              sleep_packet_id: packet.id,
+              sleep_assignment: group.assignment,
+              assessment_item_id: responseInput.item.id,
+              response_id: savedResponse.id,
+              correctness_score: savedResponse.correctness_score,
+              confidence_reported: savedResponse.confidence_reported,
+              latency_ms: savedResponse.latency_ms,
+              entry_mode: responseInput.entryMode,
+              voice_used: responseInput.entryMode === "voice" || request.voiceUsed,
+              transcript_stored: Boolean(responseInput.transcript),
+              detected_failure_modes: savedResponse.detected_failure_modes
+            }
+          });
+          eventIds.push(event.id);
+        }
+      }
+
+      const summary = sleepCueRecallSummary(cuedResponses, controlResponses, request, packet);
+      states = applySleepCueGainToStates(states, summary, request.completedAt ?? nowIso());
+      const updatedGraph = await store.saveUserConceptStates(request.userId, states);
+      const touchedConceptIds = new Set(
+        uniqueStrings([
+          ...conceptIdsFromResponses([...cuedResponses, ...controlResponses]),
+          ...summary.cued_concept_ids,
+          ...summary.control_concept_ids
+        ])
+      );
+      const updatedStates = updatedGraph.states.filter((state) => touchedConceptIds.has(state.concept_id));
+      const completionEvent = await store.appendLearningEvent({
+        user_id: request.userId,
+        event_type: "graph_updated",
+        payload: {
+          session_id: session.id,
+          action: "sleep_cue_recall_completed",
+          updated_concept_ids: [...touchedConceptIds],
+          ...summary
+        }
+      });
+      eventIds.push(completionEvent.id);
+
+      const completedSession = await store.saveSession({
+        ...session,
+        status: "completed",
+        completed_at: request.completedAt ?? nowIso(),
+        event_ids: Array.from(new Set(eventIds))
+      });
+      const repairRecommendations = repairRecommendationsFor([...cuedResponses, ...controlResponses]);
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "sleep_cue_recall_completed",
+        object_type: "sleep_cue_packet",
+        object_id: packet.id,
+        payload: {
+          session_id: completedSession.id,
+          response_ids: [...cuedResponses, ...controlResponses].map((response) => response.id),
+          repair_recommendations: repairRecommendations,
+          ...summary
+        }
+      });
+
+      return envelope(
+        {
+          session: completedSession,
+          cued_responses: cuedResponses,
+          control_responses: controlResponses,
+          updated_states: updatedStates,
+          repair_recommendations: repairRecommendations,
+          summary
+        },
+        audit.id
+      );
+    },
+
     async syncWearableSleep(input: unknown) {
       const request = validateRequest(wearableSyncRequestSchema, input);
       await requireUser(store, request.userId);
@@ -1722,6 +1989,95 @@ function sleepPacketSummary(packet: SleepCuePacket) {
     cue_spacing_seconds: packet.cue_spacing_seconds,
     max_cues_per_hour: packet.max_cues_per_hour
   };
+}
+
+function conceptIdsForSleepBucket(packet: SleepCuePacket, bucket: SleepCueBucket): string[] {
+  if (bucket === "reactivate") return packet.reactivate_concept_ids;
+  if (bucket === "stabilize") return packet.stabilize_concept_ids;
+  if (bucket === "prime") return packet.prime_concept_ids;
+  return packet.control_concept_ids;
+}
+
+function sleepCuedConceptIds(packet: SleepCuePacket): string[] {
+  return uniqueStrings([
+    ...packet.reactivate_concept_ids,
+    ...packet.stabilize_concept_ids,
+    ...packet.prime_concept_ids
+  ]);
+}
+
+function sleepPlaybackSummary(packet: SleepCuePacket, request: SleepPlaybackEventRequest) {
+  const bucketCounts = {
+    reactivate: request.cueEvents.filter((event) => event.bucket === "reactivate").length,
+    stabilize: request.cueEvents.filter((event) => event.bucket === "stabilize").length,
+    prime: request.cueEvents.filter((event) => event.bucket === "prime").length,
+    control: request.cueEvents.filter((event) => event.bucket === "control").length
+  };
+  return {
+    sleep_packet_id: packet.id,
+    night_date: packet.night_date,
+    cues_played: request.cueEvents.length,
+    completed_cues: request.cueEvents.filter((event) => event.completed).length,
+    skipped_cues: request.cueEvents.filter((event) => !event.completed).length,
+    stop_condition: request.stopCondition,
+    sleep_disruption_reported: request.sleepDisruptionReported,
+    playback_minutes: playbackMinutes(request.playbackStartedAt, request.playbackEndedAt),
+    ...bucketCounts
+  };
+}
+
+function sleepCueRecallSummary(
+  cuedResponses: AssessmentResponse[],
+  controlResponses: AssessmentResponse[],
+  request: SleepRecallCompleteRequest,
+  packet: SleepCuePacket
+) {
+  const averageCuedCorrectness = average(cuedResponses.map((response) => response.correctness_score));
+  const averageControlCorrectness = average(controlResponses.map((response) => response.correctness_score));
+  return {
+    sleep_packet_id: packet.id,
+    night_date: packet.night_date,
+    cued_answered: cuedResponses.length,
+    control_answered: controlResponses.length,
+    average_cued_correctness: averageCuedCorrectness,
+    average_control_correctness: averageControlCorrectness,
+    cue_gain_delta: Number((averageCuedCorrectness - averageControlCorrectness).toFixed(3)),
+    cued_concept_ids: conceptIdsFromResponses(cuedResponses),
+    control_concept_ids: conceptIdsFromResponses(controlResponses),
+    controls_revealed: true,
+    screen_minutes: request.screenMinutes,
+    voice_used:
+      request.voiceUsed ||
+      [...request.cuedResponses, ...request.controlResponses].some(
+        (response) => response.entryMode === "voice"
+      )
+  };
+}
+
+function applySleepCueGainToStates(
+  states: UserConceptState[],
+  summary: ReturnType<typeof sleepCueRecallSummary>,
+  updatedAt: string
+): UserConceptState[] {
+  const cuedConceptIds = new Set(summary.cued_concept_ids);
+  return states.map((state) => {
+    if (!cuedConceptIds.has(state.concept_id)) return state;
+    return {
+      ...state,
+      sleep_replays: state.sleep_replays + 1,
+      cue_gain_estimate: clamp(state.cue_gain_estimate * 0.72 + summary.cue_gain_delta * 0.28, -1, 1),
+      best_cue_type: summary.cue_gain_delta > 0 ? "sleep_reactivation" : state.best_cue_type,
+      updated_at: updatedAt
+    };
+  });
+}
+
+function playbackMinutes(startedAt: string | undefined, endedAt: string | undefined): number {
+  if (!startedAt || !endedAt) return 0;
+  const started = Date.parse(startedAt);
+  const ended = Date.parse(endedAt);
+  if (!Number.isFinite(started) || !Number.isFinite(ended) || ended <= started) return 0;
+  return Number(((ended - started) / 60_000).toFixed(1));
 }
 
 async function buildPlanningContext(

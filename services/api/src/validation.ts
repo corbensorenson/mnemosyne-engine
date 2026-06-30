@@ -238,6 +238,60 @@ export const renderSleepAudioRequestSchema = z
   })
   .strict();
 
+const sleepCueBucketSchema = z.enum(["reactivate", "stabilize", "prime", "control"]);
+const sleepStopConditionSchema = z.enum([
+  "none",
+  "movement_detected",
+  "user_wake_report",
+  "wearable_wake_signal",
+  "time_limit",
+  "manual_stop"
+]);
+
+export const sleepPlaybackEventRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    sleepPacketId: z.string().min(1),
+    nightDate: z.string().optional(),
+    audioPlanId: z.string().min(1).optional(),
+    sessionId: z.string().min(1).optional(),
+    playbackStartedAt: z.string().optional(),
+    playbackEndedAt: z.string().optional(),
+    cueEvents: z
+      .array(
+        z
+          .object({
+            cueId: z.string().min(1).optional(),
+            conceptId: z.string().min(1),
+            bucket: sleepCueBucketSchema,
+            playedAt: z.string().optional(),
+            volume: z.number().min(0).max(1).optional(),
+            completed: z.boolean().default(true),
+            wearableStage: z.string().optional()
+          })
+          .strict()
+      )
+      .min(1)
+      .max(160),
+    stopCondition: sleepStopConditionSchema.default("none"),
+    sleepDisruptionReported: z.boolean().default(false)
+  })
+  .strict();
+
+export const sleepRecallCompleteRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    sleepPacketId: z.string().min(1),
+    nightDate: z.string().optional(),
+    sessionId: z.string().min(1).optional(),
+    cuedResponses: z.array(sessionAssessmentResponseSchema).min(1).max(24),
+    controlResponses: z.array(sessionAssessmentResponseSchema).min(1).max(24),
+    screenMinutes: z.number().nonnegative().default(0),
+    voiceUsed: z.boolean().default(false),
+    completedAt: z.string().optional()
+  })
+  .strict();
+
 export const wearableSyncRequestSchema = z
   .object({
     userId: userIdSchema,

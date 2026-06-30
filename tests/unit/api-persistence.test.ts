@@ -319,6 +319,110 @@ describe("persistence-backed API handlers", () => {
     expect(render.output_format).toBe("mp3");
     expect(render.chapters.length).toBeGreaterThan(0);
 
+    const playbackStartedAt = new Date(Date.now() - 42 * 60_000).toISOString();
+    const playbackEndedAt = new Date().toISOString();
+    const playbackCueEvents = [
+      ...sleep.packet.reactivate_concept_ids.slice(0, 1).map((conceptId) => ({
+        conceptId,
+        bucket: "reactivate" as const,
+        playedAt: playbackStartedAt,
+        volume: 0.18,
+        completed: true
+      })),
+      ...sleep.packet.stabilize_concept_ids.slice(0, 1).map((conceptId) => ({
+        conceptId,
+        bucket: "stabilize" as const,
+        playedAt: playbackStartedAt,
+        volume: 0.16,
+        completed: true
+      })),
+      ...sleep.packet.control_concept_ids.slice(0, 1).map((conceptId) => ({
+        conceptId,
+        bucket: "control" as const,
+        playedAt: playbackStartedAt,
+        volume: 0.08,
+        completed: true
+      }))
+    ];
+    expect(playbackCueEvents.length).toBeGreaterThan(0);
+
+    const playback = unwrap(
+      await handlers.recordSleepPlayback({
+        userId: demoUser.id,
+        sleepPacketId: sleep.packet.id,
+        nightDate: sleep.packet.night_date,
+        audioPlanId: sleep.packet.audio_plan_id,
+        playbackStartedAt,
+        playbackEndedAt,
+        cueEvents: playbackCueEvents,
+        stopCondition: "none",
+        sleepDisruptionReported: false
+      })
+    );
+    expect(playback.session.status).toBe("completed");
+    expect(playback.event.event_type).toBe("sleep_cue_played");
+    expect(playback.summary.cues_played).toBe(playbackCueEvents.length);
+    expect(playback.summary.sleep_disruption_reported).toBe(false);
+
+    const cuedConceptIds = [
+      ...sleep.packet.reactivate_concept_ids,
+      ...sleep.packet.stabilize_concept_ids,
+      ...sleep.packet.prime_concept_ids
+    ].slice(0, 2);
+    const controlConceptIds = sleep.packet.control_concept_ids.slice(0, 2);
+    expect(cuedConceptIds.length).toBeGreaterThan(0);
+    expect(controlConceptIds.length).toBeGreaterThan(0);
+    const conceptById = new Map(demoMasterGraph.concepts.map((concept) => [concept.id, concept]));
+    const cuedItems = cuedConceptIds.map((conceptId) => {
+      const concept = conceptById.get(conceptId);
+      if (!concept) throw new Error(`missing cued concept ${conceptId}`);
+      return generateAssessmentForConcept(concept, "free_recall");
+    });
+    const controlItems = controlConceptIds.map((conceptId) => {
+      const concept = conceptById.get(conceptId);
+      if (!concept) throw new Error(`missing control concept ${conceptId}`);
+      return generateAssessmentForConcept(concept, "free_recall");
+    });
+    const beforeCueState = (await store.getUserGraph(demoUser.id)).states.find(
+      (state) => state.concept_id === cuedConceptIds[0]
+    );
+
+    const recalled = unwrap(
+      await handlers.completeSleepCueRecall({
+        userId: demoUser.id,
+        sleepPacketId: sleep.packet.id,
+        nightDate: sleep.packet.night_date,
+        cuedResponses: cuedItems.map((item) => ({
+          item,
+          rawResponse: item.expected_answer ?? item.prompt,
+          confidence: 0.78,
+          latencyMs: 18_000,
+          entryMode: "text"
+        })),
+        controlResponses: controlItems.map((item) => ({
+          item,
+          rawResponse: "not sure yet",
+          confidence: 0.35,
+          latencyMs: 38_000,
+          entryMode: "text"
+        })),
+        screenMinutes: 4
+      })
+    );
+    expect(recalled.session.status).toBe("completed");
+    expect(recalled.cued_responses).toHaveLength(cuedItems.length);
+    expect(recalled.control_responses).toHaveLength(controlItems.length);
+    expect(recalled.summary.controls_revealed).toBe(true);
+    expect(recalled.summary.cue_gain_delta).toBeGreaterThan(0);
+    expect(recalled.updated_states.map((state) => state.concept_id)).toEqual(
+      expect.arrayContaining([...cuedConceptIds, ...controlConceptIds])
+    );
+    const afterCueState = (await store.getUserGraph(demoUser.id)).states.find(
+      (state) => state.concept_id === cuedConceptIds[0]
+    );
+    expect(afterCueState?.sleep_replays).toBeGreaterThan(beforeCueState?.sleep_replays ?? 0);
+    expect(afterCueState?.cue_gain_estimate).toBeGreaterThan(beforeCueState?.cue_gain_estimate ?? -1);
+
     const wearable = unwrap(
       await handlers.syncWearableSleep({
         userId: demoUser.id,
@@ -331,6 +435,20 @@ describe("persistence-backed API handlers", () => {
       })
     );
     expect(wearable.readiness.sleep_quality).toBe(0.82);
+
+    const sleepEvents = await store.listLearningEvents(demoUser.id);
+    expect(sleepEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event_type: "sleep_cue_played",
+          payload: expect.objectContaining({ sleep_packet_id: sleep.packet.id })
+        }),
+        expect.objectContaining({
+          event_type: "graph_updated",
+          payload: expect.objectContaining({ action: "sleep_cue_recall_completed" })
+        })
+      ])
+    );
 
     const created = unwrap(
       await handlers.createProposal({
