@@ -72,6 +72,7 @@ The API service now exposes:
 - `POST /api/privacy/export/jobs`
 - `POST /api/ops/backups/jobs`
 - `POST /api/ops/backups/:id/restore-drills/jobs`
+- `POST /api/ops/incidents/reports`
 - `POST /api/objects`
 - `POST /api/objects/store`
 - `GET /api/ops/monitoring`
@@ -109,6 +110,10 @@ User data export includes owned jobs and object manifests. Full account deletion
 System backups are queued with `POST /api/ops/backups/jobs` using an `operatorId`. The worker stores a `mnemosyne-system-backup-v0.1` JSON artifact in the `backup` bucket with managed encryption metadata, SHA-256 integrity, a durable object manifest, global jobs/object/audit records, the master graph, and per-user export bundles.
 
 Restore drills are queued with `POST /api/ops/backups/:id/restore-drills/jobs`, where `:id` is the backup object manifest id and the body includes `operatorId`. The worker reads the object back through first-party object storage, emits `system_backup_restore_drill_completed` when all checks pass, and fails with `system_backup_restore_drill_failed` when the manifest, object bytes, schema, counts, graph bundles, sleep ownership, audit ids, or export/deletion fields do not validate. Restore drills should run before promotion and on a recurring staging schedule.
+
+## Incident Artifacts
+
+Incident reports are generated with `POST /api/ops/incidents/reports` using an `operatorId`. The API builds a system-wide monitoring snapshot, classifies severity with `@mnemosyne/ops-core`, writes a `mnemosyne-incident-response-v0.1` JSON artifact to the `evidence` bucket, persists the object manifest, and audits `ops_incident_report_stored`.
 
 ## Next Adapter Work
 

@@ -205,6 +205,45 @@ export type OpsMonitoringDashboard = {
   ops_health: OpsHealthDashboard;
 };
 
+export type IncidentSeverity = "none" | "sev3" | "sev2" | "sev1";
+export type IncidentStatus = "closed" | "watching" | "active";
+export type IncidentActionPriority = "immediate" | "soon" | "scheduled";
+
+export type IncidentResponseAction = {
+  id: string;
+  priority: IncidentActionPriority;
+  owner: "operator" | "engineering" | "security" | "data";
+  summary: string;
+  alert_ids: string[];
+  runbook_refs: string[];
+};
+
+export type IncidentResponseReport = {
+  schema_version: "mnemosyne-incident-response-v0.1";
+  id: string;
+  title: string;
+  environment: "local" | "staging" | "production";
+  generated_at: string;
+  operator_id: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  ready_for_release: boolean;
+  alert_counts: OpsMonitoringDashboard["alert_counts"];
+  primary_alert_ids: string[];
+  impacted_services: string[];
+  release_blockers: string[];
+  recommended_actions: IncidentResponseAction[];
+  runbook_steps: string[];
+  monitoring_snapshot: {
+    generated_at: string;
+    status: OpsMonitoringDashboard["status"];
+    release_gates: OpsMonitoringDashboard["release_gates"];
+    service_levels: MonitoringServiceLevel[];
+    alerts: MonitoringAlert[];
+    ops_totals: OpsHealthDashboard["totals"];
+  };
+};
+
 export const defaultMonitoringThresholds: MonitoringThresholds = {
   queueDepthWarning: 50,
   queueDepthCritical: 250,
@@ -497,6 +536,196 @@ export function buildOpsMonitoringDashboard(input: {
     },
     ops_health: input.opsHealth
   };
+}
+
+export function buildIncidentResponseReport(input: {
+  monitoring: OpsMonitoringDashboard;
+  operatorId: string;
+  environment: "local" | "staging" | "production";
+  title?: string;
+  generatedAt?: string;
+}): IncidentResponseReport {
+  const generatedAt = input.generatedAt ?? nowIso();
+  const severity = incidentSeverity(input.monitoring.alerts);
+  const status: IncidentStatus = severity === "none" ? "closed" : severity === "sev3" ? "watching" : "active";
+  const impactedServices = impactedServicesFor(input.monitoring);
+  const releaseBlockers = input.monitoring.alerts
+    .filter((alertEntry) => alertEntry.severity === "critical")
+    .map((alertEntry) => alertEntry.id);
+  const recommendedActions = incidentActionsFor(input.monitoring.alerts);
+  const primaryAlertIds = input.monitoring.alerts.slice(0, 10).map((alertEntry) => alertEntry.id);
+  const title =
+    input.title ??
+    (severity === "none"
+      ? `No active Mnemosyne incident in ${input.environment}`
+      : `${severity.toUpperCase()} Mnemosyne incident in ${input.environment}`);
+
+  return {
+    schema_version: "mnemosyne-incident-response-v0.1",
+    id: createId(
+      "incident",
+      `${input.environment}:${generatedAt}:${input.monitoring.status}:${primaryAlertIds.join(",")}`
+    ),
+    title,
+    environment: input.environment,
+    generated_at: generatedAt,
+    operator_id: input.operatorId,
+    severity,
+    status,
+    ready_for_release: input.monitoring.ready_for_release,
+    alert_counts: input.monitoring.alert_counts,
+    primary_alert_ids: primaryAlertIds,
+    impacted_services: impactedServices,
+    release_blockers: releaseBlockers,
+    recommended_actions: recommendedActions,
+    runbook_steps: incidentRunbookSteps(severity, recommendedActions),
+    monitoring_snapshot: {
+      generated_at: input.monitoring.generated_at,
+      status: input.monitoring.status,
+      release_gates: input.monitoring.release_gates,
+      service_levels: input.monitoring.service_levels,
+      alerts: input.monitoring.alerts,
+      ops_totals: input.monitoring.ops_health.totals
+    }
+  };
+}
+
+function incidentSeverity(alerts: MonitoringAlert[]): IncidentSeverity {
+  const criticalAlerts = alerts.filter((alertEntry) => alertEntry.severity === "critical");
+  if (
+    criticalAlerts.some(
+      (alertEntry) => alertEntry.category === "security" || alertEntry.category === "dependency"
+    ) ||
+    criticalAlerts.length >= 3
+  ) {
+    return "sev1";
+  }
+  if (criticalAlerts.length > 0) return "sev2";
+  if (alerts.some((alertEntry) => alertEntry.severity === "warning")) return "sev3";
+  return "none";
+}
+
+function impactedServicesFor(monitoring: OpsMonitoringDashboard): string[] {
+  const services = new Set(
+    monitoring.service_levels.filter((level) => level.status !== "healthy").map((level) => level.service)
+  );
+  for (const alertEntry of monitoring.alerts) {
+    if (alertEntry.queue) services.add(`queue:${alertEntry.queue}`);
+    if (alertEntry.category === "security") services.add("security");
+    if (alertEntry.category === "dependency") services.add("api_dependencies");
+    if (alertEntry.category === "object_storage") services.add("object_storage");
+  }
+  return [...services].sort();
+}
+
+function incidentActionsFor(alerts: MonitoringAlert[]): IncidentResponseAction[] {
+  const actions: IncidentResponseAction[] = [];
+  const byCategory = (category: MonitoringAlertCategory) =>
+    alerts.filter((alertEntry) => alertEntry.category === category).map((alertEntry) => alertEntry.id);
+  const dependencyAlertIds = byCategory("dependency");
+  const securityAlertIds = byCategory("security");
+  const objectAlertIds = byCategory("object_storage");
+  const queueAlertIds = alerts
+    .filter((alertEntry) => alertEntry.category === "queue" || alertEntry.queue)
+    .map((alertEntry) => alertEntry.id);
+  const releaseAlertIds = byCategory("release_gate");
+
+  if (securityAlertIds.length > 0) {
+    actions.push({
+      id: "incident.action.security_gate",
+      priority: "immediate",
+      owner: "security",
+      summary: "Hold release, fix failing security checks, and regenerate the security release gate.",
+      alert_ids: securityAlertIds,
+      runbook_refs: [
+        "docs/ops/production-release.md#release-checklist",
+        "docs/security/security-release-gates.md"
+      ]
+    });
+  }
+  if (dependencyAlertIds.length > 0) {
+    actions.push({
+      id: "incident.action.dependencies",
+      priority: "immediate",
+      owner: "engineering",
+      summary: "Restore failing API dependencies, then rerun readiness and monitoring checks.",
+      alert_ids: dependencyAlertIds,
+      runbook_refs: ["docs/ops/api-runtime.md", "docs/ops/production-release.md#monitoring"]
+    });
+  }
+  if (queueAlertIds.length > 0 || releaseAlertIds.some((id) => /dead|stale|queue|idempotency/.test(id))) {
+    actions.push({
+      id: "incident.action.queues",
+      priority: releaseAlertIds.length > 0 ? "immediate" : "soon",
+      owner: "engineering",
+      summary:
+        "Inspect queue depth, recover stale worker locks, and resolve dead-lettered jobs before promotion.",
+      alert_ids: [
+        ...new Set([
+          ...queueAlertIds,
+          ...releaseAlertIds.filter((id) => /dead|stale|queue|idempotency/.test(id))
+        ])
+      ],
+      runbook_refs: ["docs/ops/queues-and-object-storage.md#health-gates"]
+    });
+  }
+  if (objectAlertIds.length > 0 || releaseAlertIds.some((id) => /object/.test(id))) {
+    actions.push({
+      id: "incident.action.object_storage",
+      priority: "immediate",
+      owner: "data",
+      summary:
+        "Quarantine affected object-storage writes and verify encryption plus SHA-256 manifest coverage.",
+      alert_ids: [...new Set([...objectAlertIds, ...releaseAlertIds.filter((id) => /object/.test(id))])],
+      runbook_refs: [
+        "docs/ops/queues-and-object-storage.md#health-gates",
+        "docs/ops/production-release.md#backups-and-recovery"
+      ]
+    });
+  }
+  const remainingReleaseAlertIds = releaseAlertIds.filter(
+    (id) => !/dead|stale|queue|idempotency|object/.test(id)
+  );
+  if (remainingReleaseAlertIds.length > 0) {
+    actions.push({
+      id: "incident.action.release_gate",
+      priority: "soon",
+      owner: "operator",
+      summary: "Keep promotion blocked until release-gate alerts are resolved and recorded.",
+      alert_ids: remainingReleaseAlertIds,
+      runbook_refs: ["docs/ops/production-release.md#release-gate"]
+    });
+  }
+  if (actions.length === 0) {
+    actions.push({
+      id: "incident.action.no_active_incident",
+      priority: "scheduled",
+      owner: "operator",
+      summary: "Record the no-action drill and keep normal monitoring active.",
+      alert_ids: [],
+      runbook_refs: ["docs/ops/production-release.md#monitoring"]
+    });
+  }
+  return actions;
+}
+
+function incidentRunbookSteps(severity: IncidentSeverity, actions: IncidentResponseAction[]): string[] {
+  if (severity === "none") {
+    return [
+      "Record the generated report as a no-active-incident drill.",
+      "Confirm monitoring remains nominal before release promotion.",
+      "Leave normal readiness, backup, and security gates scheduled."
+    ];
+  }
+  return [
+    "Assign an incident commander and record the report id in the release notes or incident log.",
+    "Freeze promotion while severity is SEV1 or SEV2, or while any critical release blocker remains.",
+    "Work recommended actions in priority order: " +
+      actions.map((action) => `${action.id} (${action.owner})`).join(", ") +
+      ".",
+    "Rerun `/api/ops/monitoring` after each mitigation and attach the new incident report artifact.",
+    "Close only after monitoring is nominal or accepted residual risk is documented."
+  ];
 }
 
 function countStatus(jobs: JobRecord[], status: JobStatus): number {

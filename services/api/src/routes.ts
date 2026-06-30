@@ -133,7 +133,14 @@ export const apiRoutes: ApiRoute[] = [
   { method: "POST", path: "/api/objects", service: "Object Manifest Service" },
   { method: "POST", path: "/api/objects/store", service: "Object Storage Service" },
   { method: "GET", path: "/api/ops/monitoring", service: "Ops Monitoring Service" },
+  { method: "POST", path: "/api/ops/incidents/reports", service: "Incident Response Service" },
   { method: "GET", path: "/api/ops/health", service: "Ops Health Service" },
+  { method: "POST", path: "/api/ops/backups/jobs", service: "System Backup Worker Service" },
+  {
+    method: "POST",
+    path: "/api/ops/backups/:id/restore-drills/jobs",
+    service: "System Backup Restore Drill Service"
+  },
   { method: "GET", path: "/api/security/release-gate", service: "Security Service" },
   {
     method: "POST",

@@ -75,6 +75,8 @@ High-priority alerts:
 - AI governance review failure
 - graph release rollback
 
+Generate a first-party incident artifact with `POST /api/ops/incidents/reports` whenever monitoring is degraded or critical. The artifact is written to the `evidence` bucket, audited as `ops_incident_report_stored`, and should be attached to the release notes or incident log. See [`incident-response.md`](./incident-response.md).
+
 ## Backups and Recovery
 
 - Postgres point-in-time recovery enabled.
@@ -125,6 +127,7 @@ The system should preserve audit events even when downstream analytics or person
 - GitHub license detection reports MIT.
 - `README.md`, `ROADMAP.md`, `SECURITY.md`, and docs are current.
 - `/api/security/release-gate` passes for the target environment.
+- `POST /api/ops/incidents/reports` can create a `mnemosyne-incident-response-v0.1` artifact from the target environment monitoring snapshot.
 - The API HTTP adapter is serving CSP/security headers, CSRF enforcement, bounded JSON parsing, and rate-limit responses in the target environment.
 - Postgres migrations through `0003_job_claim_indexes.sql` are applied and the API is constructed with `createPostgresStore`.
 - Object storage root is mounted durably, and `/api/objects/store` writes bytes, validates SHA-256 integrity, and persists manifests.

@@ -1,8 +1,13 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { generateAssessmentForConcept } from "@mnemosyne/assessment-core";
 import { demoMasterGraph, demoUser } from "@mnemosyne/demo-fixtures";
+import { createJob, failJob, startJob } from "@mnemosyne/ops-core";
 import { createMemoryStore } from "@mnemosyne/persistence-core";
 import { createApiHandlers, seedDemoStore } from "@mnemosyne/api";
 import type { AssessmentResponse } from "@mnemosyne/schema";
+import { createLocalObjectStorage } from "@mnemosyne/storage-core";
 import { describe, expect, it } from "vitest";
 
 type Envelope<T> = { ok: true; data: T; audit_event_id?: string } | { ok: false; error?: unknown };
@@ -318,6 +323,68 @@ describe("persistence-backed API handlers", () => {
         expect.objectContaining({ action: "object_manifest_recorded", object_id: manifest.id })
       ])
     );
+  });
+
+  it("stores first-party incident response reports from monitoring alerts", async () => {
+    const store = await createSeededStore();
+    const objectStorageRoot = await mkdtemp(join(tmpdir(), "mnemosyne-incident-report-"));
+    const objectStorage = createLocalObjectStorage(objectStorageRoot);
+    const handlers = createApiHandlers(store, { objectStorage });
+
+    try {
+      const deadLetter = failJob(
+        startJob(
+          createJob({
+            queue: "audio_render",
+            type: "render_sleep_audio",
+            payload: { audio_plan_id: "audio_incident" },
+            maxAttempts: 1,
+            idempotencyKey: "incident_audio",
+            auditSubjectId: demoUser.id,
+            createdAt: "2026-06-30T10:00:00.000Z"
+          }),
+          "worker-audio",
+          "2026-06-30T10:01:00.000Z"
+        ),
+        "encoder crashed",
+        "2026-06-30T10:02:00.000Z"
+      );
+      await store.saveJob(deadLetter);
+
+      const response = unwrap(
+        await handlers.createOpsIncidentReport({
+          operatorId: demoUser.id,
+          environment: "production",
+          title: "Release incident test"
+        })
+      );
+
+      expect(response.report.schema_version).toBe("mnemosyne-incident-response-v0.1");
+      expect(response.report.severity).toBe("sev2");
+      expect(response.report.status).toBe("active");
+      expect(response.report.release_blockers).toContain("ops.release.dead_letters");
+      expect(response.report.recommended_actions.map((action) => action.id)).toContain(
+        "incident.action.queues"
+      );
+      expect(response.manifest.bucket).toBe("evidence");
+      expect(response.manifest.retention_policy).toBe("legal_hold");
+
+      const stored = await objectStorage.getObject({
+        bucket: "evidence",
+        key: response.manifest.key
+      });
+      const reportJson = JSON.parse(Buffer.from(stored?.body ?? []).toString("utf8")) as {
+        id?: string;
+        severity?: string;
+      };
+      expect(reportJson.id).toBe(response.report.id);
+      expect(reportJson.severity).toBe("sev2");
+      expect((await store.listAuditEvents(demoUser.id)).map((event) => event.action)).toContain(
+        "ops_incident_report_stored"
+      );
+    } finally {
+      await rm(objectStorageRoot, { recursive: true, force: true });
+    }
   });
 
   it("labels high-stakes proposal content and exposes security release gates", async () => {

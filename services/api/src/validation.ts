@@ -367,6 +367,15 @@ export const opsMonitoringRequestSchema = z
   })
   .strict();
 
+export const opsIncidentReportRequestSchema = z
+  .object({
+    operatorId: userIdSchema,
+    environment: z.enum(["local", "staging", "production"]).default("production"),
+    reportUri: z.string().url().optional(),
+    title: z.string().min(3).max(160).optional()
+  })
+  .strict();
+
 export const completeOnboardingRequestSchema = z
   .object({
     userId: z.string().min(1).optional(),

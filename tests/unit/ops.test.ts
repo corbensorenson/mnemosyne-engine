@@ -1,4 +1,5 @@
 import {
+  buildIncidentResponseReport,
   buildOpsHealthDashboard,
   buildOpsMonitoringDashboard,
   createJob,
@@ -173,5 +174,24 @@ describe("ops-core", () => {
       ])
     );
     expect(monitoring.service_levels.find((level) => level.service === "security")?.status).toBe("critical");
+
+    const report = buildIncidentResponseReport({
+      monitoring,
+      operatorId: "user_demo",
+      environment: "production",
+      generatedAt: "2026-06-30T11:01:00.000Z"
+    });
+    expect(report.schema_version).toBe("mnemosyne-incident-response-v0.1");
+    expect(report.severity).toBe("sev1");
+    expect(report.status).toBe("active");
+    expect(report.ready_for_release).toBe(false);
+    expect(report.release_blockers).toEqual(expect.arrayContaining(["ops.security.release_gate"]));
+    expect(report.impacted_services).toEqual(expect.arrayContaining(["security", "api_dependencies"]));
+    expect(report.recommended_actions.map((action) => action.id)).toEqual(
+      expect.arrayContaining(["incident.action.security_gate", "incident.action.dependencies"])
+    );
+    expect(report.monitoring_snapshot.alerts.map((alert) => alert.id)).toContain(
+      "ops.dependency.object_storage"
+    );
   });
 });

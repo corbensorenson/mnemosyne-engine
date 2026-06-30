@@ -62,6 +62,7 @@ import {
   type NotificationPlan
 } from "@mnemosyne/notification-core";
 import {
+  buildIncidentResponseReport,
   buildOpsHealthDashboard,
   buildOpsMonitoringDashboard,
   completeJob as completeOpsJob,
@@ -69,6 +70,7 @@ import {
   createObjectManifest as createOpsObjectManifest,
   failJob as failOpsJob,
   startJob as startOpsJob,
+  type IncidentResponseReport,
   type JobPriority,
   type JobRecord,
   type MonitoringDependencyReadiness,
@@ -186,6 +188,7 @@ import {
   notificationScheduleRequestSchema,
   objectManifestRequestSchema,
   objectPutRequestSchema,
+  opsIncidentReportRequestSchema,
   opsMonitoringRequestSchema,
   outcomeDashboardJobRequestSchema,
   outcomeDashboardRequestSchema,
@@ -661,6 +664,15 @@ type ObjectPutResponse = {
   };
 };
 
+type OpsIncidentReportResponse = {
+  report: IncidentResponseReport;
+  manifest: ObjectManifest;
+  storage: {
+    bytes_written: number;
+    sha256: string;
+  };
+};
+
 type SecurityReleaseGateRequest = {
   userId: string;
   environment: "local" | "staging" | "production";
@@ -671,6 +683,13 @@ type OpsMonitoringRequest = {
   userId: string;
   environment: "local" | "staging" | "production";
   reportUri?: string;
+};
+
+type OpsIncidentReportRequest = {
+  operatorId: string;
+  environment: "local" | "staging" | "production";
+  reportUri?: string;
+  title?: string;
 };
 
 type SecurityReleaseGateResponse = {
@@ -1406,35 +1425,12 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
     async getOpsMonitoring(input: unknown): Promise<HandlerEnvelope<OpsMonitoringDashboard>> {
       const request = validateRequest(opsMonitoringRequestSchema, input) as OpsMonitoringRequest;
       await requireUser(store, request.userId);
-      const [jobs, objects, dependencyReadiness] = await Promise.all([
-        store.listJobs(),
-        store.listObjectManifests(request.userId),
-        buildDependencyReadiness(store, options.objectStorage, request.environment)
-      ]);
-      const headers = buildSecurityHeaders({
+      const monitoring = await buildOpsMonitoringFor(store, options.objectStorage, {
+        actorId: request.userId,
         environment: request.environment,
-        reportUri: request.reportUri
-      });
-      const rateLimitPolicies = defaultRateLimitPolicies();
-      const releaseGate = buildSecurityReleaseGate({
-        headers,
-        rateLimitPolicies,
-        highStakes: classifyHighStakesContent({}),
-        mutationRequiresCsrf: true,
-        auditPayload: {
-          actor_id: request.userId,
-          action: "ops_monitoring_checked",
-          policy_count: rateLimitPolicies.length
-        }
-      });
-      const opsHealth = buildOpsHealthDashboard({
-        jobs: jobs.filter((job) => job.audit_subject_id === request.userId),
-        objects
-      });
-      const monitoring = buildOpsMonitoringDashboard({
-        opsHealth,
-        securityGate: releaseGate,
-        dependencyReadiness
+        reportUri: request.reportUri,
+        scope: "user",
+        auditAction: "ops_monitoring_checked"
       });
       const audit = await store.appendAuditEvent({
         actor_id: request.userId,
@@ -1449,6 +1445,73 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
         }
       });
       return envelope(monitoring, audit.id);
+    },
+
+    async createOpsIncidentReport(input: unknown): Promise<HandlerEnvelope<OpsIncidentReportResponse>> {
+      const request = validateRequest(opsIncidentReportRequestSchema, input) as OpsIncidentReportRequest;
+      await requireUser(store, request.operatorId);
+      if (!options.objectStorage) return notFound<OpsIncidentReportResponse>("object_storage_not_configured");
+      const monitoring = await buildOpsMonitoringFor(store, options.objectStorage, {
+        actorId: request.operatorId,
+        environment: request.environment,
+        reportUri: request.reportUri,
+        scope: "system",
+        auditAction: "ops_incident_report_created"
+      });
+      const report = buildIncidentResponseReport({
+        monitoring,
+        operatorId: request.operatorId,
+        environment: request.environment,
+        title: request.title
+      });
+      const stored = await options.objectStorage.putObject({
+        bucket: "evidence",
+        key: `incidents/${request.environment}/${safePathSegment(report.id)}.json`,
+        contentType: "application/json",
+        body: JSON.stringify(report, null, 2),
+        ownerId: request.operatorId,
+        retentionPolicy: report.severity === "none" ? "product" : "legal_hold",
+        metadata: {
+          report_id: report.id,
+          schema_version: report.schema_version,
+          environment: report.environment,
+          severity: report.severity,
+          status: report.status,
+          ready_for_release: report.ready_for_release,
+          alert_count: report.alert_counts.total
+        }
+      });
+      const manifest = await store.saveObjectManifest(stored.manifest);
+      const audit = await store.appendAuditEvent({
+        actor_id: request.operatorId,
+        action: "ops_incident_report_stored",
+        object_type: "object_manifest",
+        object_id: manifest.id,
+        payload: {
+          incident_id: report.id,
+          environment: report.environment,
+          severity: report.severity,
+          status: report.status,
+          ready_for_release: report.ready_for_release,
+          alert_counts: report.alert_counts,
+          primary_alert_ids: report.primary_alert_ids,
+          bucket: manifest.bucket,
+          key: manifest.key,
+          sha256: manifest.sha256,
+          size_bytes: manifest.size_bytes
+        }
+      });
+      return envelope(
+        {
+          report,
+          manifest,
+          storage: {
+            bytes_written: stored.bytes_written,
+            sha256: stored.sha256
+          }
+        },
+        audit.id
+      );
     },
 
     async getSecurityReleaseGate(input: unknown): Promise<HandlerEnvelope<SecurityReleaseGateResponse>> {
@@ -3534,6 +3597,48 @@ async function requireUser(store: MnemosyneStore, userId: string) {
   return user;
 }
 
+async function buildOpsMonitoringFor(
+  store: MnemosyneStore,
+  objectStorage: ObjectStorageAdapter | undefined,
+  input: {
+    actorId: string;
+    environment: OpsMonitoringRequest["environment"];
+    reportUri?: string;
+    scope: "user" | "system";
+    auditAction: string;
+  }
+): Promise<OpsMonitoringDashboard> {
+  const [jobs, objects, dependencyReadiness] = await Promise.all([
+    store.listJobs(),
+    store.listObjectManifests(input.scope === "user" ? input.actorId : undefined),
+    buildDependencyReadiness(store, objectStorage, input.environment)
+  ]);
+  const headers = buildSecurityHeaders({
+    environment: input.environment,
+    reportUri: input.reportUri
+  });
+  const rateLimitPolicies = defaultRateLimitPolicies();
+  const releaseGate = buildSecurityReleaseGate({
+    headers,
+    rateLimitPolicies,
+    highStakes: classifyHighStakesContent({}),
+    mutationRequiresCsrf: true,
+    auditPayload: {
+      actor_id: input.actorId,
+      action: input.auditAction,
+      policy_count: rateLimitPolicies.length
+    }
+  });
+  return buildOpsMonitoringDashboard({
+    opsHealth: buildOpsHealthDashboard({
+      jobs: input.scope === "user" ? jobs.filter((job) => job.audit_subject_id === input.actorId) : jobs,
+      objects
+    }),
+    securityGate: releaseGate,
+    dependencyReadiness
+  });
+}
+
 async function buildDependencyReadiness(
   store: MnemosyneStore,
   objectStorage: ObjectStorageAdapter | undefined,
@@ -3581,6 +3686,10 @@ async function readinessComponent(
       message: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+function safePathSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
 async function buildSocialDashboardFor(

@@ -340,6 +340,9 @@ function createHttpRoutes(handlers: ReturnType<typeof createApiHandlers>): Route
         reportUri: optionalQuery(context, "reportUri")
       })
     ),
+    route("POST", "/api/ops/incidents/reports", (context) => handlers.createOpsIncidentReport(context.body), {
+      rateLimitKey: "ops_job"
+    }),
     route("GET", "/api/ops/health", (context) => handlers.getOpsHealth(requiredQuery(context, "userId"))),
     route("GET", "/api/security/release-gate", (context) =>
       handlers.getSecurityReleaseGate({
