@@ -172,6 +172,86 @@ describe("persistence-backed API handlers", () => {
     );
   });
 
+  it("completes WalkMode with compatible voice and text assessment events", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+    const generated = unwrap(await handlers.generateDailyPacket({ userId: demoUser.id }));
+    const walkPacket = generated.packet.walk_packets[0];
+    if (!walkPacket) throw new Error("missing walk packet");
+    const prompts = walkPacket.prompts.slice(0, 2);
+    expect(prompts.length).toBeGreaterThan(0);
+
+    const started = unwrap(
+      await handlers.startSession({
+        userId: demoUser.id,
+        dailyPacketId: generated.packet.id,
+        sessionType: "walk_mode"
+      })
+    );
+
+    const completed = unwrap(
+      await handlers.completeWalkMode({
+        userId: demoUser.id,
+        dailyPacketId: generated.packet.id,
+        packetDate: generated.packet.date,
+        sessionId: started.session.id,
+        walkPacketId: walkPacket.id,
+        screenLocked: true,
+        voiceUsed: true,
+        transcriptRetention: "deleted",
+        commandLog: ["listen", "repeat that", "give hint", "mark confusing"],
+        skippedPromptIds: [],
+        confusingPromptIds: [prompts[1]?.id].filter((id): id is string => Boolean(id)),
+        responses: prompts.map((item, index) => ({
+          item,
+          rawResponse: index === 0 ? (item.expected_answer ?? item.prompt) : "I can explain the gist.",
+          confidence: index === 0 ? 0.7 : 0.46,
+          latencyMs: index === 0 ? 14_000 : 36_000,
+          hintCount: index === 0 ? 0 : 1,
+          entryMode: index === 0 ? "voice" : "text",
+          transcript: index === 0 ? "private walking transcript" : undefined
+        }))
+      })
+    );
+
+    expect(completed.session.status).toBe("completed");
+    expect(completed.responses).toHaveLength(prompts.length);
+    expect(completed.summary.voice_used).toBe(true);
+    expect(completed.summary.text_used).toBe(true);
+    expect(completed.summary.screen_locked).toBe(true);
+    expect(completed.summary.transcript_retention).toBe("deleted");
+    expect(completed.summary.compatible_assessment_events).toBe(true);
+    expect(completed.updated_states.length).toBeGreaterThan(0);
+
+    const events = await store.listLearningEvents(demoUser.id);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event_type: "walk_recall_completed",
+          payload: expect.objectContaining({
+            walk_packet_id: walkPacket.id,
+            compatible_assessment_events: true,
+            transcript_retention: "deleted"
+          })
+        }),
+        expect.objectContaining({
+          event_type: "assessment_answered",
+          payload: expect.objectContaining({
+            entry_mode: "voice",
+            voice_used: true,
+            transcript_stored: false
+          })
+        }),
+        expect.objectContaining({
+          event_type: "assessment_answered",
+          payload: expect.objectContaining({
+            entry_mode: "text"
+          })
+        })
+      ])
+    );
+  });
+
   it("completes Evening Lock-In with recall scoring, cue binding, and sleep packet generation", async () => {
     const store = await createSeededStore();
     const handlers = createApiHandlers(store);

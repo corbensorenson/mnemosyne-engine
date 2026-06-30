@@ -372,6 +372,11 @@ Deliverables:
 - Misconception repair.
 - Privacy controls for voice deletion.
 
+Current implementation progress:
+
+- PWA WalkMode now runs a first-party prompt/listen/score/hint/skip/mark-confusing/complete state machine with screen-locked phone controls, text fallback, voice transcript entry, command log, repair feedback, local cache, and transcript deletion controls.
+- First-party WalkMode completion persists voice and text answers through the same assessment response path, logs compatible `assessment_answered` events, records `walk_recall_completed`, marks confusing prompts for repair, and supports deleted transcript retention.
+
 Exit criteria:
 
 - User can complete a WalkMode session with the screen locked or glance-only.

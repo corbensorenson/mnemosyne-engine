@@ -72,6 +72,7 @@ import {
   updatePreferencesRequestSchema,
   validateRequest,
   videoRecommendationRequestSchema,
+  walkModeCompleteRequestSchema,
   watchPacketRequestSchema,
   wearableSyncRequestSchema
 } from "./validation";
@@ -150,6 +151,22 @@ type EveningLockInCompleteRequest = {
   };
   screenMinutes: number;
   voiceUsed: boolean;
+  completedAt?: string;
+};
+
+type WalkModeCompleteRequest = {
+  userId: string;
+  dailyPacketId: string;
+  packetDate?: string;
+  sessionId?: string;
+  walkPacketId: string;
+  responses: MorningForgeResponseInput[];
+  skippedPromptIds: string[];
+  confusingPromptIds: string[];
+  commandLog: string[];
+  screenLocked: boolean;
+  voiceUsed: boolean;
+  transcriptRetention: "deleted" | "transcript_only" | "retained";
   completedAt?: string;
 };
 
@@ -372,6 +389,26 @@ type EveningLockInCompletionResponse = {
     bound_cues: number;
     voice_used: boolean;
     audio_plan_duration_seconds: number;
+  };
+};
+
+type WalkModeCompletionResponse = {
+  session: SessionRecord;
+  responses: AssessmentResponse[];
+  updated_states: UserConceptState[];
+  repair_recommendations: string[];
+  summary: {
+    answered: number;
+    skipped: number;
+    marked_confusing: number;
+    average_correctness: number;
+    average_confidence: number;
+    voice_used: boolean;
+    text_used: boolean;
+    screen_locked: boolean;
+    commands_processed: number;
+    transcript_retention: WalkModeCompleteRequest["transcriptRetention"];
+    compatible_assessment_events: boolean;
   };
 };
 
@@ -768,6 +805,149 @@ export function createApiHandlers(store: MnemosyneStore) {
         object_id: completedSession.id,
         payload: {
           daily_packet_id: request.dailyPacketId,
+          response_ids: responses.map((response) => response.id),
+          repair_recommendations: repairRecommendations,
+          ...summary
+        }
+      });
+
+      return envelope(
+        {
+          session: completedSession,
+          responses,
+          updated_states: updatedStates,
+          repair_recommendations: repairRecommendations,
+          summary
+        },
+        audit.id
+      );
+    },
+
+    async completeWalkMode(input: unknown): Promise<HandlerEnvelope<WalkModeCompletionResponse>> {
+      const request = validateRequest(walkModeCompleteRequestSchema, input) as WalkModeCompleteRequest;
+      await requireUser(store, request.userId);
+      const packet = await store.getDailyPacket(request.userId, request.packetDate ?? todayIsoDate());
+      if (!packet || packet.id !== request.dailyPacketId) {
+        return notFound<WalkModeCompletionResponse>("daily_packet_not_found");
+      }
+      const walkPacket = packet.walk_packets.find((candidate) => candidate.id === request.walkPacketId);
+      if (!walkPacket) return notFound<WalkModeCompletionResponse>("walk_packet_not_found");
+
+      let session = request.sessionId ? await store.getSession(request.sessionId) : undefined;
+      if (
+        request.sessionId &&
+        (!session || session.user_id !== request.userId || session.session_type !== "walk_mode")
+      ) {
+        return notFound<WalkModeCompletionResponse>("session_not_found");
+      }
+      const eventIds = session?.event_ids ? [...session.event_ids] : [];
+      if (!session) {
+        session = {
+          id: createId("session"),
+          user_id: request.userId,
+          daily_packet_id: request.dailyPacketId,
+          session_type: "walk_mode",
+          status: "running",
+          started_at: nowIso(),
+          event_ids: []
+        };
+        await store.saveSession(session);
+        const startEvent = await store.appendLearningEvent({
+          user_id: request.userId,
+          event_type: "session_started",
+          payload: {
+            session_id: session.id,
+            daily_packet_id: request.dailyPacketId,
+            walk_packet_id: walkPacket.id,
+            session_type: "walk_mode",
+            source: "walk_mode_completion"
+          }
+        });
+        eventIds.push(startEvent.id);
+      }
+
+      let states = (await store.getUserGraph(request.userId)).states;
+      const responses: AssessmentResponse[] = [];
+      for (const responseInput of request.responses) {
+        const response = scoreAssessmentResponse({
+          userId: request.userId,
+          item: responseInput.item,
+          rawResponse: responseInput.rawResponse,
+          confidence: responseInput.confidence,
+          latencyMs: responseInput.latencyMs,
+          hintCount: responseInput.hintCount,
+          retries: responseInput.retries
+        });
+        const savedResponse = await store.saveAssessmentResponse(response);
+        responses.push(savedResponse);
+        states = applyResponseToStates(states, savedResponse, request.userId);
+        const event = await store.appendLearningEvent({
+          user_id: request.userId,
+          event_type: "assessment_answered",
+          payload: {
+            session_id: session.id,
+            daily_packet_id: request.dailyPacketId,
+            walk_packet_id: walkPacket.id,
+            assessment_item_id: responseInput.item.id,
+            response_id: savedResponse.id,
+            correctness_score: savedResponse.correctness_score,
+            confidence_reported: savedResponse.confidence_reported,
+            latency_ms: savedResponse.latency_ms,
+            entry_mode: responseInput.entryMode,
+            voice_used: responseInput.entryMode === "voice" || request.voiceUsed,
+            transcript_stored: request.transcriptRetention !== "deleted" && Boolean(responseInput.transcript),
+            detected_failure_modes: savedResponse.detected_failure_modes
+          }
+        });
+        eventIds.push(event.id);
+      }
+
+      const confusingSet = new Set(request.confusingPromptIds);
+      states = markWalkConfusion(states, walkPacket.prompts, confusingSet, request.completedAt ?? nowIso());
+      const updatedGraph = await store.saveUserConceptStates(request.userId, states);
+      const touchedConceptIds = new Set(
+        responses
+          .flatMap((response) => response.graph_updates.map((update) => update.concept_id))
+          .filter((conceptId): conceptId is string => typeof conceptId === "string")
+      );
+      for (const prompt of walkPacket.prompts) {
+        if (confusingSet.has(prompt.id)) {
+          prompt.concept_ids.forEach((conceptId) => touchedConceptIds.add(conceptId));
+        }
+      }
+      const updatedStates = updatedGraph.states.filter((state) => touchedConceptIds.has(state.concept_id));
+      const summary = walkModeSummary(responses, request);
+      const completionEvent = await store.appendLearningEvent({
+        user_id: request.userId,
+        event_type: "walk_recall_completed",
+        payload: {
+          session_id: session.id,
+          daily_packet_id: request.dailyPacketId,
+          walk_packet_id: walkPacket.id,
+          updated_concept_ids: [...touchedConceptIds],
+          command_log: request.commandLog,
+          skipped_prompt_ids: request.skippedPromptIds,
+          confusing_prompt_ids: request.confusingPromptIds,
+          ...summary
+        }
+      });
+      eventIds.push(completionEvent.id);
+
+      const completedSession = await store.saveSession({
+        ...session,
+        status: "completed",
+        completed_at: request.completedAt ?? nowIso(),
+        event_ids: Array.from(new Set(eventIds))
+      });
+      const repairRecommendations = repairRecommendationsFor(responses);
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "walk_mode_completed",
+        object_type: "session",
+        object_id: completedSession.id,
+        payload: {
+          daily_packet_id: request.dailyPacketId,
+          walk_packet_id: walkPacket.id,
           response_ids: responses.map((response) => response.id),
           repair_recommendations: repairRecommendations,
           ...summary
@@ -1746,6 +1926,28 @@ function initialConceptState(userId: string, conceptId: string): UserConceptStat
   };
 }
 
+function markWalkConfusion(
+  states: UserConceptState[],
+  prompts: AssessmentItem[],
+  confusingPromptIds: Set<string>,
+  updatedAt: string
+): UserConceptState[] {
+  if (confusingPromptIds.size === 0) return states;
+  const conceptIds = new Set(
+    prompts.filter((prompt) => confusingPromptIds.has(prompt.id)).flatMap((prompt) => prompt.concept_ids)
+  );
+  return states.map((state) =>
+    conceptIds.has(state.concept_id)
+      ? {
+          ...state,
+          failure_modes: Array.from(new Set([...state.failure_modes, "walk_marked_confusing"])).slice(-6),
+          false_confidence_risk: clamp(state.false_confidence_risk + 0.04),
+          updated_at: updatedAt
+        }
+      : state
+  );
+}
+
 function morningForgeSummary(
   responses: AssessmentResponse[],
   request: MorningForgeCompleteRequest
@@ -1756,6 +1958,25 @@ function morningForgeSummary(
     average_confidence: average(responses.map((response) => response.confidence_reported ?? 0.5)),
     screen_minutes: request.screenMinutes,
     voice_used: request.voiceUsed || request.responses.some((response) => response.entryMode === "voice")
+  };
+}
+
+function walkModeSummary(
+  responses: AssessmentResponse[],
+  request: WalkModeCompleteRequest
+): WalkModeCompletionResponse["summary"] {
+  return {
+    answered: responses.length,
+    skipped: request.skippedPromptIds.length,
+    marked_confusing: request.confusingPromptIds.length,
+    average_correctness: average(responses.map((response) => response.correctness_score)),
+    average_confidence: average(responses.map((response) => response.confidence_reported ?? 0.5)),
+    voice_used: request.voiceUsed || request.responses.some((response) => response.entryMode === "voice"),
+    text_used: request.responses.some((response) => response.entryMode === "text"),
+    screen_locked: request.screenLocked,
+    commands_processed: request.commandLog.length,
+    transcript_retention: request.transcriptRetention,
+    compatible_assessment_events: true
   };
 }
 

@@ -126,6 +126,7 @@ type SleepRecallResult = {
   cuedConceptIds: string[];
   controlConceptIds: string[];
 };
+type WalkPhase = "prompt" | "listening" | "feedback" | "complete";
 type FlashEngineResult = ReturnType<typeof scoreFlashReadCompletion> & {
   completedAt: string;
   rawWpm: number;
@@ -161,6 +162,22 @@ export default function App() {
   const [cinemaStartedAt, setCinemaStartedAt] = useState(Date.now());
   const [cinemaResult, setCinemaResult] = useState<GraphFeedRecallResult | null>(null);
   const [cinemaCacheStatus, setCinemaCacheStatus] = useState("pending");
+  const [walkIndex, setWalkIndex] = useState(0);
+  const [walkPhase, setWalkPhase] = useState<WalkPhase>("prompt");
+  const [walkAnswer, setWalkAnswer] = useState("");
+  const [walkAnswerMode, setWalkAnswerMode] = useState<AnswerMode>("voice");
+  const [walkConfidence, setWalkConfidence] = useState(0.6);
+  const [walkStartedAt, setWalkStartedAt] = useState(Date.now());
+  const [walkHintCount, setWalkHintCount] = useState(0);
+  const [walkResponses, setWalkResponses] = useState<AssessmentResponse[]>([]);
+  const [walkLastResponse, setWalkLastResponse] = useState<AssessmentResponse | null>(null);
+  const [walkRepairTips, setWalkRepairTips] = useState<string[]>([]);
+  const [walkCommandLog, setWalkCommandLog] = useState<string[]>([]);
+  const [walkSkippedIds, setWalkSkippedIds] = useState<string[]>([]);
+  const [walkConfusingIds, setWalkConfusingIds] = useState<string[]>([]);
+  const [walkCacheStatus, setWalkCacheStatus] = useState("pending");
+  const [walkCompletedAt, setWalkCompletedAt] = useState<string | null>(null);
+  const [walkTranscriptDeleted, setWalkTranscriptDeleted] = useState(true);
   const [lockAnswer, setLockAnswer] = useState("");
   const [lockConfidence, setLockConfidence] = useState(0.58);
   const [lockAnswerMode, setLockAnswerMode] = useState<AnswerMode>("voice");
@@ -303,6 +320,9 @@ export default function App() {
     [scheduled.packet.evening.transfer_drills, scheduled.packet.morning.cold_retrieval_items]
   );
   const activeForgePrompt = forgeQueue[forgeIndex % Math.max(forgeQueue.length, 1)];
+  const activeWalkPacket = scheduled.packet.walk_packets[0];
+  const walkPrompts = activeWalkPacket?.prompts ?? [];
+  const activeWalkPrompt = walkPrompts[walkIndex % Math.max(walkPrompts.length, 1)];
   const eveningQueue = useMemo<EveningPrompt[]>(
     () => [
       ...scheduled.packet.evening.recall_items.map((item) => ({ phase: "recall" as const, item })),
@@ -526,6 +546,134 @@ export default function App() {
         ...current
       ].slice(0, 6)
     );
+  }
+
+  function startWalkListening() {
+    setWalkPhase("listening");
+    setWalkStartedAt(Date.now());
+    setWalkCommandLog((current) => ["listen", ...current].slice(0, 24));
+  }
+
+  function updateWalkAnswer(value: string) {
+    if (walkAnswer.trim().length === 0 && value.trim().length > 0) {
+      setWalkStartedAt(Date.now());
+    }
+    setWalkAnswer(value);
+    setWalkCompletedAt(null);
+    setWalkCacheStatus("pending");
+  }
+
+  function scoreWalkAnswer() {
+    const prompt = activeWalkPrompt;
+    if (!prompt || walkAnswer.trim().length === 0) return;
+    const response = scoreAssessmentResponse({
+      userId: demoUser.id,
+      item: prompt,
+      rawResponse: walkAnswer,
+      confidence: walkConfidence,
+      latencyMs: Math.max(1_000, Date.now() - walkStartedAt),
+      hintCount: walkHintCount
+    });
+    setWalkResponses((current) => [...current, response]);
+    setWalkLastResponse(response);
+    setWalkRepairTips(repairTipsFor(response));
+    setWalkPhase("feedback");
+    setStates((current) => applyResponseToLocalStates(current, response));
+    setEventLog((current) =>
+      [
+        `walk ${walkAnswerMode} recall scored: ${response.model_feedback}`,
+        `walk latency: ${Math.round(response.latency_ms / 1000)}s`,
+        ...current
+      ].slice(0, 6)
+    );
+  }
+
+  function advanceWalkPrompt() {
+    const nextIndex = walkIndex + 1;
+    setWalkAnswer("");
+    setWalkHintCount(0);
+    setWalkLastResponse(null);
+    setWalkRepairTips([]);
+    setWalkStartedAt(Date.now());
+    if (nextIndex >= walkPrompts.length) {
+      setWalkPhase("complete");
+    } else {
+      setWalkIndex(nextIndex);
+      setWalkPhase("prompt");
+    }
+  }
+
+  function runWalkCommand(command: string) {
+    setWalkCommandLog((current) => [command, ...current].slice(0, 24));
+    const prompt = activeWalkPrompt;
+    if (command === "repeat that") {
+      setWalkPhase("prompt");
+    } else if (command === "give hint") {
+      setWalkHintCount((count) => count + 1);
+      setWalkAnswer(
+        (current) => current || "I need the mechanism, a concrete example, and a boundary condition."
+      );
+    } else if (command === "skip" && prompt) {
+      setWalkSkippedIds((current) => unique([...current, prompt.id]));
+      advanceWalkPrompt();
+    } else if (command === "mark confusing" && prompt) {
+      setWalkConfusingIds((current) => unique([...current, prompt.id]));
+      setWalkRepairTips(["Marked for repair. Keep walking and revisit this concept later."]);
+      setWalkPhase("feedback");
+    } else if (command === "end session") {
+      completeWalkSession();
+    } else if (command === "screen off") {
+      setWalkPhase("listening");
+    } else if (command === "harder") {
+      setWalkConfidence((value) => clamp(value + 0.08));
+    } else if (command === "slower") {
+      setWalkConfidence((value) => clamp(value - 0.08));
+    } else if (command === "explain why") {
+      setWalkAnswer((current) => current || "Because the mechanism links the cause, example, and limit.");
+    }
+  }
+
+  function completeWalkSession() {
+    const completedAt = new Date().toISOString();
+    try {
+      window.localStorage.setItem(
+        "mnemosyne.walkMode.v1",
+        JSON.stringify({
+          cached_at: completedAt,
+          user_id: demoUser.id,
+          walk_packet_id: activeWalkPacket?.id,
+          prompts_answered: walkResponses.length,
+          skipped_prompt_ids: walkSkippedIds,
+          confusing_prompt_ids: walkConfusingIds,
+          commands: walkCommandLog,
+          voice_used: walkAnswerMode === "voice" || walkCommandLog.length > 0,
+          text_used: walkResponses.some((response) => response.raw_response),
+          screen_locked: true,
+          transcript_retention: walkTranscriptDeleted ? "deleted" : "transcript_only",
+          compatible_assessment_events: true,
+          average_correctness: avg(walkResponses.map((response) => response.correctness_score))
+        })
+      );
+      setWalkCacheStatus("ready");
+    } catch {
+      setWalkCacheStatus("unavailable");
+    }
+    setWalkCompletedAt(completedAt);
+    setWalkPhase("complete");
+    setEventLog((current) =>
+      [
+        `walkmode completed: ${walkResponses.length} recall events`,
+        `voice transcript: ${walkTranscriptDeleted ? "deleted" : "retained as text"}`,
+        ...current
+      ].slice(0, 6)
+    );
+  }
+
+  function deleteWalkTranscript() {
+    setWalkAnswer("");
+    setWalkTranscriptDeleted(true);
+    setWalkCommandLog((current) => ["delete transcript", ...current].slice(0, 24));
+    setWalkCacheStatus("pending");
   }
 
   function selectFlashAsset(assetId: string) {
@@ -832,6 +980,20 @@ export default function App() {
     setRepairTips([]);
     setLastResponse(null);
     setForgeStartedAt(Date.now());
+    setWalkIndex(0);
+    setWalkPhase("prompt");
+    setWalkAnswer("");
+    setWalkStartedAt(Date.now());
+    setWalkHintCount(0);
+    setWalkResponses([]);
+    setWalkLastResponse(null);
+    setWalkRepairTips([]);
+    setWalkCommandLog([]);
+    setWalkSkippedIds([]);
+    setWalkConfusingIds([]);
+    setWalkCacheStatus("pending");
+    setWalkCompletedAt(null);
+    setWalkTranscriptDeleted(true);
     setLockIndex(0);
     setLockResponses(0);
     setLockRepairTips([]);
@@ -953,7 +1115,37 @@ export default function App() {
         concepts={demoMasterGraph.concepts}
       />
     ),
-    walk: <WalkView prompts={scheduled.packet.walk_packets[0]?.prompts ?? []} />,
+    walk: (
+      <WalkView
+        packet={activeWalkPacket}
+        prompt={activeWalkPrompt}
+        promptIndex={walkPrompts.length > 0 ? walkIndex + 1 : 0}
+        queueLength={walkPrompts.length}
+        phase={walkPhase}
+        answer={walkAnswer}
+        setAnswer={updateWalkAnswer}
+        answerMode={walkAnswerMode}
+        setAnswerMode={setWalkAnswerMode}
+        confidence={walkConfidence}
+        setConfidence={setWalkConfidence}
+        startListening={startWalkListening}
+        scoreAnswer={scoreWalkAnswer}
+        nextPrompt={advanceWalkPrompt}
+        runCommand={runWalkCommand}
+        completeSession={completeWalkSession}
+        deleteTranscript={deleteWalkTranscript}
+        lastResponse={walkLastResponse}
+        repairTips={walkRepairTips}
+        commandLog={walkCommandLog}
+        skippedIds={walkSkippedIds}
+        confusingIds={walkConfusingIds}
+        cacheStatus={walkCacheStatus}
+        completedAt={walkCompletedAt}
+        transcriptDeleted={walkTranscriptDeleted}
+        setTranscriptDeleted={setWalkTranscriptDeleted}
+        answeredCount={walkResponses.length}
+      />
+    ),
     lock: (
       <LockInView
         packet={scheduled.packet}
@@ -2102,37 +2294,191 @@ function FlashView({
 }
 
 function WalkView({
-  prompts
+  packet,
+  prompt,
+  promptIndex,
+  queueLength,
+  phase,
+  answer,
+  setAnswer,
+  answerMode,
+  setAnswerMode,
+  confidence,
+  setConfidence,
+  startListening,
+  scoreAnswer,
+  nextPrompt,
+  runCommand,
+  completeSession,
+  deleteTranscript,
+  lastResponse,
+  repairTips,
+  commandLog,
+  skippedIds,
+  confusingIds,
+  cacheStatus,
+  completedAt,
+  transcriptDeleted,
+  setTranscriptDeleted,
+  answeredCount
 }: {
-  prompts: ReturnType<typeof buildDailyLearningPacket>["packet"]["walk_packets"][number]["prompts"];
+  packet: ReturnType<typeof buildDailyLearningPacket>["packet"]["walk_packets"][number] | undefined;
+  prompt:
+    | ReturnType<typeof buildDailyLearningPacket>["packet"]["walk_packets"][number]["prompts"][number]
+    | undefined;
+  promptIndex: number;
+  queueLength: number;
+  phase: WalkPhase;
+  answer: string;
+  setAnswer: (value: string) => void;
+  answerMode: AnswerMode;
+  setAnswerMode: (value: AnswerMode) => void;
+  confidence: number;
+  setConfidence: (value: number) => void;
+  startListening: () => void;
+  scoreAnswer: () => void;
+  nextPrompt: () => void;
+  runCommand: (command: string) => void;
+  completeSession: () => void;
+  deleteTranscript: () => void;
+  lastResponse: AssessmentResponse | null;
+  repairTips: string[];
+  commandLog: string[];
+  skippedIds: string[];
+  confusingIds: string[];
+  cacheStatus: string;
+  completedAt: string | null;
+  transcriptDeleted: boolean;
+  setTranscriptDeleted: (value: boolean) => void;
+  answeredCount: number;
 }) {
+  const commands = packet?.voice_commands ?? [
+    "repeat that",
+    "slower",
+    "harder",
+    "give hint",
+    "skip",
+    "mark confusing",
+    "screen off",
+    "end session"
+  ];
   return (
     <div className="walk-layout">
       <section className="phone-down">
-        <div className="phone-frame">
+        <div className={`phone-frame walk-phone ${phase === "listening" ? "is-listening" : ""}`}>
+          <div className="walk-phone-screen">
+            <span>{phase}</span>
+            <strong>{prompt ? `${promptIndex}/${Math.max(queueLength, 1)}` : "0/0"}</strong>
+            <p>{prompt?.prompt ?? "Walk session complete"}</p>
+          </div>
           <div className="waveform">
             {Array.from({ length: 34 }).map((_, index) => (
               <span key={index} style={{ height: `${18 + ((index * 17) % 44)}px` }} />
             ))}
           </div>
           <div className="audio-controls">
-            <IconButton title="Previous" icon={RefreshCcw} />
-            <IconButton title="Pause" icon={Pause} />
-            <IconButton title="Play" icon={Play} />
+            <IconButton title="Repeat" icon={RefreshCcw} onClick={() => runCommand("repeat that")} />
+            <IconButton title="Pause" icon={Pause} onClick={() => runCommand("screen off")} />
+            <IconButton title="Listen" icon={Play} onClick={startListening} />
           </div>
         </div>
       </section>
-      <section className="panel walk-prompts">
-        <PanelTitle icon={Footprints} title="WalkMode" meta="screen locked" />
-        {prompts.slice(0, 5).map((prompt) => (
-          <ObjectLine key={prompt.id} label={prompt.assessment_type} value={prompt.prompt} />
-        ))}
-        <div className="tag-row commands">
-          {["repeat", "slower", "harder", "hint", "mark confusing", "screen off"].map((command) => (
-            <span className="tag" key={command}>
-              {command}
-            </span>
+      <section className="panel walk-prompts walk-session-panel">
+        <PanelTitle icon={Footprints} title="WalkMode" meta={phase} />
+        <div className="forge-status-grid">
+          <MiniStat label="Prompt" value={`${promptIndex}/${Math.max(queueLength, 1)}`} />
+          <MiniStat label="Answered" value={`${answeredCount}`} />
+          <MiniStat label="Cache" value={cacheStatus} />
+          <MiniStat label="Screen" value="locked" />
+        </div>
+        <div className="prompt-box walk-prompt-box">
+          <p className="eyebrow">Prompt Playback</p>
+          <h2>{prompt?.prompt ?? "No walking prompt due"}</h2>
+        </div>
+        <div className="segmented-control" aria-label="Walk answer mode">
+          {(["voice", "text"] as const).map((mode) => (
+            <button
+              className={answerMode === mode ? "is-active" : ""}
+              key={mode}
+              onClick={() => setAnswerMode(mode)}
+            >
+              {mode === "voice" ? <AudioLines size={16} /> : <ClipboardCheck size={16} />}
+              <span>{mode}</span>
+            </button>
           ))}
+        </div>
+        <textarea
+          value={answer}
+          onChange={(event) => setAnswer(event.target.value)}
+          placeholder={answerMode === "voice" ? "Private voice transcript..." : "Text fallback..."}
+          rows={5}
+        />
+        <Slider
+          label="Confidence"
+          value={confidence}
+          onChange={setConfidence}
+          suffix={`${Math.round(confidence * 100)}%`}
+        />
+        <div className="action-row">
+          <button className="command primary" onClick={phase === "prompt" ? startListening : scoreAnswer}>
+            {phase === "prompt" ? <Play size={18} /> : <BadgeCheck size={18} />}
+            {phase === "prompt" ? "Listen" : "Score"}
+          </button>
+          <button className="command" onClick={nextPrompt}>
+            <SkipForward size={18} />
+            Next
+          </button>
+          <button className="command" onClick={completeSession}>
+            <CheckCircle2 size={18} />
+            Complete
+          </button>
+        </div>
+        {lastResponse && (
+          <div className="feedback-band walk-feedback">
+            <strong>{Math.round(lastResponse.correctness_score * 100)}%</strong>
+            <span>{lastResponse.model_feedback}</span>
+          </div>
+        )}
+        {repairTips.length > 0 && (
+          <div className="repair-list">
+            {repairTips.map((tip) => (
+              <ObjectLine key={tip} label="Repair" value={tip} />
+            ))}
+          </div>
+        )}
+        <div className="tag-row commands">
+          {commands.map((command) => (
+            <button className="tag command-chip" key={command} onClick={() => runCommand(command)}>
+              {command}
+            </button>
+          ))}
+        </div>
+        <div className="walk-privacy-panel">
+          <label className="switch-row">
+            <input
+              type="checkbox"
+              checked={transcriptDeleted}
+              onChange={(event) => setTranscriptDeleted(event.target.checked)}
+            />
+            <span>Delete voice transcript after scoring</span>
+          </label>
+          <button className="command" onClick={deleteTranscript}>
+            <ShieldCheck size={18} />
+            Delete Now
+          </button>
+        </div>
+        <div className="object-list walk-session-log">
+          <ObjectLine label="Commands" value={commandLog.slice(0, 4).join(", ")} />
+          <ObjectLine label="Skipped" value={`${skippedIds.length}`} />
+          <ObjectLine label="Confusing" value={`${confusingIds.length}`} />
+          <ObjectLine
+            label="Completed"
+            value={
+              completedAt
+                ? new Date(completedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+                : "not yet"
+            }
+          />
         </div>
       </section>
     </div>

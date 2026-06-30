@@ -249,6 +249,24 @@ export const flashReadCompleteRequestSchema = z
   })
   .strict();
 
+export const walkModeCompleteRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    dailyPacketId: z.string().min(1),
+    packetDate: z.string().optional(),
+    sessionId: z.string().min(1).optional(),
+    walkPacketId: z.string().min(1),
+    responses: z.array(sessionAssessmentResponseSchema).min(1).max(16),
+    skippedPromptIds: z.array(z.string().min(1)).default([]),
+    confusingPromptIds: z.array(z.string().min(1)).default([]),
+    commandLog: z.array(z.string().min(1)).max(64).default([]),
+    screenLocked: z.boolean().default(true),
+    voiceUsed: z.boolean().default(false),
+    transcriptRetention: z.enum(["deleted", "transcript_only", "retained"]).default("deleted"),
+    completedAt: z.string().optional()
+  })
+  .strict();
+
 export const sleepPacketRequestSchema = z
   .object({
     userId: userIdSchema,

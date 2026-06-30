@@ -40,6 +40,12 @@ export const apiRoutes: ApiRoute[] = [
   },
   {
     method: "POST",
+    path: "/api/walk-mode/complete",
+    service: "WalkMode Service",
+    eventType: "walk_recall_completed"
+  },
+  {
+    method: "POST",
     path: "/api/assessments/:id/response",
     service: "Assessment Service",
     eventType: "assessment_answered"
