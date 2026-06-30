@@ -5,6 +5,7 @@
   "license": "MIT",
   "dependencies": {
     "@mnemosyne/assessment-core": "*",
+    "@mnemosyne/auth-core": "*",
     "@mnemosyne/audio-renderer-service": "*",
     "@mnemosyne/content-court": "*",
     "@mnemosyne/demo-fixtures": "*",

@@ -3,6 +3,21 @@ import {
   generateAssessmentForConcept,
   scoreAssessmentResponse
 } from "@mnemosyne/assessment-core";
+import {
+  authorizeAction,
+  buildSecurityPosture,
+  issueAuthSession,
+  verifyAuthTokens,
+  type AuthAction,
+  type AuthProvider,
+  type AuthResource,
+  type AuthRole,
+  type AuthSession,
+  type AuthorizationDecision,
+  type SecurityPosture,
+  type SessionIssueResult,
+  type TokenVerificationResult
+} from "@mnemosyne/auth-core";
 import { buildRenderManifest } from "@mnemosyne/audio-renderer-service";
 import type { RenderManifest } from "@mnemosyne/audio-renderer-service";
 import {
@@ -97,6 +112,9 @@ import {
 import { buildWatchPackets, rankVideosForUser } from "@mnemosyne/video-core";
 import {
   assessmentSubmitRequestSchema,
+  authAuthorizationRequestSchema,
+  authSessionIssueRequestSchema,
+  authTokenVerifyRequestSchema,
   challengeCreateRequestSchema,
   completeOnboardingRequestSchema,
   completeWatchPacketRequestSchema,
@@ -173,6 +191,33 @@ type ChallengeCreateRequest = {
 };
 
 type SocialDashboardResponse = SocialDashboard;
+
+type AuthSessionIssueRequest = {
+  userId: string;
+  provider: AuthProvider;
+  roles: AuthRole[];
+  ttlMinutes: number;
+  sessionSeed?: string;
+  csrfSeed?: string;
+  deviceBinding?: string;
+};
+
+type AuthTokenVerifyRequest = {
+  session: AuthSession;
+  sessionToken: string;
+  csrfToken?: string;
+};
+
+type AuthAuthorizationRequest = {
+  session: AuthSession;
+  action: AuthAction;
+  resource: AuthResource;
+};
+
+type AuthAuthorizationResponse = {
+  decision: AuthorizationDecision;
+  posture: SecurityPosture;
+};
 
 export type SessionEventRequest = {
   userId: string;
@@ -547,6 +592,78 @@ type WalkModeCompletionResponse = {
 
 export function createApiHandlers(store: MnemosyneStore) {
   return {
+    async issueAuthSession(input: unknown): Promise<HandlerEnvelope<SessionIssueResult>> {
+      const request = validateRequest(authSessionIssueRequestSchema, input) as AuthSessionIssueRequest;
+      const user = await requireUser(store, request.userId);
+      const issued = await issueAuthSession({
+        userId: user.id,
+        provider: request.provider,
+        roles: request.roles,
+        ttlMinutes: request.ttlMinutes,
+        sessionSeed: request.sessionSeed,
+        csrfSeed: request.csrfSeed,
+        deviceBinding: request.deviceBinding
+      });
+      const audit = await store.appendAuditEvent({
+        actor_id: user.id,
+        action: "auth_session_issued",
+        object_type: "auth_session",
+        object_id: issued.session.id,
+        payload: {
+          provider: issued.session.provider,
+          roles: issued.session.roles,
+          expires_at: issued.session.expires_at,
+          csrf_bound: true,
+          device_bound: Boolean(issued.session.device_binding_hash)
+        }
+      });
+      return envelope(issued, audit.id);
+    },
+
+    async verifyAuthSession(input: unknown): Promise<HandlerEnvelope<TokenVerificationResult>> {
+      const request = validateRequest(authTokenVerifyRequestSchema, input) as AuthTokenVerifyRequest;
+      await requireUser(store, request.session.user_id);
+      const verification = await verifyAuthTokens({
+        session: request.session,
+        sessionToken: request.sessionToken,
+        csrfToken: request.csrfToken
+      });
+      const audit = await store.appendAuditEvent({
+        actor_id: request.session.user_id,
+        action: "auth_session_verified",
+        object_type: "auth_session",
+        object_id: request.session.id,
+        payload: verification
+      });
+      return envelope(verification, audit.id);
+    },
+
+    async checkAuthorization(input: unknown): Promise<HandlerEnvelope<AuthAuthorizationResponse>> {
+      const request = validateRequest(authAuthorizationRequestSchema, input) as AuthAuthorizationRequest;
+      const user = await requireUser(store, request.session.user_id);
+      const decision = authorizeAction({
+        session: request.session,
+        action: request.action,
+        resource: request.resource,
+        user
+      });
+      const posture = buildSecurityPosture({ session: request.session, user });
+      const audit = await store.appendAuditEvent({
+        actor_id: request.session.user_id,
+        action: "authorization_checked",
+        object_type: request.resource.kind,
+        object_id: request.resource.object_id,
+        payload: {
+          action: request.action,
+          allowed: decision.allowed,
+          reason: decision.reason,
+          resource_owner_id: request.resource.owner_id,
+          required_roles: decision.required_roles
+        }
+      });
+      return envelope({ decision, posture }, audit.id);
+    },
+
     async getMe(userId: string) {
       const user = await requireUser(store, userId);
       return envelope(user);

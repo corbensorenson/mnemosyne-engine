@@ -50,6 +50,92 @@ describe("persistence-backed API handlers", () => {
     );
   });
 
+  it("issues auth sessions and audits object-level authorization decisions", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+
+    const issued = unwrap(
+      await handlers.issueAuthSession({
+        userId: demoUser.id,
+        provider: "passkey",
+        roles: ["learner"],
+        ttlMinutes: 120,
+        sessionSeed: "api-session",
+        csrfSeed: "api-csrf",
+        deviceBinding: "demo-device"
+      })
+    );
+    expect(issued.session.user_id).toBe(demoUser.id);
+    expect(issued.session.roles).toEqual(["learner"]);
+    expect(issued.session.device_binding_hash).toHaveLength(64);
+    expect(JSON.stringify(issued.session)).not.toContain(issued.session_token);
+    expect(JSON.stringify(issued.session)).not.toContain(issued.csrf_token);
+
+    const verified = unwrap(
+      await handlers.verifyAuthSession({
+        session: issued.session,
+        sessionToken: issued.session_token,
+        csrfToken: issued.csrf_token
+      })
+    );
+    expect(verified).toEqual({
+      session_active: true,
+      session_token_valid: true,
+      csrf_token_valid: true
+    });
+
+    const ownExport = unwrap(
+      await handlers.checkAuthorization({
+        session: issued.session,
+        action: "export",
+        resource: { kind: "privacy_export", owner_id: demoUser.id }
+      })
+    );
+    expect(ownExport.decision.allowed).toBe(true);
+    expect(ownExport.posture.private_default).toBe(true);
+
+    const otherGraph = unwrap(
+      await handlers.checkAuthorization({
+        session: issued.session,
+        action: "read",
+        resource: { kind: "personal_graph", owner_id: "user_other" }
+      })
+    );
+    expect(otherGraph.decision.allowed).toBe(false);
+    expect(otherGraph.decision.reason).toContain("denied");
+
+    const moderator = unwrap(
+      await handlers.issueAuthSession({
+        userId: demoUser.id,
+        provider: "oauth",
+        roles: ["moderator"],
+        ttlMinutes: 120,
+        sessionSeed: "moderator-session",
+        csrfSeed: "moderator-csrf"
+      })
+    );
+    const releaseDecision = unwrap(
+      await handlers.checkAuthorization({
+        session: moderator.session,
+        action: "release",
+        resource: { kind: "proposal", object_id: "proposal_demo" }
+      })
+    );
+    expect(releaseDecision.decision.allowed).toBe(true);
+
+    const audits = await store.listAuditEvents(demoUser.id);
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "auth_session_issued", object_id: issued.session.id }),
+        expect.objectContaining({ action: "auth_session_verified", object_id: issued.session.id }),
+        expect.objectContaining({
+          action: "authorization_checked",
+          payload: expect.objectContaining({ allowed: false, action: "read" })
+        })
+      ])
+    );
+  });
+
   it("starts sessions, records events, and updates graph state from assessment responses", async () => {
     const store = await createSeededStore();
     const handlers = createApiHandlers(store);

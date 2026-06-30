@@ -5,6 +5,7 @@ Please report security issues privately before public disclosure.
 Minimum expectations for production deployments:
 
 - passkeys or OAuth login
+- hashed session and CSRF tokens
 - encrypted health tokens
 - server-side API keys only
 - role-based access control

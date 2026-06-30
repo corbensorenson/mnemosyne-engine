@@ -8,6 +8,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 
 - `apps/web`: installable PWA shell with the core product surfaces: Today, Graph, Morning Forge, GraphFeed, WalkMode, Evening Lock-In, Sleep, Stats, Social, Wear, Packs, Content Court, Lab, Workbench, and Admin.
 - `packages/schema`: shared Zod schemas and TypeScript types for graph, user state, sessions, sleep cues, content court, experiments, packs, videos, and events.
+- `packages/auth-core`: session issuance, hashed tokens, CSRF checks, RBAC, consent gates, and object-level authorization.
 - `packages/graph-core`: graph gap analysis, prerequisite debt, pathing, and user graph snapshots.
 - `packages/scheduler-core`: daily packet builder joining graph, assessment, video, walk, evening, and sleep planning.
 - `packages/assessment-core`: answer scoring, false-confidence detection, failure modes, and user graph updates.

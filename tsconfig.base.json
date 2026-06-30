@@ -20,6 +20,7 @@
     "paths": {
       "@mnemosyne/schema": ["packages/schema/src/index.ts"],
       "@mnemosyne/shared-utils": ["packages/shared-utils/src/index.ts"],
+      "@mnemosyne/auth-core": ["packages/auth-core/src/index.ts"],
       "@mnemosyne/graph-core": ["packages/graph-core/src/index.ts"],
       "@mnemosyne/assessment-core": ["packages/assessment-core/src/index.ts"],
       "@mnemosyne/sleep-core": ["packages/sleep-core/src/index.ts"],

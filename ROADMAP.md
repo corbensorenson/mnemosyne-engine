@@ -257,6 +257,7 @@ Deliverables:
 Current implementation progress:
 
 - API onboarding completion flow creates a private-default user, saves the first goal, installs selected packs, seeds baseline graph states, generates diagnostic assessment items, and persists the first daily packet with audit and event records.
+- First-party auth core and API handlers now issue passkey/OAuth/dev sessions with hashed session tokens, hashed CSRF tokens, optional device binding, object-level authorization decisions, security posture summaries, and audit events.
 - PWA onboarding surface starts first-run users in a goal, pack, modality, privacy, device capability, and diagnostic setup flow before handing off to the first daily packet.
 
 Exit criteria:
@@ -495,6 +496,7 @@ Current implementation progress:
 - API privacy flow now supports user data export and scoped deletion for voice, sleep, health, and full account data with explicit confirmation, deletion summaries, and retained audit events.
 - Persistence layer can produce export bundles across user profile, goals, graph state, packets, sessions, events, experiments, social state, and wearable data, while account deletion removes user-owned records and anonymizes retained audit entries.
 - PWA Admin surface includes Privacy Ops cards for export, voice deletion, health deletion, and account deletion alongside the service map and audit log.
+- Security foundation now includes `@mnemosyne/auth-core` for RBAC, object-level authorization, consent-aware analytics access, CSRF verification, session expiry, and API audit trails for auth decisions.
 - Production release runbook covers deployment environments, required services and secrets, monitoring, backup/restore, accessibility, load/reliability, and release checklist.
 - Privacy documentation covers export bundle contents, deletion scopes, audit rules, product requirements, and test coverage.
 

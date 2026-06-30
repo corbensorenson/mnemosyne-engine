@@ -16,6 +16,103 @@ import { z } from "zod";
 
 const userIdSchema = z.string().min(1);
 
+export const authRoleSchema = z.enum(["learner", "creator", "moderator", "admin", "researcher", "service"]);
+
+export const authProviderSchema = z.enum(["passkey", "oauth", "dev"]);
+
+export const authActionSchema = z.enum([
+  "read",
+  "create",
+  "update",
+  "delete",
+  "export",
+  "sync",
+  "score",
+  "assign",
+  "moderate",
+  "release",
+  "operate"
+]);
+
+export const authResourceSchema = z
+  .object({
+    kind: z.enum([
+      "user_profile",
+      "goal",
+      "personal_graph",
+      "daily_packet",
+      "session",
+      "assessment_response",
+      "sleep_data",
+      "health_data",
+      "voice_data",
+      "privacy_export",
+      "privacy_delete",
+      "master_graph",
+      "proposal",
+      "creator_submission",
+      "social_challenge",
+      "experiment",
+      "analytics",
+      "admin_ops",
+      "service_job"
+    ]),
+    object_id: z.string().min(1).optional(),
+    owner_id: z.string().min(1).optional(),
+    visibility: z.enum(["private", "badges_only", "friends", "public", "aggregate", "internal"]).optional(),
+    consent_required: z.enum(["product_analytics", "research"]).optional(),
+    risk_level: z.enum(["low", "medium", "high"]).optional()
+  })
+  .strict();
+
+export const authSessionSchema = z
+  .object({
+    id: z.string().min(1),
+    user_id: userIdSchema,
+    roles: z.array(authRoleSchema).min(1),
+    provider: authProviderSchema,
+    issued_at: z.string().min(1),
+    expires_at: z.string().min(1),
+    session_token_hash: z.string().min(32),
+    csrf_token_hash: z.string().min(32),
+    device_binding_hash: z.string().min(32).optional(),
+    last_seen_at: z.string().optional()
+  })
+  .strict();
+
+export const authSessionIssueRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    provider: authProviderSchema.default("passkey"),
+    roles: z.array(authRoleSchema).min(1).default(["learner"]),
+    ttlMinutes: z
+      .number()
+      .int()
+      .positive()
+      .max(60 * 24 * 30)
+      .default(480),
+    sessionSeed: z.string().min(1).optional(),
+    csrfSeed: z.string().min(1).optional(),
+    deviceBinding: z.string().min(4).optional()
+  })
+  .strict();
+
+export const authTokenVerifyRequestSchema = z
+  .object({
+    session: authSessionSchema,
+    sessionToken: z.string().min(8),
+    csrfToken: z.string().min(8).optional()
+  })
+  .strict();
+
+export const authAuthorizationRequestSchema = z
+  .object({
+    session: authSessionSchema,
+    action: authActionSchema,
+    resource: authResourceSchema
+  })
+  .strict();
+
 const learningEventTypeSchema = z.enum([
   "session_started",
   "concept_seen",
