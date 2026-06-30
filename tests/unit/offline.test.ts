@@ -4,7 +4,8 @@ import {
   defaultOfflineRequiredActions,
   markOfflineItemSyncing,
   recoverStaleOfflineItems,
-  summarizeOfflineQueue
+  summarizeOfflineQueue,
+  syncOfflineQueueItems
 } from "@mnemosyne/offline-core";
 import { describe, expect, it } from "vitest";
 
@@ -93,6 +94,45 @@ describe("offline-core", () => {
     expect(recovered.find((item) => item.id === stale.id)?.status).toBe("queued");
     expect(recovered.find((item) => item.id === stale.id)?.last_error).toBe(
       "Recovered stale offline sync lock."
+    );
+  });
+
+  it("syncs retryable items through a receipt transport and preserves failures for retry", async () => {
+    const accepted = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "morning_forge_response",
+      endpoint: "/api/morning-forge/complete",
+      method: "POST",
+      payload: { response_id: "response_ok" },
+      idempotencyKey: "accepted-response"
+    });
+    const rejected = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "sleep_recall_completion",
+      endpoint: "/api/sleep/recall/complete",
+      method: "POST",
+      payload: { response_id: "response_bad" },
+      idempotencyKey: "rejected-response"
+    });
+
+    const run = await syncOfflineQueueItems({
+      items: [accepted, rejected],
+      at: "2026-06-30T14:00:00.000Z",
+      workerId: "test-sync",
+      transport: async (item) =>
+        item.id === accepted.id
+          ? { ok: true, statusCode: 202, receiptId: "receipt_ok" }
+          : { ok: false, statusCode: 503, error: "API unavailable" }
+    });
+
+    expect(run.attempted).toBe(2);
+    expect(run.synced).toBe(1);
+    expect(run.failed).toBe(1);
+    expect(run.items.find((item) => item.id === accepted.id)).toEqual(
+      expect.objectContaining({ status: "synced", receipt_id: "receipt_ok", attempts: 1 })
+    );
+    expect(run.items.find((item) => item.id === rejected.id)).toEqual(
+      expect.objectContaining({ status: "failed", last_error: "API unavailable", attempts: 1 })
     );
   });
 });

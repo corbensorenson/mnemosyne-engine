@@ -12,6 +12,7 @@ import {
   type LearningEvent,
   type Proposal
 } from "@mnemosyne/schema";
+import { offlineActionTypes } from "@mnemosyne/offline-core";
 import { z } from "zod";
 
 const userIdSchema = z.string().min(1);
@@ -214,6 +215,39 @@ const queueNameSchema = z.enum([
   "moderation"
 ]);
 const jobPrioritySchema = z.enum(["low", "normal", "high", "critical"]);
+const offlineActionTypeSchema = z.enum(offlineActionTypes);
+const offlinePayloadScopeSchema = z.enum(["learning", "voice", "sleep", "health", "privacy", "ops"]);
+const offlineQueueStatusSchema = z.enum(["queued", "syncing", "synced", "failed", "discarded"]);
+
+export const offlineActionSyncRequestSchema = z
+  .object({
+    item: z
+      .object({
+        schema_version: z.literal("mnemosyne-offline-queue-item-v0.1"),
+        id: z.string().min(1),
+        user_id: userIdSchema,
+        action_type: offlineActionTypeSchema,
+        endpoint: z.string().min(1),
+        method: z.enum(["GET", "POST", "PATCH", "DELETE"]),
+        payload: z.record(z.unknown()),
+        payload_scope: offlinePayloadScopeSchema,
+        payload_sha: z.string().min(8),
+        status: offlineQueueStatusSchema,
+        attempts: z.number().int().nonnegative(),
+        max_attempts: z.number().int().positive().max(25),
+        idempotency_key: z.string().min(3),
+        created_at: z.string().min(1),
+        updated_at: z.string().min(1),
+        locked_at: z.string().optional(),
+        locked_by: z.string().optional(),
+        synced_at: z.string().optional(),
+        receipt_id: z.string().optional(),
+        http_status: z.number().int().optional(),
+        last_error: z.string().optional()
+      })
+      .strict()
+  })
+  .strict();
 
 export const outcomeDashboardJobRequestSchema = z
   .object({

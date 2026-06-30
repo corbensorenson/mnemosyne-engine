@@ -290,6 +290,7 @@ Current implementation progress:
 - API graph replay now exposes `POST /api/graph/user/replay`, rebuilding touched personal graph state from persisted assessment responses plus video, paced-read, and SleepCue recall events, with dry-run support and `user_graph_replayed` audit events.
 - PWA Morning Forge session surface now queues cold retrieval and transfer prompts, captures text or voice-mode answers, tracks confidence and latency, shows repair recommendations, previews frontier/horizon/cue targets, and writes a compact offline packet cache.
 - PWA offline sync now stages daily packets, Morning Forge, GraphFeed, first-party Paced Read, WalkMode, Evening Lock-In, SleepCue playback/recall, and wearable sleep sync actions in an IndexedDB-backed queue with idempotency keys, privacy scopes, stale-lock recovery, and Workbench controls.
+- PWA offline sync now flushes through a first-party sync runner and `POST /api/offline/actions/sync`, returning receipt ids, preserving retryable failures, and auditing `offline_action_synced` on the backend.
 
 Exit criteria:
 

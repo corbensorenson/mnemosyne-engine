@@ -33,6 +33,7 @@ export const apiRoutes: ApiRoute[] = [
     eventType: "session_started"
   },
   { method: "POST", path: "/api/notifications/schedule", service: "Notification Scheduler Service" },
+  { method: "POST", path: "/api/offline/actions/sync", service: "PWA Offline Sync Service" },
   {
     method: "POST",
     path: "/api/sessions/:id/events",

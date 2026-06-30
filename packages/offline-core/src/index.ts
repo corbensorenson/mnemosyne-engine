@@ -82,6 +82,24 @@ export type OfflineReleaseGate = {
   remediation: string[];
 };
 
+export type OfflineSyncTransportResult = {
+  ok: boolean;
+  statusCode: number;
+  receiptId?: string;
+  error?: string;
+};
+
+export type OfflineSyncTransport = (item: OfflineQueueItem) => Promise<OfflineSyncTransportResult>;
+
+export type OfflineSyncRunResult = {
+  generated_at: string;
+  attempted: number;
+  synced: number;
+  failed: number;
+  skipped: number;
+  items: OfflineQueueItem[];
+};
+
 export const defaultOfflineRequiredActions: OfflineActionType[] = [
   "daily_packet_cache",
   "morning_forge_response",
@@ -214,6 +232,61 @@ export function recoverStaleOfflineItems(
   });
 }
 
+export async function syncOfflineQueueItems(input: {
+  items: OfflineQueueItem[];
+  transport: OfflineSyncTransport;
+  workerId?: string;
+  at?: string;
+  limit?: number;
+}): Promise<OfflineSyncRunResult> {
+  const generatedAt = input.at ?? nowIso();
+  const workerId = input.workerId ?? "offline-sync";
+  const limit = input.limit ?? Number.POSITIVE_INFINITY;
+  let attempted = 0;
+  let synced = 0;
+  let failed = 0;
+  let skipped = 0;
+  const next: OfflineQueueItem[] = [];
+
+  for (const item of input.items) {
+    if (attempted >= limit || !isRetryableOfflineItem(item)) {
+      skipped += item.status === "queued" || item.status === "failed" ? 1 : 0;
+      next.push(item);
+      continue;
+    }
+    attempted += 1;
+    const syncing = markOfflineItemSyncing(item, workerId, generatedAt);
+    try {
+      const receipt = await input.transport(syncing);
+      if (receipt.ok) {
+        synced += 1;
+        next.push(
+          markOfflineItemSynced(syncing, {
+            statusCode: receipt.statusCode,
+            receiptId: receipt.receiptId,
+            syncedAt: generatedAt
+          })
+        );
+      } else {
+        failed += 1;
+        next.push(markOfflineItemFailed(syncing, receipt.error ?? `HTTP ${receipt.statusCode}`, generatedAt));
+      }
+    } catch (error) {
+      failed += 1;
+      next.push(markOfflineItemFailed(syncing, errorMessage(error), generatedAt));
+    }
+  }
+
+  return {
+    generated_at: generatedAt,
+    attempted,
+    synced,
+    failed,
+    skipped,
+    items: next
+  };
+}
+
 export function summarizeOfflineQueue(
   items: OfflineQueueItem[],
   input: {
@@ -295,10 +368,18 @@ export function buildOfflineReleaseGate(input: {
   };
 }
 
+function isRetryableOfflineItem(item: OfflineQueueItem): boolean {
+  return (item.status === "queued" || item.status === "failed") && item.attempts < item.max_attempts;
+}
+
 function isStaleSyncingItem(item: OfflineQueueItem, at: string, staleAfterMinutes: number): boolean {
   if (item.status !== "syncing") return false;
   const lockedAt = Date.parse(item.locked_at ?? item.updated_at);
   return Number.isFinite(lockedAt) && lockedAt < Date.parse(at) - staleAfterMinutes * 60_000;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function offlinePayloadSafe(payload: Record<string, unknown>): boolean {

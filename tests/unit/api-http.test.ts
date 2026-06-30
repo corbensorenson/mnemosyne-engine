@@ -1,5 +1,6 @@
 import { createSeededDemoApiHttpServer } from "@mnemosyne/api";
 import { demoUser } from "@mnemosyne/demo-fixtures";
+import { createOfflineQueueItem } from "@mnemosyne/offline-core";
 import type { RateLimitPolicy } from "@mnemosyne/security-core";
 import type { Server } from "node:http";
 import { describe, expect, it } from "vitest";
@@ -115,6 +116,38 @@ describe("API HTTP adapter", () => {
       expect(allowed.status).toBe(200);
       expect(allowedBody.ok).toBe(true);
       expect(allowedBody.data?.title).toBe("Practical probability");
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("accepts browser offline sync receipts through the HTTP adapter", async () => {
+    const { server } = await createSeededDemoApiHttpServer({
+      environment: "local"
+    });
+    const baseUrl = await listen(server);
+    const item = createOfflineQueueItem({
+      userId: demoUser.id,
+      actionType: "graphfeed_recall",
+      endpoint: "/api/watch-packets/local/complete",
+      method: "POST",
+      payload: { recall_passed: true, video_id: "video_demo" },
+      idempotencyKey: "offline-http-graphfeed"
+    });
+
+    try {
+      const response = await postJson(`${baseUrl}/api/offline/actions/sync`, { item });
+      const body = (await response.json()) as ApiJson;
+
+      expect(response.status).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.data).toEqual(
+        expect.objectContaining({
+          status: "accepted",
+          item_id: item.id,
+          action_type: "graphfeed_recall"
+        })
+      );
     } finally {
       await close(server);
     }

@@ -16,6 +16,7 @@
     "@mnemosyne/demo-fixtures": "*",
     "@mnemosyne/graph-core": "*",
     "@mnemosyne/notification-core": "*",
+    "@mnemosyne/offline-core": "*",
     "@mnemosyne/ops-core": "*",
     "@mnemosyne/outcome-core": "*",
     "@mnemosyne/persistence-core": "*",

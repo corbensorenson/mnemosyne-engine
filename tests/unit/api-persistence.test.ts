@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateAssessmentForConcept } from "@mnemosyne/assessment-core";
 import { demoMasterGraph, demoUser } from "@mnemosyne/demo-fixtures";
+import { createOfflineQueueItem } from "@mnemosyne/offline-core";
 import { createJob, failJob, startJob } from "@mnemosyne/ops-core";
 import { createMemoryStore } from "@mnemosyne/persistence-core";
 import { createApiHandlers, seedDemoStore } from "@mnemosyne/api";
@@ -70,6 +71,46 @@ describe("persistence-backed API handlers", () => {
           object_id: generatedData.packet.id
         }),
         expect.objectContaining({ action: "notifications_scheduled" })
+      ])
+    );
+  });
+
+  it("accepts PWA offline sync receipts and audits queued learning actions", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+    const item = createOfflineQueueItem({
+      userId: demoUser.id,
+      actionType: "walk_mode_completion",
+      endpoint: "/api/walk-mode/complete",
+      method: "POST",
+      payload: {
+        walk_packet_id: "walk_packet_demo",
+        prompts_answered: 3,
+        screen_locked: true
+      },
+      payloadScope: "voice",
+      idempotencyKey: "offline-walk-mode-test",
+      createdAt: "2026-06-30T12:00:00.000Z"
+    });
+
+    const receipt = unwrap(await handlers.syncOfflineAction({ item }));
+
+    expect(receipt.status).toBe("accepted");
+    expect(receipt.item_id).toBe(item.id);
+    expect(receipt.action_type).toBe("walk_mode_completion");
+    expect(receipt.accepted_for_replay).toBe(true);
+    const audits = await store.listAuditEvents(demoUser.id);
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "offline_action_synced",
+          object_id: item.id,
+          payload: expect.objectContaining({
+            action_type: "walk_mode_completion",
+            payload_scope: "voice",
+            idempotency_key: "offline-walk-mode-test"
+          })
+        })
       ])
     );
   });

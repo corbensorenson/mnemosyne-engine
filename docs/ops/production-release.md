@@ -140,6 +140,7 @@ Before production release, the PWA must register its service worker, expose a va
 - `/api/accessibility/release-gate` passes for the target environment.
 - `/api/reliability/release-gate` passes for the target environment.
 - `buildOfflineReleaseGate` passes with service worker, manifest, IndexedDB, idempotency, privacy-safe payload, and stale-lock recovery checks.
+- `POST /api/offline/actions/sync` accepts queued PWA actions, returns receipt ids, and audits `offline_action_synced`.
 - `POST /api/ops/incidents/reports` can create a `mnemosyne-incident-response-v0.1` artifact from the target environment monitoring snapshot.
 - The API HTTP adapter is serving CSP/security headers, CSRF enforcement, bounded JSON parsing, and rate-limit responses in the target environment.
 - Postgres migrations through `0003_job_claim_indexes.sql` are applied and the API is constructed with `createPostgresStore`.

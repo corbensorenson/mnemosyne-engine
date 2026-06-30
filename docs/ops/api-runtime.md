@@ -16,6 +16,7 @@ npm run docker:up
 - all `/api/*` routes from the first-party HTTP adapter
 
 Release-gate routes include `/api/security/release-gate`, `/api/accessibility/release-gate`, `/api/reliability/release-gate`, and `/api/ops/monitoring`.
+The PWA offline sync receipt route is `POST /api/offline/actions/sync`.
 
 `GET /healthz` is a cheap liveness check. `GET /readyz` verifies the configured `MnemosyneStore` and object-storage adapter before returning `200`; dependency failures return `503 service_not_ready` with per-component status details.
 

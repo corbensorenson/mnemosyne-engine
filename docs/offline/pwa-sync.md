@@ -27,9 +27,17 @@ The web app stores queue entries in `mnemosyne-offline-v1` with the `offline_act
 
 The Workbench surface exposes the queue ledger with queued, synced, retryable, and stale counts plus Sync, Recover, and Clear Synced controls.
 
+## API Receipts
+
+When `VITE_MNEMOSYNE_API_URL` is configured, the browser transport posts each queued item to `POST /api/offline/actions/sync`. The API validates the queue item envelope, requires the owning user to exist, writes an `offline_action_synced` audit event, and returns a receipt id.
+
+When no API URL is configured, the PWA uses an explicit local dry-run receipt so development remains usable without pretending that a remote backend was contacted.
+
 ## Recovery
 
 Recovery moves stale `syncing` items back to `queued` while retry budget remains. Exhausted items fail closed for manual inspection. Sync uses stable idempotency keys so repeated flushes do not double-count learning progress.
+
+The shared `syncOfflineQueueItems` runner marks each retryable item `syncing`, calls the configured transport, stores a receipt on success, and leaves failed items retryable with their last error.
 
 ## Release Gate
 

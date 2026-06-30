@@ -63,6 +63,7 @@ import {
   type NotificationChannel,
   type NotificationPlan
 } from "@mnemosyne/notification-core";
+import type { OfflineQueueItem } from "@mnemosyne/offline-core";
 import {
   buildIncidentResponseReport,
   buildOpsHealthDashboard,
@@ -191,6 +192,7 @@ import {
   notificationScheduleRequestSchema,
   objectManifestRequestSchema,
   objectPutRequestSchema,
+  offlineActionSyncRequestSchema,
   opsIncidentReportRequestSchema,
   opsMonitoringRequestSchema,
   outcomeDashboardJobRequestSchema,
@@ -264,6 +266,20 @@ type NotificationScheduleRequest = {
 type NotificationScheduleResponse = {
   plan: NotificationPlan;
   jobs: JobRecord[];
+};
+
+type OfflineActionSyncRequest = {
+  item: OfflineQueueItem;
+};
+
+type OfflineActionSyncResponse = {
+  receipt_id: string;
+  status: "accepted";
+  item_id: string;
+  action_type: OfflineQueueItem["action_type"];
+  endpoint: string;
+  received_at: string;
+  accepted_for_replay: boolean;
 };
 
 type ExperimentAssignmentRequest = {
@@ -1836,6 +1852,47 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
         }
       });
       return envelope({ plan, jobs }, audit.id);
+    },
+
+    async syncOfflineAction(input: unknown): Promise<HandlerEnvelope<OfflineActionSyncResponse>> {
+      const request = validateRequest(offlineActionSyncRequestSchema, input) as OfflineActionSyncRequest;
+      await requireUser(store, request.item.user_id);
+      const receivedAt = nowIso();
+      const receiptId = createId(
+        "offline_receipt",
+        `${request.item.user_id}:${request.item.idempotency_key}:${request.item.attempts}`
+      );
+      const audit = await store.appendAuditEvent({
+        actor_id: request.item.user_id,
+        action: "offline_action_synced",
+        object_type: "offline_queue_item",
+        object_id: request.item.id,
+        payload: {
+          receipt_id: receiptId,
+          action_type: request.item.action_type,
+          endpoint: request.item.endpoint,
+          method: request.item.method,
+          payload_scope: request.item.payload_scope,
+          payload_sha: request.item.payload_sha,
+          idempotency_key: request.item.idempotency_key,
+          offline_status: request.item.status,
+          attempts: request.item.attempts,
+          queued_at: request.item.created_at,
+          received_at: receivedAt
+        }
+      });
+      return envelope(
+        {
+          receipt_id: receiptId,
+          status: "accepted",
+          item_id: request.item.id,
+          action_type: request.item.action_type,
+          endpoint: request.item.endpoint,
+          received_at: receivedAt,
+          accepted_for_replay: true
+        },
+        audit.id
+      );
     },
 
     async assignExperiments(input: unknown): Promise<HandlerEnvelope<ExperimentDashboardResponse>> {

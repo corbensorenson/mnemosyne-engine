@@ -72,10 +72,9 @@ import {
 } from "@mnemosyne/ops-core";
 import {
   createOfflineQueueItem,
-  markOfflineItemSynced,
-  markOfflineItemSyncing,
   recoverStaleOfflineItems,
   summarizeOfflineQueue,
+  syncOfflineQueueItems,
   upsertOfflineItem,
   type OfflineActionType,
   type OfflineHttpMethod,
@@ -141,6 +140,7 @@ import {
   initialUserStates
 } from "@mnemosyne/demo-fixtures";
 import { clearSyncedOfflineQueueItems, listOfflineQueueItems, putOfflineQueueItem } from "./offlineQueue";
+import { createBrowserOfflineSyncTransport } from "./offlineSync";
 
 type TabId =
   | "onboarding"
@@ -759,23 +759,29 @@ export default function App() {
   }
 
   function syncQueuedOfflineActions() {
-    const syncedAt = nowIso();
-    let syncedCount = 0;
-    const next = offlineQueue.map((item) => {
-      if ((item.status !== "queued" && item.status !== "failed") || item.attempts >= item.max_attempts) {
-        return item;
-      }
-      syncedCount += 1;
-      return markOfflineItemSynced(markOfflineItemSyncing(item, "pwa-local-sync", syncedAt), {
-        statusCode: 202,
-        receiptId: createId("offline_receipt", `${item.id}:${syncedAt}`),
-        syncedAt
+    setOfflineSyncStatus("syncing actions");
+    void syncOfflineQueueItems({
+      items: offlineQueue,
+      transport: createBrowserOfflineSyncTransport(),
+      workerId: "pwa-offline-sync"
+    })
+      .then((run) => {
+        setOfflineQueue(run.items);
+        persistOfflineQueue(run.items);
+        setOfflineSyncStatus(`synced ${run.synced}, failed ${run.failed}`);
+        setEventLog((current) =>
+          [
+            `offline sync receipts: ${run.synced}`,
+            run.failed > 0 ? `offline sync failures: ${run.failed}` : "offline sync accepted",
+            ...current
+          ].slice(0, 6)
+        );
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setOfflineSyncStatus("sync failed");
+        setEventLog((current) => [`offline sync failed: ${message}`, ...current].slice(0, 6));
       });
-    });
-    setOfflineQueue(next);
-    persistOfflineQueue(next);
-    setOfflineSyncStatus(`synced ${syncedCount} actions`);
-    setEventLog((current) => [`offline sync flushed: ${syncedCount}`, ...current].slice(0, 6));
   }
 
   function recoverOfflineQueue() {

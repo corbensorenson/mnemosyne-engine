@@ -249,6 +249,9 @@ function createHttpRoutes(handlers: ReturnType<typeof createApiHandlers>): Route
     route("POST", "/api/notifications/schedule", (context) => handlers.scheduleNotifications(context.body), {
       rateLimitKey: "ops_job"
     }),
+    route("POST", "/api/offline/actions/sync", (context) => handlers.syncOfflineAction(context.body), {
+      rateLimitKey: "offline_sync"
+    }),
     route("POST", "/api/sessions/:id/events", (context) =>
       handlers.recordSessionEvent(withBodyField(context, "sessionId", pathParam(context, "id")))
     ),
@@ -497,6 +500,7 @@ function rateLimitSubject(context: RouteContext, policy: RateLimitPolicy): strin
     body.authorId,
     body.moderatorId,
     body.releaserId,
+    isJsonRecord(body.item) ? body.item.user_id : undefined,
     isJsonRecord(body.session) ? body.session.user_id : undefined
   ];
   const queryCandidates = [context.query.get("userId"), context.query.get("creatorId")];
