@@ -4495,6 +4495,7 @@ function AdminView({
   onAuditEvent: (event: string) => void;
 }) {
   const [privacyStatus, setPrivacyStatus] = useState("export ready");
+  const [accountDeletionArmed, setAccountDeletionArmed] = useState(false);
   const [incidentStatus, setIncidentStatus] = useState("release drill blocked");
   const [incidentReport, setIncidentReport] = useState<IncidentResponseReport | null>(null);
   const [incidentArtifact, setIncidentArtifact] = useState<LocalIncidentArtifact | null>(null);
@@ -4519,6 +4520,7 @@ function AdminView({
       endpoint: "POST /api/privacy/export/jobs",
       action: () => {
         const queuedAt = new Date().toISOString();
+        setAccountDeletionArmed(false);
         onStageOfflineAction({
           actionType: "privacy_operation",
           endpoint: "/api/privacy/export/jobs",
@@ -4539,6 +4541,7 @@ function AdminView({
       title: "Voice Delete",
       endpoint: "DELETE voice scope",
       action: () => {
+        setAccountDeletionArmed(false);
         onStageOfflineAction({
           actionType: "privacy_operation",
           endpoint: "/api/privacy/data",
@@ -4560,6 +4563,7 @@ function AdminView({
       title: "Health Delete",
       endpoint: "DELETE health scope",
       action: () => {
+        setAccountDeletionArmed(false);
         onStageOfflineAction({
           actionType: "privacy_operation",
           endpoint: "/api/privacy/data",
@@ -4579,10 +4583,29 @@ function AdminView({
     },
     {
       title: "Account Delete",
-      endpoint: "DELETE account scope",
+      endpoint: accountDeletionArmed ? "CONFIRM DELETE account" : "DELETE account scope",
       action: () => {
-        setPrivacyStatus("account deletion requires confirmation");
-        onAuditEvent("account_delete_confirmation_required");
+        if (!accountDeletionArmed) {
+          setAccountDeletionArmed(true);
+          setPrivacyStatus("account deletion armed");
+          onAuditEvent("account_delete_confirmation_required");
+          return;
+        }
+        onStageOfflineAction({
+          actionType: "privacy_operation",
+          endpoint: "/api/privacy/data",
+          method: "DELETE",
+          payload: {
+            userId,
+            scope: "account",
+            confirmation: "DELETE"
+          },
+          payloadScope: "privacy",
+          idempotencyKey: `${userId}:privacy_delete:account`
+        });
+        setAccountDeletionArmed(false);
+        setPrivacyStatus("account deletion queued");
+        onAuditEvent("account_delete_queued");
       },
       icon: ShieldCheck
     }

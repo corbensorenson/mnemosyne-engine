@@ -75,4 +75,4 @@ Every deletion returns a count summary and retained deletion audit event id.
 
 The persistence-backed API suite verifies export bundle contents, queued export jobs, absence of plaintext wearable tokens, voice payload redaction, health-data deletion, account deletion, and anonymized retained audit state. Worker-service coverage verifies queued export jobs write readable JSON artifacts to first-party object storage.
 
-The PWA Admin Privacy Ops panel queues backend-compatible export jobs and scoped voice/health deletion requests through the offline sync ledger. Account deletion remains confirmation-gated before a destructive request is staged.
+The PWA Admin Privacy Ops panel queues backend-compatible export jobs and scoped voice/health deletion requests through the offline sync ledger. Account deletion uses a two-step confirmation gate before staging the destructive `DELETE /api/privacy/data` request.

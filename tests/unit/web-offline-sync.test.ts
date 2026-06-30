@@ -633,6 +633,33 @@ describe("web offline sync transport", () => {
     );
   });
 
+  it("routes confirmed account deletion queue items with DELETE", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "privacy_operation",
+      endpoint: "/api/privacy/data",
+      method: "DELETE",
+      payload: {
+        userId: "user_demo",
+        scope: "account",
+        confirmation: "DELETE"
+      },
+      payloadScope: "privacy",
+      idempotencyKey: "privacy-account-delete-domain-write"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787/", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/privacy/data",
+        method: "DELETE",
+        body: item.payload,
+        directDomainWrite: true
+      })
+    );
+  });
+
   it("keeps legacy privacy operation payloads on the offline receipt route", () => {
     const item = createOfflineQueueItem({
       userId: "user_demo",
