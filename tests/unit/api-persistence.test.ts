@@ -191,6 +191,77 @@ describe("persistence-backed API handlers", () => {
     expect(overridden.status).toBe("accepted");
   });
 
+  it("completes private-default onboarding from empty user state to first packet", async () => {
+    const store = createMemoryStore();
+    await seedDemoStore(store);
+    const handlers = createApiHandlers(store);
+
+    const onboarded = unwrap(
+      await handlers.completeOnboarding({
+        userId: "user_new",
+        displayName: "Nova",
+        handle: "nova",
+        timezone: "America/Chicago",
+        goal: {
+          title: "AI systems interview readiness",
+          description: "Build durable understanding of vectors, attention, and transformer blocks.",
+          goalType: "career",
+          targetConceptIds: ["ai_vectors", "attention_qkv"],
+          targetDomainIds: ["ai", "math"],
+          priority: 0.88,
+          intensity: "sprint",
+          desiredModalities: ["voice", "text", "walking"],
+          avoidModalities: ["haptic"]
+        },
+        packIds: ["pack_ai_systems", "pack_linear_algebra"],
+        baselineDiagnosticLimit: 5
+      })
+    );
+
+    expect(onboarded.user.privacy_settings.private_default).toBe(true);
+    expect(onboarded.user.social_settings.share_level).toBe("private");
+    expect(onboarded.goal.user_id).toBe("user_new");
+    expect(onboarded.installed_packs.map((pack) => pack.id)).toEqual([
+      "pack_ai_systems",
+      "pack_linear_algebra"
+    ]);
+    expect(onboarded.baseline_states.some((state) => state.concept_id === "attention_qkv")).toBe(true);
+    expect(onboarded.diagnostic_items).toHaveLength(5);
+    expect(onboarded.first_packet.user_id).toBe("user_new");
+    expect(onboarded.summary.morning_items).toBeGreaterThan(0);
+
+    const persistedGoals = await store.listGoals("user_new");
+    expect(persistedGoals).toHaveLength(1);
+    const persistedGraph = await store.getUserGraph("user_new");
+    expect(persistedGraph.states.length).toBeGreaterThan(0);
+    const today = unwrap(await handlers.getTodayPacket("user_new", onboarded.first_packet.date));
+    expect(today.packet.id).toBe(onboarded.first_packet.id);
+
+    const events = await store.listLearningEvents("user_new");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event_type: "graph_updated",
+          payload: expect.objectContaining({ action: "onboarding_completed" })
+        }),
+        expect.objectContaining({
+          event_type: "session_started",
+          payload: expect.objectContaining({ source: "onboarding_completed" })
+        })
+      ])
+    );
+
+    const audits = await store.listAuditEvents("user_new");
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "onboarding_completed",
+          object_id: "user_new"
+        })
+      ])
+    );
+  });
+
   it("persists creator ingestion as audited content court proposals", async () => {
     const store = await createSeededStore();
     const handlers = createApiHandlers(store);

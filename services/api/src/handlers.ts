@@ -1,4 +1,8 @@
-import { applyAssessmentToUserState, scoreAssessmentResponse } from "@mnemosyne/assessment-core";
+import {
+  applyAssessmentToUserState,
+  generateAssessmentForConcept,
+  scoreAssessmentResponse
+} from "@mnemosyne/assessment-core";
 import { buildRenderManifest } from "@mnemosyne/audio-renderer-service";
 import type { RenderManifest } from "@mnemosyne/audio-renderer-service";
 import { arbitrateProposal, createProposal as createCourtProposal } from "@mnemosyne/content-court";
@@ -21,12 +25,16 @@ import type {
   DailyLearningPacket,
   DeviceCapabilityProfile,
   FlashReadAsset,
+  Goal,
   LearningEvent,
+  MasterGraph,
   Proposal,
   ReadinessProfile,
   SleepCuePacket,
   SleepCueTemplate,
   SourceRef,
+  User,
+  UserConceptState,
   VideoAsset
 } from "@mnemosyne/schema";
 import { buildDailyLearningPacket } from "@mnemosyne/scheduler-core";
@@ -35,7 +43,9 @@ import { buildSleepCuePacket } from "@mnemosyne/sleep-core";
 import { buildWatchPackets, rankVideosForUser } from "@mnemosyne/video-core";
 import {
   assessmentSubmitRequestSchema,
+  completeOnboardingRequestSchema,
   completeWatchPacketRequestSchema,
+  createGoalRequestSchema,
   creatorIngestionRequestSchema,
   generateDailyPacketRequestSchema,
   humanOverrideRequestSchema,
@@ -45,6 +55,7 @@ import {
   sessionEventRequestSchema,
   sleepPacketRequestSchema,
   startSessionRequestSchema,
+  updatePreferencesRequestSchema,
   validateRequest,
   videoRecommendationRequestSchema,
   watchPacketRequestSchema,
@@ -87,6 +98,64 @@ export type AssessmentSubmitRequest = {
   retries?: number;
 };
 
+type GoalDraftRequest = {
+  title: string;
+  description: string;
+  goalType: Goal["goal_type"];
+  targetConceptIds: string[];
+  targetDomainIds: string[];
+  priority: number;
+  deadline?: string;
+  intensity: Goal["intensity"];
+  desiredModalities: Goal["desired_modalities"];
+  avoidModalities: Goal["avoid_modalities"];
+};
+
+type CreateGoalRequest = GoalDraftRequest & {
+  userId: string;
+};
+
+type UpdatePreferencesRequest = {
+  userId: string;
+  privacySettings?: Record<string, unknown>;
+  socialSettings?: Record<string, unknown>;
+  notificationSettings?: Record<string, unknown>;
+  defaultSessionPreferences?: Record<string, unknown>;
+  accessibilityPreferences?: Record<string, unknown>;
+  modalityPreferences?: Record<string, unknown>;
+};
+
+type CompleteOnboardingRequest = {
+  userId?: string;
+  displayName: string;
+  handle: string;
+  timezone: string;
+  goal: GoalDraftRequest;
+  packIds: string[];
+  readiness?: ReadinessProfile;
+  deviceCapabilities?: DeviceCapabilityProfile;
+  privacy: {
+    privateDefault: boolean;
+    shareLevel: "private" | "badges_only" | "friends" | "public";
+    productAnalyticsConsent: boolean;
+    researchConsent: boolean;
+    voiceRetention: "none" | "transcript_only" | "audio_until_processed";
+    healthDataRetention: "none" | "derived_only" | "raw_until_processed";
+  };
+  preferences: {
+    morningMinutes: number;
+    eveningMinutes: number;
+    voiceFirst: boolean;
+    walking: boolean;
+    flashread: boolean;
+    highContrast: boolean;
+    reducedMotion: boolean;
+    duskQuiet: boolean;
+    morningPrompt: boolean;
+  };
+  baselineDiagnosticLimit: number;
+};
+
 type CreatorIngestionRequest = {
   creatorId: string;
   title: string;
@@ -119,6 +188,16 @@ type CreatorIngestionResponse = {
   risk_flags: string[];
 };
 
+type OnboardingResponse = {
+  user: User;
+  goal: Goal;
+  installed_packs: Awaited<ReturnType<MnemosyneStore["installPack"]>>[];
+  baseline_states: UserConceptState[];
+  diagnostic_items: AssessmentItem[];
+  first_packet: DailyLearningPacket;
+  summary: ReturnType<typeof packetSummary>;
+};
+
 export function createApiHandlers(store: MnemosyneStore) {
   return {
     async getMe(userId: string) {
@@ -129,6 +208,162 @@ export function createApiHandlers(store: MnemosyneStore) {
     async listGoals(userId: string) {
       await requireUser(store, userId);
       return envelope(await store.listGoals(userId));
+    },
+
+    async createGoal(input: unknown): Promise<HandlerEnvelope<Goal>> {
+      const request = validateRequest(createGoalRequestSchema, input) as CreateGoalRequest;
+      await requireUser(store, request.userId);
+      const goal = await store.saveGoal(buildGoal(request.userId, request));
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "goal_created",
+        object_type: "goal",
+        object_id: goal.id,
+        payload: {
+          goal_type: goal.goal_type,
+          target_concept_ids: goal.target_concept_ids,
+          target_domain_ids: goal.target_domain_ids
+        }
+      });
+      await store.appendLearningEvent({
+        user_id: request.userId,
+        event_type: "graph_updated",
+        payload: { goal_id: goal.id, action: "goal_created" }
+      });
+      return envelope(goal, audit.id);
+    },
+
+    async updatePreferences(input: unknown): Promise<HandlerEnvelope<User>> {
+      const request = validateRequest(updatePreferencesRequestSchema, input) as UpdatePreferencesRequest;
+      const user = await requireUser(store, request.userId);
+      const updated = await store.saveUser({
+        ...user,
+        privacy_settings: {
+          ...user.privacy_settings,
+          ...request.privacySettings,
+          private_default:
+            request.privacySettings?.private_default ?? user.privacy_settings.private_default ?? true
+        },
+        social_settings: { ...user.social_settings, ...request.socialSettings },
+        notification_settings: { ...user.notification_settings, ...request.notificationSettings },
+        default_session_preferences: {
+          ...user.default_session_preferences,
+          ...request.defaultSessionPreferences
+        },
+        accessibility_preferences: { ...user.accessibility_preferences, ...request.accessibilityPreferences },
+        modality_preferences: { ...user.modality_preferences, ...request.modalityPreferences },
+        updated_at: nowIso()
+      });
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "preferences_updated",
+        object_type: "user",
+        object_id: user.id,
+        payload: {
+          privacy_updated: Boolean(request.privacySettings),
+          modality_updated: Boolean(request.modalityPreferences),
+          accessibility_updated: Boolean(request.accessibilityPreferences)
+        }
+      });
+      return envelope(updated, audit.id);
+    },
+
+    async completeOnboarding(input: unknown): Promise<HandlerEnvelope<OnboardingResponse>> {
+      const request = validateRequest(completeOnboardingRequestSchema, input) as CompleteOnboardingRequest;
+      const now = nowIso();
+      const user: User = {
+        id: request.userId ?? createId("user", request.handle),
+        display_name: request.displayName,
+        handle: request.handle,
+        timezone: request.timezone,
+        privacy_settings: {
+          private_default: request.privacy.privateDefault,
+          product_analytics_consent: request.privacy.productAnalyticsConsent,
+          research_consent: request.privacy.researchConsent,
+          voice_retention: request.privacy.voiceRetention,
+          health_data_retention: request.privacy.healthDataRetention
+        },
+        social_settings: { share_level: request.privacy.shareLevel },
+        notification_settings: {
+          dusk_quiet: request.preferences.duskQuiet,
+          morning_prompt: request.preferences.morningPrompt
+        },
+        default_session_preferences: {
+          morning_minutes: request.preferences.morningMinutes,
+          evening_minutes: request.preferences.eveningMinutes
+        },
+        accessibility_preferences: {
+          high_contrast: request.preferences.highContrast,
+          reduced_motion: request.preferences.reducedMotion
+        },
+        modality_preferences: {
+          voice_first: request.preferences.voiceFirst,
+          walking: request.preferences.walking,
+          flashread: request.preferences.flashread
+        },
+        created_at: now,
+        updated_at: now
+      };
+      await store.saveUser(user);
+
+      const readiness = request.readiness ?? readinessFromOnboarding(request);
+      await store.saveReadiness(user.id, readiness);
+
+      const installedPacks: OnboardingResponse["installed_packs"] = [];
+      for (const packId of request.packIds) installedPacks.push(await store.installPack(user.id, packId));
+
+      const masterGraph = await store.getMasterGraph();
+      const goal = await store.saveGoal(buildGoal(user.id, request.goal));
+      const baselineStates = buildBaselineStates(user.id, goal, masterGraph);
+      await store.saveUserConceptStates(user.id, baselineStates);
+      const diagnostics = buildBaselineDiagnostics(
+        baselineStates,
+        masterGraph,
+        request.baselineDiagnosticLimit
+      );
+      const scheduled = await generateAndPersistDailyPacket(
+        store,
+        user.id,
+        readiness,
+        "onboarding_completed"
+      );
+      await store.appendLearningEvent({
+        user_id: user.id,
+        event_type: "graph_updated",
+        payload: {
+          action: "onboarding_completed",
+          goal_id: goal.id,
+          baseline_state_count: baselineStates.length,
+          diagnostic_item_ids: diagnostics.map((item) => item.id)
+        }
+      });
+      const audit = await store.appendAuditEvent({
+        actor_id: user.id,
+        action: "onboarding_completed",
+        object_type: "user",
+        object_id: user.id,
+        payload: {
+          goal_id: goal.id,
+          installed_pack_ids: installedPacks.map((pack) => pack.id),
+          diagnostic_item_ids: diagnostics.map((item) => item.id),
+          private_default: user.privacy_settings.private_default,
+          share_level: user.social_settings.share_level,
+          first_packet_id: scheduled.packet.id,
+          device_capabilities: request.deviceCapabilities
+        }
+      });
+      return envelope(
+        {
+          user,
+          goal,
+          installed_packs: installedPacks,
+          baseline_states: baselineStates,
+          diagnostic_items: diagnostics,
+          first_packet: scheduled.packet,
+          summary: packetSummary(scheduled.packet)
+        },
+        audit.id
+      );
     },
 
     async getCapabilities(userId: string) {
@@ -158,51 +393,11 @@ export function createApiHandlers(store: MnemosyneStore) {
 
     async generateDailyPacket(input: unknown) {
       const request = validateRequest(generateDailyPacketRequestSchema, input);
-      const user = await requireUser(store, request.userId);
       const readiness =
         request.readiness ?? (await store.getReadiness(request.userId)) ?? defaultReadinessFallback();
       if (request.readiness) await store.saveReadiness(request.userId, request.readiness);
-
-      const [userGraph, masterGraph, goals] = await Promise.all([
-        store.getUserGraph(request.userId),
-        store.getMasterGraph(),
-        store.listGoals(request.userId)
-      ]);
-
-      const scheduled = buildDailyLearningPacket({
-        user,
-        userGraph,
-        masterGraph,
-        goals,
-        readiness,
-        constraints: {
-          morningScreenBudget: readiness.screen_budget_minutes > 20 ? 10 : 4,
-          optionalWatchBudgets: [30, 18, 8],
-          eveningScreenPolicy: readiness.dusk_mode ? "audio_only" : "minimal_visual",
-          conservativeSleep: readiness.sleep_quality < 0.5 || readiness.fatigue > 0.7
-        }
-      });
-
-      await store.saveDailyPacket(scheduled.packet);
-      await store.saveAudioPlan(scheduled.audioPlan);
-      const learningEvent = await store.appendLearningEvent({
-        user_id: user.id,
-        event_type: "session_started",
-        payload: {
-          daily_packet_id: scheduled.packet.id,
-          date: scheduled.packet.date,
-          generated: true
-        }
-      });
-      const audit = await store.appendAuditEvent({
-        actor_id: user.id,
-        action: "daily_packet_generated",
-        object_type: "daily_packet",
-        object_id: scheduled.packet.id,
-        payload: packetSummary(scheduled.packet)
-      });
-
-      return envelope({ ...scheduled, summary: packetSummary(scheduled.packet), learningEvent }, audit.id);
+      const scheduled = await generateAndPersistDailyPacket(store, request.userId, readiness);
+      return envelope(scheduled, scheduled.audit.id);
     },
 
     async startSession(input: unknown) {
@@ -639,6 +834,154 @@ async function requireUser(store: MnemosyneStore, userId: string) {
   const user = await store.getUser(userId);
   if (!user) throw new Error(`Unknown user: ${userId}`);
   return user;
+}
+
+function buildGoal(userId: string, request: GoalDraftRequest): Goal {
+  const now = nowIso();
+  return {
+    id: createId("goal", `${userId}:${request.title}`),
+    user_id: userId,
+    title: request.title,
+    description: request.description,
+    goal_type: request.goalType,
+    target_concept_ids: request.targetConceptIds,
+    target_domain_ids: request.targetDomainIds,
+    priority: request.priority,
+    deadline: request.deadline,
+    intensity: request.intensity,
+    desired_modalities: request.desiredModalities,
+    avoid_modalities: request.avoidModalities,
+    created_at: now,
+    updated_at: now
+  };
+}
+
+function readinessFromOnboarding(request: CompleteOnboardingRequest): ReadinessProfile {
+  return {
+    sleep_quality: 0.62,
+    fatigue: 0.32,
+    stress: 0.34,
+    available_minutes_morning: request.preferences.morningMinutes,
+    available_minutes_evening: request.preferences.eveningMinutes,
+    screen_budget_minutes: request.preferences.voiceFirst ? 28 : 42,
+    voice_ok: request.preferences.voiceFirst,
+    dusk_mode: request.preferences.duskQuiet,
+    notes: "Initialized during onboarding."
+  };
+}
+
+function buildBaselineStates(userId: string, goal: Goal, masterGraph: MasterGraph): UserConceptState[] {
+  const targetIds = new Set(goal.target_concept_ids);
+  for (const concept of masterGraph.concepts) {
+    if (goal.target_domain_ids.includes(concept.domain)) targetIds.add(concept.id);
+  }
+  const conceptIds =
+    targetIds.size > 0 ? [...targetIds] : masterGraph.concepts.slice(0, 6).map((item) => item.id);
+  for (const conceptId of [...conceptIds]) {
+    const concept = masterGraph.concepts.find((candidate) => candidate.id === conceptId);
+    for (const edge of concept?.prerequisites ?? []) targetIds.add(edge.from_id);
+  }
+  const orderedIds = [...new Set([...conceptIds, ...targetIds])].slice(0, 24);
+  return orderedIds.flatMap((conceptId) => {
+    const concept = masterGraph.concepts.find((candidate) => candidate.id === conceptId);
+    const isDirectTarget =
+      concept &&
+      (goal.target_concept_ids.includes(concept.id) || goal.target_domain_ids.includes(concept.domain));
+    return concept ? [baselineState(userId, concept, Boolean(isDirectTarget))] : [];
+  });
+}
+
+function baselineState(userId: string, concept: ConceptNode, isDirectTarget: boolean): UserConceptState {
+  const mastery = isDirectTarget ? 0.18 : 0.1;
+  const now = nowIso();
+  return {
+    user_id: userId,
+    concept_id: concept.id,
+    mastery,
+    recall_strength: mastery * 0.72,
+    recall_stability: mastery * 0.58,
+    transfer_score: mastery * 0.52,
+    answer_latency_ms: null,
+    confidence_calibration: 0.5,
+    false_confidence_risk: 0.18,
+    prerequisite_health: concept.prerequisites.length === 0 ? 0.72 : 0.38,
+    failure_modes: ["baseline_unmeasured"],
+    misconception_ids: [],
+    next_due_at: now,
+    times_seen: 0,
+    times_recalled: 0,
+    times_failed: 0,
+    hints_used: 0,
+    sleep_replays: 0,
+    cue_gain_estimate: 0,
+    modality_response_profile: {},
+    status: "previewed",
+    updated_at: now
+  };
+}
+
+function buildBaselineDiagnostics(
+  states: UserConceptState[],
+  masterGraph: MasterGraph,
+  limit: number
+): AssessmentItem[] {
+  return states
+    .map((state) => masterGraph.concepts.find((concept) => concept.id === state.concept_id))
+    .filter((concept): concept is ConceptNode => Boolean(concept))
+    .sort((left, right) => right.importance - left.importance || left.difficulty - right.difficulty)
+    .slice(0, limit)
+    .map((concept, index) =>
+      generateAssessmentForConcept(concept, index % 3 === 2 ? "transfer" : "free_recall")
+    );
+}
+
+async function generateAndPersistDailyPacket(
+  store: MnemosyneStore,
+  userId: string,
+  readiness: ReadinessProfile,
+  source = "manual"
+) {
+  const user = await requireUser(store, userId);
+  const [userGraph, masterGraph, goals] = await Promise.all([
+    store.getUserGraph(userId),
+    store.getMasterGraph(),
+    store.listGoals(userId)
+  ]);
+  const scheduled = buildDailyLearningPacket({
+    user,
+    userGraph,
+    masterGraph,
+    goals,
+    readiness,
+    constraints: {
+      morningScreenBudget: readiness.screen_budget_minutes > 20 ? 10 : 4,
+      optionalWatchBudgets: [30, 18, 8],
+      eveningScreenPolicy: readiness.dusk_mode ? "audio_only" : "minimal_visual",
+      conservativeSleep: readiness.sleep_quality < 0.5 || readiness.fatigue > 0.7
+    }
+  });
+
+  await store.saveDailyPacket(scheduled.packet);
+  await store.saveAudioPlan(scheduled.audioPlan);
+  const learningEvent = await store.appendLearningEvent({
+    user_id: user.id,
+    event_type: "session_started",
+    payload: {
+      daily_packet_id: scheduled.packet.id,
+      date: scheduled.packet.date,
+      generated: true,
+      source
+    }
+  });
+  const audit = await store.appendAuditEvent({
+    actor_id: user.id,
+    action: "daily_packet_generated",
+    object_type: "daily_packet",
+    object_id: scheduled.packet.id,
+    payload: { ...packetSummary(scheduled.packet), source }
+  });
+
+  return { ...scheduled, summary: packetSummary(scheduled.packet), learningEvent, audit };
 }
 
 function notFound<T = never>(code: string): HandlerEnvelope<T> {

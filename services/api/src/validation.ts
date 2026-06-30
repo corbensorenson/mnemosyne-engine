@@ -1,11 +1,14 @@
 import {
   assessmentItemSchema,
   conceptNodeSchema,
+  deviceCapabilityProfileSchema,
   flashReadAssetSchema,
+  modalitySchema,
   readinessProfileSchema,
   sleepCueTemplateSchema,
   sourceRefSchema,
   videoAssetSchema,
+  type Goal,
   type LearningEvent,
   type Proposal
 } from "@mnemosyne/schema";
@@ -31,6 +34,87 @@ export const generateDailyPacketRequestSchema = z
   .object({
     userId: userIdSchema,
     readiness: readinessProfileSchema.optional()
+  })
+  .strict();
+
+const goalDraftSchema = z.object({
+  title: z.string().min(3),
+  description: z.string().min(8),
+  goalType: z.enum([
+    "trip",
+    "exam",
+    "career",
+    "project",
+    "curiosity",
+    "skill",
+    "certification",
+    "custom"
+  ] satisfies [Goal["goal_type"], ...Goal["goal_type"][]]),
+  targetConceptIds: z.array(z.string().min(1)).default([]),
+  targetDomainIds: z.array(z.string().min(1)).default([]),
+  priority: z.number().min(0).max(1).default(0.8),
+  deadline: z.string().optional(),
+  intensity: z.enum(["maintenance", "normal", "sprint", "elite"]).default("normal"),
+  desiredModalities: z.array(modalitySchema).default(["text", "voice"]),
+  avoidModalities: z.array(modalitySchema).default([])
+});
+
+export const createGoalRequestSchema = goalDraftSchema
+  .extend({
+    userId: userIdSchema
+  })
+  .strict();
+
+export const updatePreferencesRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    privacySettings: z.record(z.unknown()).optional(),
+    socialSettings: z.record(z.unknown()).optional(),
+    notificationSettings: z.record(z.unknown()).optional(),
+    defaultSessionPreferences: z.record(z.unknown()).optional(),
+    accessibilityPreferences: z.record(z.unknown()).optional(),
+    modalityPreferences: z.record(z.unknown()).optional()
+  })
+  .strict();
+
+export const completeOnboardingRequestSchema = z
+  .object({
+    userId: z.string().min(1).optional(),
+    displayName: z.string().min(1),
+    handle: z
+      .string()
+      .min(2)
+      .max(32)
+      .regex(/^[a-zA-Z0-9_]+$/),
+    timezone: z.string().min(1),
+    goal: goalDraftSchema,
+    packIds: z.array(z.string().min(1)).default([]),
+    readiness: readinessProfileSchema.optional(),
+    deviceCapabilities: deviceCapabilityProfileSchema.optional(),
+    privacy: z
+      .object({
+        privateDefault: z.boolean().default(true),
+        shareLevel: z.enum(["private", "badges_only", "friends", "public"]).default("private"),
+        productAnalyticsConsent: z.boolean().default(false),
+        researchConsent: z.boolean().default(false),
+        voiceRetention: z.enum(["none", "transcript_only", "audio_until_processed"]).default("none"),
+        healthDataRetention: z.enum(["none", "derived_only", "raw_until_processed"]).default("none")
+      })
+      .default({}),
+    preferences: z
+      .object({
+        morningMinutes: z.number().int().positive().max(180).default(30),
+        eveningMinutes: z.number().int().positive().max(180).default(30),
+        voiceFirst: z.boolean().default(true),
+        walking: z.boolean().default(true),
+        flashread: z.boolean().default(true),
+        highContrast: z.boolean().default(false),
+        reducedMotion: z.boolean().default(false),
+        duskQuiet: z.boolean().default(true),
+        morningPrompt: z.boolean().default(true)
+      })
+      .default({}),
+    baselineDiagnosticLimit: z.number().int().positive().max(12).default(6)
   })
   .strict();
 

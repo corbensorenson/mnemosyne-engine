@@ -8,6 +8,12 @@ export type ApiRoute = {
 };
 
 export const apiRoutes: ApiRoute[] = [
+  {
+    method: "POST",
+    path: "/api/onboarding/complete",
+    service: "Onboarding Service",
+    eventType: "graph_updated"
+  },
   { method: "GET", path: "/api/me", service: "User Service" },
   { method: "PATCH", path: "/api/me/preferences", service: "User Service", eventType: "graph_updated" },
   { method: "GET", path: "/api/me/capabilities", service: "Wearable Integration Service" },

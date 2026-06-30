@@ -254,6 +254,10 @@ Deliverables:
 - Modality, privacy, and research consent setup.
 - Device capability detection.
 
+Current implementation progress:
+
+- API onboarding completion flow creates a private-default user, saves the first goal, installs selected packs, seeds baseline graph states, generates diagnostic assessment items, and persists the first daily packet with audit and event records.
+
 Exit criteria:
 
 - A new user can go from empty account to first daily packet in under 10 minutes.
