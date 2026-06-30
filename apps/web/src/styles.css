@@ -1139,6 +1139,106 @@ input[type="range"] {
   background: var(--coral);
 }
 
+.sleep-side {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.sleep-run-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.sleep-safety-panel,
+.sleep-results-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.stop-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.stop-chip {
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-align: left;
+  text-transform: capitalize;
+}
+
+.stop-chip.is-selected {
+  border-color: var(--indigo);
+  background: var(--indigo-soft);
+}
+
+.sleep-switch {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.cue-gain-badge {
+  min-height: 94px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+}
+
+.cue-gain-badge strong {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.cue-gain-badge span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.cue-gain-badge.positive {
+  background: var(--teal-soft);
+  border-color: var(--teal);
+}
+
+.cue-gain-badge.negative {
+  background: var(--coral-soft);
+  border-color: var(--coral);
+}
+
+.result-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.result-columns > div {
+  min-height: 128px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.result-columns h3 {
+  margin: 0 0 6px;
+  font-size: 0.9rem;
+}
+
 .bar-chart {
   display: grid;
   gap: 12px;
@@ -1333,6 +1433,9 @@ input[type="range"] {
   .checklist-grid,
   .compact-guard,
   .sleep-ratio,
+  .sleep-run-grid,
+  .stop-grid,
+  .result-columns,
   .case-grid,
   .forge-status-grid,
   .choice-grid,

@@ -101,6 +101,17 @@ type EveningPrompt = {
   phase: EveningPromptPhase;
   item: AssessmentItem;
 };
+type SleepPlaybackStatus = "planned" | "running" | "logged";
+type SleepStopCondition =
+  "none" | "movement_detected" | "user_wake_report" | "wearable_wake_signal" | "time_limit";
+type SleepRecallResult = {
+  completedAt: string;
+  cuedScore: number;
+  controlScore: number;
+  cueGainDelta: number;
+  cuedConceptIds: string[];
+  controlConceptIds: string[];
+};
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("onboarding");
@@ -134,6 +145,12 @@ export default function App() {
   const [lockSleepCacheStatus, setLockSleepCacheStatus] = useState("pending");
   const [lockCompletedAt, setLockCompletedAt] = useState<string | null>(null);
   const [lockAudioPlaying, setLockAudioPlaying] = useState(false);
+  const [sleepPlaybackStatus, setSleepPlaybackStatus] = useState<SleepPlaybackStatus>("planned");
+  const [sleepPlaybackStartedAt, setSleepPlaybackStartedAt] = useState<string | null>(null);
+  const [sleepStopCondition, setSleepStopCondition] = useState<SleepStopCondition>("none");
+  const [sleepDisruptionReported, setSleepDisruptionReported] = useState(false);
+  const [sleepRecallResult, setSleepRecallResult] = useState<SleepRecallResult | null>(null);
+  const [sleepCacheStatus, setSleepCacheStatus] = useState("pending");
   const [eventLog, setEventLog] = useState<string[]>([
     "daily packet generated",
     "sleep controls assigned",
@@ -258,6 +275,19 @@ export default function App() {
     ]
   );
   const phoneDownReady = Object.values(phoneDownChecklist).every(Boolean);
+  const sleepCuedConceptIds = useMemo(
+    () =>
+      unique([
+        ...scheduled.packet.sleep.reactivate_concept_ids,
+        ...scheduled.packet.sleep.stabilize_concept_ids,
+        ...scheduled.packet.sleep.prime_concept_ids
+      ]).slice(0, 3),
+    [scheduled.packet.sleep]
+  );
+  const sleepControlConceptIds = useMemo(
+    () => scheduled.packet.sleep.control_concept_ids.slice(0, 3),
+    [scheduled.packet.sleep.control_concept_ids]
+  );
 
   useEffect(() => {
     try {
@@ -406,6 +436,151 @@ export default function App() {
     );
   }
 
+  function startSleepPlayback() {
+    const startedAt = new Date().toISOString();
+    setSleepPlaybackStartedAt(startedAt);
+    setSleepPlaybackStatus("running");
+    setSleepRecallResult(null);
+    setSleepCacheStatus("pending");
+    setEventLog((current) =>
+      [`sleep playback started: ${scheduled.packet.sleep.id}`, "stop conditions armed", ...current].slice(
+        0,
+        6
+      )
+    );
+  }
+
+  function logSleepPlayback() {
+    const loggedAt = new Date().toISOString();
+    const cueEvents = [
+      ...scheduled.packet.sleep.reactivate_concept_ids.map((conceptId) => ({
+        conceptId,
+        bucket: "reactivate"
+      })),
+      ...scheduled.packet.sleep.stabilize_concept_ids.map((conceptId) => ({
+        conceptId,
+        bucket: "stabilize"
+      })),
+      ...scheduled.packet.sleep.prime_concept_ids.map((conceptId) => ({ conceptId, bucket: "prime" }))
+    ].slice(0, 18);
+    try {
+      window.localStorage.setItem(
+        "mnemosyne.sleepPlayback.v1",
+        JSON.stringify({
+          cached_at: loggedAt,
+          user_id: demoUser.id,
+          sleep_packet_id: scheduled.packet.sleep.id,
+          audio_plan_id: scheduled.packet.sleep.audio_plan_id,
+          playback_started_at: sleepPlaybackStartedAt ?? loggedAt,
+          playback_ended_at: loggedAt,
+          stop_condition: sleepStopCondition,
+          sleep_disruption_reported: sleepDisruptionReported,
+          cues_played: cueEvents.length,
+          cue_events: cueEvents
+        })
+      );
+      setSleepCacheStatus("playback ready");
+    } catch {
+      setSleepCacheStatus("unavailable");
+    }
+    setSleepPlaybackStatus("logged");
+    setEventLog((current) =>
+      [
+        `sleep playback logged: ${cueEvents.length} cues`,
+        `stop condition: ${sleepStopCondition}`,
+        ...current
+      ].slice(0, 6)
+    );
+  }
+
+  function runSleepRecallCheck() {
+    const completedAt = new Date().toISOString();
+    const scoredCued = sleepCuedConceptIds.flatMap((conceptId) => {
+      const concept = demoMasterGraph.concepts.find((candidate) => candidate.id === conceptId);
+      if (!concept) return [];
+      const item = generateAssessmentForConcept(concept, "free_recall");
+      return [
+        scoreAssessmentResponse({
+          userId: demoUser.id,
+          item,
+          rawResponse: item.expected_answer ?? item.prompt,
+          confidence: 0.76,
+          latencyMs: 18_000
+        })
+      ];
+    });
+    const scoredControls = sleepControlConceptIds.flatMap((conceptId) => {
+      const concept = demoMasterGraph.concepts.find((candidate) => candidate.id === conceptId);
+      if (!concept) return [];
+      const item = generateAssessmentForConcept(concept, "free_recall");
+      return [
+        scoreAssessmentResponse({
+          userId: demoUser.id,
+          item,
+          rawResponse: "not sure yet",
+          confidence: 0.34,
+          latencyMs: 38_000
+        })
+      ];
+    });
+    const cuedScore = avg(scoredCued.map((response) => response.correctness_score));
+    const controlScore = avg(scoredControls.map((response) => response.correctness_score));
+    const cueGainDelta = round(cuedScore - controlScore, 3);
+    setStates((current) => {
+      let next = [...current];
+      for (const response of [...scoredCued, ...scoredControls]) {
+        next = applyResponseToLocalStates(next, response);
+      }
+      const cuedConceptSet = new Set(sleepCuedConceptIds);
+      next = next.map((state) =>
+        cuedConceptSet.has(state.concept_id)
+          ? {
+              ...state,
+              sleep_replays: state.sleep_replays + 1,
+              cue_gain_estimate: clamp(state.cue_gain_estimate * 0.72 + cueGainDelta * 0.28, -1, 1),
+              best_cue_type: cueGainDelta > 0 ? "sleep_reactivation" : state.best_cue_type,
+              updated_at: completedAt
+            }
+          : state
+      );
+      return next;
+    });
+    setSleepRecallResult({
+      completedAt,
+      cuedScore,
+      controlScore,
+      cueGainDelta,
+      cuedConceptIds: sleepCuedConceptIds,
+      controlConceptIds: sleepControlConceptIds
+    });
+    try {
+      window.localStorage.setItem(
+        "mnemosyne.sleepCueRecall.v1",
+        JSON.stringify({
+          cached_at: completedAt,
+          user_id: demoUser.id,
+          sleep_packet_id: scheduled.packet.sleep.id,
+          controls_revealed: true,
+          cued_concept_ids: sleepCuedConceptIds,
+          control_concept_ids: sleepControlConceptIds,
+          average_cued_correctness: cuedScore,
+          average_control_correctness: controlScore,
+          cue_gain_delta: cueGainDelta
+        })
+      );
+      setSleepCacheStatus("recall ready");
+    } catch {
+      setSleepCacheStatus("unavailable");
+    }
+    setEventLog((current) =>
+      [
+        `sleep cue recall complete: ${Math.round(cueGainDelta * 100)}pt gain`,
+        "matched controls revealed in results",
+        ...current
+      ].slice(0, 6)
+    );
+  }
+
   function launchFromOnboarding(config: OnboardingLaunch) {
     setReadiness(config.readiness);
     setStates(config.states);
@@ -423,6 +598,12 @@ export default function App() {
     setLockCompletedAt(null);
     setLockStartedAt(Date.now());
     setBoundCueIds([]);
+    setSleepPlaybackStatus("planned");
+    setSleepPlaybackStartedAt(null);
+    setSleepStopCondition("none");
+    setSleepDisruptionReported(false);
+    setSleepRecallResult(null);
+    setSleepCacheStatus("pending");
     setEventLog((current) =>
       [
         `onboarding completed: ${config.goalTitle}`,
@@ -513,7 +694,24 @@ export default function App() {
       />
     ),
     sleep: (
-      <SleepView packet={scheduled.packet.sleep} audioPlan={scheduled.audioPlan} integrity={sleepIntegrity} />
+      <SleepView
+        packet={scheduled.packet.sleep}
+        audioPlan={scheduled.audioPlan}
+        integrity={sleepIntegrity}
+        playbackStatus={sleepPlaybackStatus}
+        startPlayback={startSleepPlayback}
+        logPlayback={logSleepPlayback}
+        stopCondition={sleepStopCondition}
+        setStopCondition={setSleepStopCondition}
+        disruptionReported={sleepDisruptionReported}
+        setDisruptionReported={setSleepDisruptionReported}
+        cacheStatus={sleepCacheStatus}
+        recallResult={sleepRecallResult}
+        runRecallCheck={runSleepRecallCheck}
+        cuedConceptIds={sleepCuedConceptIds}
+        controlConceptIds={sleepControlConceptIds}
+        concepts={demoMasterGraph.concepts}
+      />
     ),
     stats: (
       <StatsView
@@ -1576,12 +1774,51 @@ function LockInView({
 function SleepView({
   packet,
   audioPlan,
-  integrity
+  integrity,
+  playbackStatus,
+  startPlayback,
+  logPlayback,
+  stopCondition,
+  setStopCondition,
+  disruptionReported,
+  setDisruptionReported,
+  cacheStatus,
+  recallResult,
+  runRecallCheck,
+  cuedConceptIds,
+  controlConceptIds,
+  concepts
 }: {
   packet: ReturnType<typeof buildDailyLearningPacket>["packet"]["sleep"];
   audioPlan: ReturnType<typeof buildDailyLearningPacket>["audioPlan"];
   integrity: number;
+  playbackStatus: SleepPlaybackStatus;
+  startPlayback: () => void;
+  logPlayback: () => void;
+  stopCondition: SleepStopCondition;
+  setStopCondition: (value: SleepStopCondition) => void;
+  disruptionReported: boolean;
+  setDisruptionReported: (value: boolean) => void;
+  cacheStatus: string;
+  recallResult: SleepRecallResult | null;
+  runRecallCheck: () => void;
+  cuedConceptIds: string[];
+  controlConceptIds: string[];
+  concepts: ConceptNode[];
 }) {
+  const stopOptions: SleepStopCondition[] = [
+    "none",
+    "movement_detected",
+    "user_wake_report",
+    "wearable_wake_signal",
+    "time_limit"
+  ];
+  const cueGainTone =
+    recallResult && recallResult.cueGainDelta > 0.04
+      ? "positive"
+      : recallResult && recallResult.cueGainDelta < -0.04
+        ? "negative"
+        : "neutral";
   return (
     <div className="page-grid sleep-grid">
       <section className="panel sleep-panel">
@@ -1605,18 +1842,128 @@ function SleepView({
             />
           ))}
         </div>
-        <MiniStat label="Sleep integrity" value={`${Math.round(integrity * 100)}%`} />
+        <div className="sleep-run-grid">
+          <MiniStat label="Sleep integrity" value={`${Math.round(integrity * 100)}%`} />
+          <MiniStat label="Playback" value={playbackStatus} />
+          <MiniStat label="Cache" value={cacheStatus} />
+          <MiniStat label="Max density" value={`${packet.max_cues_per_hour}/hr`} />
+        </div>
+        <div className="action-row">
+          <button className="command primary" onClick={startPlayback}>
+            <Play size={18} />
+            Start
+          </button>
+          <button className="command" onClick={logPlayback}>
+            <ClipboardCheck size={18} />
+            Log Playback
+          </button>
+          <button className="command" onClick={runRecallCheck}>
+            <BadgeCheck size={18} />
+            Recall Check
+          </button>
+        </div>
       </section>
-      <section className="panel">
-        <PanelTitle icon={Radio} title="Audio Plan" meta={audioPlan.render_status} />
-        <div className="object-list">
-          {audioPlan.layers.slice(0, 8).map((layer) => (
-            <ObjectLine
-              key={layer.id}
-              label={humanMinutes(Math.round(layer.starts_at_seconds))}
-              value={`${layer.kind} - ${layer.label}`}
+      <section className="sleep-side">
+        <div className="panel sleep-safety-panel">
+          <PanelTitle
+            icon={ShieldCheck}
+            title="Sleep Safety"
+            meta={disruptionReported ? "review" : "clear"}
+          />
+          <div className="stop-grid">
+            {stopOptions.map((option) => (
+              <button
+                className={`stop-chip ${stopCondition === option ? "is-selected" : ""}`}
+                key={option}
+                onClick={() => setStopCondition(option)}
+              >
+                {option.replaceAll("_", " ")}
+              </button>
+            ))}
+          </div>
+          <label className="switch-row sleep-switch">
+            <input
+              type="checkbox"
+              checked={disruptionReported}
+              onChange={(event) => setDisruptionReported(event.target.checked)}
             />
-          ))}
+            <span>Sleep disruption reported</span>
+          </label>
+          <div className="guard-grid compact-guard">
+            <div className="guard-item">
+              <ShieldCheck size={18} />
+              <span>sparse cue spacing</span>
+            </div>
+            <div className="guard-item">
+              <ShieldCheck size={18} />
+              <span>movement stop</span>
+            </div>
+            <div className="guard-item">
+              <ShieldCheck size={18} />
+              <span>wake report stop</span>
+            </div>
+            <div className="guard-item">
+              <ShieldCheck size={18} />
+              <span>matched controls</span>
+            </div>
+          </div>
+        </div>
+        <div className="panel">
+          <PanelTitle icon={Radio} title="Audio Plan" meta={audioPlan.render_status} />
+          <div className="object-list">
+            {audioPlan.layers.slice(0, 6).map((layer) => (
+              <ObjectLine
+                key={layer.id}
+                label={humanMinutes(Math.round(layer.starts_at_seconds))}
+                value={`${layer.kind} - ${layer.label}`}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="panel sleep-results-panel">
+          <PanelTitle
+            icon={BarChart3}
+            title="Cue-Gain Results"
+            meta={recallResult ? "controls revealed" : "pending"}
+          />
+          <div className={`cue-gain-badge ${cueGainTone}`}>
+            <strong>{recallResult ? `${Math.round(recallResult.cueGainDelta * 100)}pt` : "hidden"}</strong>
+            <span>{recallResult ? "cued minus control" : "run recall check"}</span>
+          </div>
+          <div className="result-columns">
+            <div>
+              <h3>Cued</h3>
+              <strong>{recallResult ? `${Math.round(recallResult.cuedScore * 100)}%` : "pending"}</strong>
+              <div className="tag-row">
+                {cuedConceptIds.map((conceptId) => (
+                  <span className="tag" key={conceptId}>
+                    {conceptTitle(concepts, conceptId)}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h3>Controls</h3>
+              <strong>{recallResult ? `${Math.round(recallResult.controlScore * 100)}%` : "hidden"}</strong>
+              <div className="tag-row">
+                {(recallResult ? controlConceptIds : []).map((conceptId) => (
+                  <span className="tag" key={conceptId}>
+                    {conceptTitle(concepts, conceptId)}
+                  </span>
+                ))}
+                {!recallResult && <span className="tag">revealed after recall</span>}
+              </div>
+            </div>
+          </div>
+          {recallResult && (
+            <ObjectLine
+              label="Completed"
+              value={new Date(recallResult.completedAt).toLocaleTimeString([], {
+                hour: "numeric",
+                minute: "2-digit"
+              })}
+            />
+          )}
         </div>
       </section>
     </div>
@@ -2062,6 +2409,27 @@ function Ratio({ label, value, color }: { label: string; value: number; color: s
       <span>{label}</span>
     </div>
   );
+}
+
+function applyResponseToLocalStates(
+  states: UserConceptState[],
+  response: AssessmentResponse
+): UserConceptState[] {
+  const next = [...states];
+  for (const update of response.graph_updates) {
+    const conceptId = typeof update.concept_id === "string" ? update.concept_id : undefined;
+    if (!conceptId) continue;
+    const index = next.findIndex((state) => state.concept_id === conceptId);
+    const state = index >= 0 ? next[index] : emptyState(conceptId);
+    const updated = applyAssessmentToUserState(state, response);
+    if (index >= 0) next[index] = updated;
+    else next.push(updated);
+  }
+  return next;
+}
+
+function conceptTitle(concepts: ConceptNode[], conceptId: string): string {
+  return concepts.find((concept) => concept.id === conceptId)?.title ?? conceptId;
 }
 
 function avg(values: number[]): number {
