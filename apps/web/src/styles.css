@@ -786,6 +786,103 @@ input[type="range"] {
   min-height: 280px;
 }
 
+.graphfeed-player {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.graphfeed-screen {
+  min-height: 260px;
+  display: grid;
+  grid-template-columns: minmax(160px, 0.42fr) minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #152722;
+  color: var(--paper);
+}
+
+.graphfeed-hero {
+  min-height: 210px;
+  background: rgba(247, 244, 237, 0.09);
+  border: 1px solid rgba(247, 244, 237, 0.16);
+}
+
+.graphfeed-copy {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+}
+
+.graphfeed-copy h2 {
+  margin: 0;
+  font-size: 1.6rem;
+  line-height: 1.14;
+}
+
+.graphfeed-copy p {
+  color: rgba(247, 244, 237, 0.74);
+  margin: 6px 0 0;
+}
+
+.graphfeed-copy .eyebrow {
+  color: rgba(247, 244, 237, 0.72);
+}
+
+.chapter-timeline {
+  position: relative;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--teal-soft), var(--amber-soft), var(--coral-soft));
+}
+
+.chapter-timeline span {
+  position: absolute;
+  top: -5px;
+  width: 4px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--ink);
+}
+
+.graphfeed-recall {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(247, 244, 237, 0.55);
+}
+
+.graphfeed-recall textarea {
+  width: 100%;
+  min-height: 142px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.graphfeed-prompt {
+  border-left-color: var(--indigo);
+  background: var(--indigo-soft);
+}
+
+.graphfeed-result.is-counted {
+  border-color: var(--green);
+  background: #e7f3e9;
+}
+
+.graphfeed-result.is-held {
+  border-color: var(--coral);
+  background: var(--coral-soft);
+}
+
 .packet-visual {
   display: grid;
   align-content: center;
@@ -829,6 +926,35 @@ input[type="range"] {
   place-items: center;
   align-content: center;
   gap: 6px;
+}
+
+.graphfeed-side {
+  align-content: start;
+}
+
+.video-choice {
+  position: relative;
+  width: 100%;
+  color: var(--ink);
+  text-align: left;
+}
+
+.video-choice.is-selected {
+  border-color: var(--teal);
+  background: var(--teal-soft);
+}
+
+.packet-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-height: 24px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 0.72rem;
+  font-weight: 900;
 }
 
 .flash-reader {
@@ -1569,6 +1695,10 @@ input[type="range"] {
 
   .video-card {
     grid-template-columns: 86px minmax(0, 1fr);
+  }
+
+  .graphfeed-screen {
+    grid-template-columns: 1fr;
   }
 
   .video-card > strong {

@@ -46,7 +46,7 @@ import type {
   VideoAsset
 } from "@mnemosyne/schema";
 import { buildDailyLearningPacket } from "@mnemosyne/scheduler-core";
-import { clamp, createId, nowIso, todayIsoDate } from "@mnemosyne/shared-utils";
+import { clamp, createId, nowIso, todayIsoDate, unique } from "@mnemosyne/shared-utils";
 import { buildSleepCuePacket } from "@mnemosyne/sleep-core";
 import { buildWatchPackets, rankVideosForUser } from "@mnemosyne/video-core";
 import {
@@ -1028,6 +1028,24 @@ export function createApiHandlers(store: MnemosyneStore) {
     async completeWatchPacket(input: unknown) {
       const request = validateRequest(completeWatchPacketRequestSchema, input);
       await requireUser(store, request.userId);
+      const completedAt = nowIso();
+      const masterGraph = await store.getMasterGraph();
+      const watchedVideos = masterGraph.videos.filter((video) => request.videoIds.includes(video.id));
+      const awardedConceptIds = request.recallPassed
+        ? unique(watchedVideos.flatMap((video) => video.concept_ids))
+        : [];
+      if (request.recallPassed && watchedVideos.length > 0) {
+        await store.saveUserConceptStates(
+          request.userId,
+          applyWatchPacketRecallToStates(
+            (await store.getUserGraph(request.userId)).states,
+            watchedVideos,
+            request.screenMinutes,
+            completedAt,
+            request.userId
+          )
+        );
+      }
       const event = await store.appendLearningEvent({
         user_id: request.userId,
         event_type: "video_watched",
@@ -1036,7 +1054,9 @@ export function createApiHandlers(store: MnemosyneStore) {
           video_ids: request.videoIds,
           recall_passed: request.recallPassed,
           screen_minutes: request.screenMinutes,
-          screen_load_multiplier: request.recallPassed ? 0.42 : 0.8
+          screen_load_multiplier: request.recallPassed ? 0.42 : 0.8,
+          graph_progress_awarded: request.recallPassed,
+          awarded_concept_ids: awardedConceptIds
         }
       });
       return envelope(event);
@@ -2322,6 +2342,63 @@ function flashReadCompletionSummary(
     advance_allowed: result.advanceAllowed,
     screen_minutes: request.screenMinutes
   };
+}
+
+function applyWatchPacketRecallToStates(
+  states: UserConceptState[],
+  videos: VideoAsset[],
+  screenMinutes: number,
+  updatedAt: string,
+  userId: string
+): UserConceptState[] {
+  const conceptIds = unique(videos.flatMap((video) => video.concept_ids));
+  const averageRetentionLift = avg(videos.map((video) => video.retention_lift_score));
+  const averageTransferLift = avg(videos.map((video) => video.transfer_lift_score));
+  const averageScreenEfficiency = avg(videos.map((video) => video.screen_efficiency_score));
+  const screenLoad = clamp(screenMinutes / 60);
+  const next = [...states];
+  for (const conceptId of conceptIds) {
+    const index = next.findIndex((state) => state.concept_id === conceptId);
+    const state = index >= 0 ? next[index] : initialConceptState(userId, conceptId);
+    const failures = new Set(state.failure_modes.filter((mode) => mode !== "none"));
+    failures.delete("video_recall_missing");
+    const updated: UserConceptState = {
+      ...state,
+      mastery: clamp(state.mastery + 0.025 + averageRetentionLift * 0.03),
+      recall_strength: clamp(state.recall_strength + 0.035 + averageRetentionLift * 0.025),
+      recall_stability: clamp(state.recall_stability + averageRetentionLift * 0.018),
+      transfer_score: clamp(state.transfer_score + averageTransferLift * 0.025),
+      failure_modes: failures.size > 0 ? Array.from(failures).slice(-6) : ["none"],
+      last_seen_at: updatedAt,
+      last_correct_at: updatedAt,
+      times_seen: state.times_seen + 1,
+      times_recalled: state.times_recalled + 1,
+      modality_response_profile: {
+        ...state.modality_response_profile,
+        video_recall_gate_passed: true,
+        video_screen_minutes: screenMinutes,
+        video_screen_load: screenLoad,
+        video_screen_efficiency: averageScreenEfficiency
+      },
+      status: videoStatusFor(state),
+      updated_at: updatedAt
+    };
+    if (index >= 0) next[index] = updated;
+    else next.push(updated);
+  }
+  return next;
+}
+
+function videoStatusFor(state: UserConceptState): UserConceptState["status"] {
+  const strength = state.mastery * 0.5 + state.recall_strength * 0.3 + state.transfer_score * 0.2;
+  if (strength >= 0.78) return "fluent";
+  if (strength >= 0.62) return "known";
+  if (strength >= 0.42) return "learning";
+  return "fragile";
+}
+
+function avg(values: number[]): number {
+  return values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
 }
 
 function applyFlashReadCompletionToStates(

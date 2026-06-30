@@ -292,6 +292,13 @@ describe("persistence-backed API handlers", () => {
     expect(watch.packet.required_post_watch_recall).toBe(true);
     expect(watch.packet.video_ids.length).toBeGreaterThan(0);
 
+    const watchedVideo = demoMasterGraph.videos.find((video) => watch.packet.video_ids.includes(video.id));
+    if (!watchedVideo) throw new Error("missing watched video");
+    const watchedConceptId = watchedVideo.concept_ids[0];
+    if (!watchedConceptId) throw new Error("missing watched concept");
+    const watchBeforeState = (await store.getUserGraph(demoUser.id)).states.find(
+      (state) => state.concept_id === watchedConceptId
+    );
     const completedWatch = unwrap(
       await handlers.completeWatchPacket({
         userId: demoUser.id,
@@ -302,6 +309,38 @@ describe("persistence-backed API handlers", () => {
       })
     );
     expect(completedWatch.event_type).toBe("video_watched");
+    expect(completedWatch.payload).toEqual(
+      expect.objectContaining({
+        graph_progress_awarded: true,
+        awarded_concept_ids: expect.arrayContaining([watchedConceptId])
+      })
+    );
+    const watchAfterPassedState = (await store.getUserGraph(demoUser.id)).states.find(
+      (state) => state.concept_id === watchedConceptId
+    );
+    expect(watchAfterPassedState?.times_seen).toBeGreaterThan(watchBeforeState?.times_seen ?? 0);
+    expect(watchAfterPassedState?.times_recalled).toBeGreaterThan(watchBeforeState?.times_recalled ?? 0);
+
+    const heldWatch = unwrap(
+      await handlers.completeWatchPacket({
+        userId: demoUser.id,
+        watchPacketId: `${watch.packet.id}:held`,
+        videoIds: [watchedVideo.id],
+        recallPassed: false,
+        screenMinutes: 12
+      })
+    );
+    expect(heldWatch.payload).toEqual(
+      expect.objectContaining({
+        graph_progress_awarded: false,
+        awarded_concept_ids: []
+      })
+    );
+    const watchAfterHeldState = (await store.getUserGraph(demoUser.id)).states.find(
+      (state) => state.concept_id === watchedConceptId
+    );
+    expect(watchAfterHeldState?.times_seen).toBe(watchAfterPassedState?.times_seen);
+    expect(watchAfterHeldState?.times_recalled).toBe(watchAfterPassedState?.times_recalled);
 
     const flashAsset = demoMasterGraph.flashReads.find((asset) =>
       asset.concept_ids.includes("attention_qkv")

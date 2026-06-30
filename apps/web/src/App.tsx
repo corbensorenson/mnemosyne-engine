@@ -55,9 +55,11 @@ import type {
   ConceptNode,
   FlashReadAsset,
   ReadinessProfile,
-  UserConceptState
+  UserConceptState,
+  VideoAsset,
+  WatchPacket
 } from "@mnemosyne/schema";
-import { clamp, humanMinutes, round, unique } from "@mnemosyne/shared-utils";
+import { clamp, createId, humanMinutes, nowIso, round, unique } from "@mnemosyne/shared-utils";
 import { buildSleepCuePacket } from "@mnemosyne/sleep-core";
 import { createTechniqueExperiment, recommendTechniques, techniqueRegistry } from "@mnemosyne/technique-lab";
 import { rankVideosForUser } from "@mnemosyne/video-core";
@@ -131,6 +133,13 @@ type FlashEngineResult = ReturnType<typeof scoreFlashReadCompletion> & {
   retentionScore: number;
   strainRating: number;
 };
+type GraphFeedRecallResult = {
+  completedAt: string;
+  videoId: string;
+  response: AssessmentResponse;
+  recallPassed: boolean;
+  screenMinutes: number;
+};
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("onboarding");
@@ -146,6 +155,12 @@ export default function App() {
   const [lastResponse, setLastResponse] = useState<AssessmentResponse | null>(null);
   const [repairTips, setRepairTips] = useState<string[]>([]);
   const [offlineCacheStatus, setOfflineCacheStatus] = useState("pending");
+  const [cinemaVideoId, setCinemaVideoId] = useState(demoMasterGraph.videos[0]?.id ?? "");
+  const [cinemaAnswer, setCinemaAnswer] = useState("");
+  const [cinemaConfidence, setCinemaConfidence] = useState(0.62);
+  const [cinemaStartedAt, setCinemaStartedAt] = useState(Date.now());
+  const [cinemaResult, setCinemaResult] = useState<GraphFeedRecallResult | null>(null);
+  const [cinemaCacheStatus, setCinemaCacheStatus] = useState("pending");
   const [lockAnswer, setLockAnswer] = useState("");
   const [lockConfidence, setLockConfidence] = useState(0.58);
   const [lockAnswerMode, setLockAnswerMode] = useState<AnswerMode>("voice");
@@ -220,6 +235,24 @@ export default function App() {
         readiness
       }),
     [readiness, scheduled.packet.morning.frontier_items, scheduled.packet.morning.horizon_items, states]
+  );
+  const activeWatchPacket = scheduled.packet.optional_watch_packets[0];
+  const packetVideos = useMemo(
+    () =>
+      (activeWatchPacket?.video_ids ?? [])
+        .map((id) => demoMasterGraph.videos.find((video) => video.id === id))
+        .filter((video): video is VideoAsset => Boolean(video)),
+    [activeWatchPacket?.video_ids]
+  );
+  const activeCinemaVideo =
+    packetVideos.find((video) => video.id === cinemaVideoId) ??
+    packetVideos[0] ??
+    rankedVideos[0]?.video ??
+    demoMasterGraph.videos[0];
+  const activeCinemaRecallPrompt = useMemo(
+    () =>
+      activeCinemaVideo ? buildVideoRecallPrompt(activeCinemaVideo, demoMasterGraph.concepts) : undefined,
+    [activeCinemaVideo]
   );
   const flashAssets = useMemo(
     () =>
@@ -417,6 +450,82 @@ export default function App() {
     setAnswer("");
     setForgeIndex((index) => (forgeQueue.length > 0 ? (index + 1) % forgeQueue.length : index));
     setForgeStartedAt(Date.now());
+  }
+
+  function selectCinemaVideo(videoId: string) {
+    setCinemaVideoId(videoId);
+    setCinemaAnswer("");
+    setCinemaResult(null);
+    setCinemaCacheStatus("pending");
+    setCinemaStartedAt(Date.now());
+    const video = demoMasterGraph.videos.find((candidate) => candidate.id === videoId);
+    if (video?.concept_ids[0]) setSelectedNodeId(video.concept_ids[0]);
+  }
+
+  function updateCinemaAnswer(value: string) {
+    if (cinemaAnswer.trim().length === 0 && value.trim().length > 0) {
+      setCinemaStartedAt(Date.now());
+    }
+    setCinemaAnswer(value);
+    setCinemaResult(null);
+    setCinemaCacheStatus("pending");
+  }
+
+  function completeGraphFeedRecall() {
+    if (!activeCinemaVideo || !activeCinemaRecallPrompt || cinemaAnswer.trim().length === 0) return;
+    const completedAt = new Date().toISOString();
+    const response = scoreAssessmentResponse({
+      userId: demoUser.id,
+      item: activeCinemaRecallPrompt,
+      rawResponse: cinemaAnswer,
+      confidence: cinemaConfidence,
+      latencyMs: Math.max(1_000, Date.now() - cinemaStartedAt)
+    });
+    const recallPassed = response.correctness_score >= 0.72;
+    const screenMinutes = Math.min(
+      activeWatchPacket?.total_time_budget_minutes ?? Math.ceil(activeCinemaVideo.duration_seconds / 60),
+      Math.ceil(activeCinemaVideo.duration_seconds / 60)
+    );
+    const result: GraphFeedRecallResult = {
+      completedAt,
+      videoId: activeCinemaVideo.id,
+      response,
+      recallPassed,
+      screenMinutes
+    };
+    setCinemaResult(result);
+    if (recallPassed) {
+      setStates((current) => applyGraphFeedResultToLocalStates(current, activeCinemaVideo, result));
+    }
+    try {
+      window.localStorage.setItem(
+        "mnemosyne.graphFeedRecall.v1",
+        JSON.stringify({
+          cached_at: completedAt,
+          user_id: demoUser.id,
+          watch_packet_id: activeWatchPacket?.id,
+          video_id: activeCinemaVideo.id,
+          concept_ids: activeCinemaVideo.concept_ids,
+          recall_score: response.correctness_score,
+          semantic_score: response.semantic_score,
+          confidence: cinemaConfidence,
+          recall_passed: recallPassed,
+          graph_progress_awarded: recallPassed,
+          screen_minutes: screenMinutes,
+          suggested_next_mode: recallPassed ? activeWatchPacket?.suggested_next_mode : "retry_recall"
+        })
+      );
+      setCinemaCacheStatus("ready");
+    } catch {
+      setCinemaCacheStatus("unavailable");
+    }
+    setEventLog((current) =>
+      [
+        recallPassed ? "GraphFeed recall passed: progress counted" : "GraphFeed recall held progress",
+        `video recall score: ${Math.round(response.correctness_score * 100)}%`,
+        ...current
+      ].slice(0, 6)
+    );
   }
 
   function selectFlashAsset(assetId: string) {
@@ -794,7 +903,24 @@ export default function App() {
         offlineCacheStatus={offlineCacheStatus}
       />
     ),
-    cinema: <CinemaView rankedVideos={rankedVideos} packet={scheduled.packet.optional_watch_packets[0]} />,
+    cinema: (
+      <CinemaView
+        rankedVideos={rankedVideos}
+        packet={activeWatchPacket}
+        packetVideos={packetVideos}
+        activeVideo={activeCinemaVideo}
+        selectVideo={selectCinemaVideo}
+        recallPrompt={activeCinemaRecallPrompt}
+        answer={cinemaAnswer}
+        setAnswer={updateCinemaAnswer}
+        confidence={cinemaConfidence}
+        setConfidence={setCinemaConfidence}
+        completeRecall={completeGraphFeedRecall}
+        result={cinemaResult}
+        cacheStatus={cinemaCacheStatus}
+        concepts={demoMasterGraph.concepts}
+      />
+    ),
     flash: (
       <FlashView
         assets={flashAssets}
@@ -1627,48 +1753,163 @@ function ForgeView({
 
 function CinemaView({
   rankedVideos,
-  packet
+  packet,
+  packetVideos,
+  activeVideo,
+  selectVideo,
+  recallPrompt,
+  answer,
+  setAnswer,
+  confidence,
+  setConfidence,
+  completeRecall,
+  result,
+  cacheStatus,
+  concepts
 }: {
   rankedVideos: ReturnType<typeof rankVideosForUser>;
-  packet: ReturnType<typeof buildDailyLearningPacket>["packet"]["optional_watch_packets"][number] | undefined;
+  packet: WatchPacket | undefined;
+  packetVideos: VideoAsset[];
+  activeVideo: VideoAsset | undefined;
+  selectVideo: (videoId: string) => void;
+  recallPrompt: AssessmentItem | undefined;
+  answer: string;
+  setAnswer: (value: string) => void;
+  confidence: number;
+  setConfidence: (value: number) => void;
+  completeRecall: () => void;
+  result: GraphFeedRecallResult | null;
+  cacheStatus: string;
+  concepts: ConceptNode[];
 }) {
+  const selectedVideos =
+    packetVideos.length > 0 ? packetVideos : rankedVideos.slice(0, 3).map(({ video }) => video);
+  const activeConcepts = activeVideo?.concept_ids.map((id) => conceptTitle(concepts, id)) ?? [];
+  const recallState = result ? (result.recallPassed ? "counted" : "held") : "armed";
+  const totalPacketSeconds = selectedVideos.reduce((sum, video) => sum + video.duration_seconds, 0);
   return (
     <div className="page-grid cinema-grid">
-      <section className="panel watch-packet">
-        <PanelTitle icon={Video} title="Bounded Packet" meta={packet?.purpose ?? "none"} />
-        <div className="packet-visual">
-          {(packet?.video_ids ?? []).map((id, index) => (
-            <div className="chapter-bar" key={id} style={{ width: `${42 + index * 18}%` }} />
+      <section className="panel watch-packet graphfeed-player">
+        <PanelTitle icon={Video} title="GraphFeed" meta={packet?.purpose ?? "none"} />
+        <div className="graphfeed-screen">
+          <div className="video-thumb graphfeed-hero">
+            <Video size={34} />
+            <span>{activeVideo ? humanMinutes(activeVideo.duration_seconds) : "0m"}</span>
+          </div>
+          <div className="graphfeed-copy">
+            <p className="eyebrow">Bounded Video</p>
+            <h2>{activeVideo?.title ?? "No video selected"}</h2>
+            <p>{activeVideo?.creator ?? "Local graph metadata"}</p>
+            <div className="tag-row">
+              {activeConcepts.map((title) => (
+                <span className="tag" key={title}>
+                  {title}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="chapter-timeline" aria-label="Chapter timeline">
+          {(activeVideo?.chapter_map ?? []).map((chapter, index) => (
+            <span
+              key={`${activeVideo?.id}-${index}`}
+              style={{
+                left: `${chapterStartPercent(chapter, activeVideo?.duration_seconds ?? 1)}%`
+              }}
+              title={chapterTitle(chapter)}
+            />
           ))}
         </div>
         <div className="case-grid">
           <MiniStat label="Budget" value={`${packet?.total_time_budget_minutes ?? 0}m`} />
-          <MiniStat label="Videos" value={`${packet?.video_ids.length ?? 0}`} />
-          <MiniStat label="Recall" value={packet?.required_post_watch_recall ? "armed" : "off"} />
+          <MiniStat label="Videos" value={`${selectedVideos.length}`} />
+          <MiniStat label="Recall" value={recallState} />
           <MiniStat label="Next" value={packet?.suggested_next_mode ?? "stop"} />
         </div>
+        <div className="graphfeed-recall">
+          <div className="prompt-box graphfeed-prompt">
+            <p className="eyebrow">Post-Watch Recall</p>
+            <h2>{recallPrompt?.prompt ?? "No recall prompt due"}</h2>
+          </div>
+          <textarea
+            value={answer}
+            onChange={(event) => setAnswer(event.target.value)}
+            placeholder="Explain from memory before progress counts..."
+            rows={5}
+          />
+          <Slider
+            label="Confidence"
+            value={confidence}
+            onChange={setConfidence}
+            suffix={`${Math.round(confidence * 100)}%`}
+          />
+          <div className="action-row">
+            <button className="command primary" onClick={completeRecall}>
+              <BadgeCheck size={18} />
+              Score Recall
+            </button>
+            <button
+              className="command"
+              onClick={() =>
+                setAnswer(answer || "I can name the core idea, one example, and when it does not apply.")
+              }
+            >
+              <Wand2 size={18} />
+              Prime
+            </button>
+          </div>
+          {result && (
+            <div
+              className={`feedback-band graphfeed-result ${result.recallPassed ? "is-counted" : "is-held"}`}
+            >
+              <strong>{Math.round(result.response.correctness_score * 100)}%</strong>
+              <span>
+                {result.recallPassed
+                  ? "recall passed, graph progress counted"
+                  : "recall missed, video watch held out of progress"}
+              </span>
+            </div>
+          )}
+        </div>
       </section>
-      <section className="video-list">
-        {rankedVideos.slice(0, 5).map(({ video, score, reasons }) => (
-          <article className="video-card" key={video.id}>
-            <div className="video-thumb">
-              <Video size={28} />
-              <span>{humanMinutes(video.duration_seconds)}</span>
-            </div>
-            <div>
-              <h3>{video.title}</h3>
-              <p>{video.creator}</p>
-              <div className="tag-row">
-                {reasons.slice(0, 4).map((reason) => (
-                  <span className="tag" key={reason}>
-                    {reason}
-                  </span>
-                ))}
+      <section className="video-list graphfeed-side">
+        <div className="panel compact-panel">
+          <PanelTitle icon={ClipboardCheck} title="Packet Rules" meta={cacheStatus} />
+          <div className="object-list">
+            <ObjectLine label="Boundary" value={humanMinutes(totalPacketSeconds)} />
+            <ObjectLine label="Progress" value="recall gate required" />
+            <ObjectLine label="Transcript" value={activeVideo?.transcript_id ?? "none"} />
+            <ObjectLine label="Walk handoff" value={result?.recallPassed ? "ready" : "locked"} />
+          </div>
+        </div>
+        {rankedVideos.slice(0, 5).map(({ video, score, reasons }) => {
+          const inPacket = selectedVideos.some((candidate) => candidate.id === video.id);
+          return (
+            <button
+              className={`video-card video-choice ${activeVideo?.id === video.id ? "is-selected" : ""}`}
+              key={video.id}
+              onClick={() => selectVideo(video.id)}
+            >
+              <div className="video-thumb">
+                <Video size={28} />
+                <span>{humanMinutes(video.duration_seconds)}</span>
               </div>
-            </div>
-            <strong>{Math.round(score * 100)}</strong>
-          </article>
-        ))}
+              <div>
+                <h3>{video.title}</h3>
+                <p>{video.creator}</p>
+                <div className="tag-row">
+                  {reasons.slice(0, 4).map((reason) => (
+                    <span className="tag" key={reason}>
+                      {reason}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <strong>{Math.round(score * 100)}</strong>
+              {inPacket && <span className="packet-badge">packet</span>}
+            </button>
+          );
+        })}
       </section>
     </div>
   );
@@ -2760,6 +3001,103 @@ function Ratio({ label, value, color }: { label: string; value: number; color: s
       <span>{label}</span>
     </div>
   );
+}
+
+function buildVideoRecallPrompt(video: VideoAsset, concepts: ConceptNode[]): AssessmentItem {
+  const linkedConcepts = video.concept_ids
+    .map((conceptId) => concepts.find((concept) => concept.id === conceptId))
+    .filter((concept): concept is ConceptNode => Boolean(concept));
+  const expectedAnswer = linkedConcepts
+    .map((concept) => `${concept.title}: ${conceptDefinition(concept)}`)
+    .join(" ");
+  return {
+    id: createId("video_recall", video.id),
+    concept_ids: video.concept_ids,
+    assessment_type: "free_recall",
+    prompt: `After watching "${video.title}", explain the mechanism, one concrete example, and one boundary or failure case.`,
+    expected_answer: expectedAnswer || video.title,
+    rubric: {
+      must_include: linkedConcepts.slice(0, 3).map((concept) => concept.title.toLowerCase()),
+      acceptable_aliases: linkedConcepts.map((concept) => concept.slug),
+      common_failures: ["watched passively without recall", "names topic but misses mechanism"],
+      transfer_signals: ["new example", "boundary condition", "counterexample"]
+    },
+    difficulty: clamp(video.difficulty + 0.08),
+    time_limit_seconds: 180,
+    modality: ["text", "voice", "video"],
+    created_at: nowIso()
+  };
+}
+
+function chapterStartPercent(chapter: Record<string, unknown>, durationSeconds: number): number {
+  const start = typeof chapter.start === "number" ? chapter.start : 0;
+  return clamp(start / Math.max(durationSeconds, 1)) * 100;
+}
+
+function chapterTitle(chapter: Record<string, unknown>): string {
+  return typeof chapter.title === "string" ? chapter.title : "chapter";
+}
+
+function conceptDefinition(concept: ConceptNode): string {
+  const definition = concept.definitions[0] as { text?: string } | undefined;
+  return definition?.text ?? concept.title;
+}
+
+function applyGraphFeedResultToLocalStates(
+  states: UserConceptState[],
+  video: VideoAsset,
+  result: GraphFeedRecallResult
+): UserConceptState[] {
+  if (!result.recallPassed) return states;
+  const next = [...states];
+  const retentionLift = video.retention_lift_score;
+  const transferLift = video.transfer_lift_score;
+  const screenLoad = clamp(result.screenMinutes / 60);
+  for (const conceptId of video.concept_ids) {
+    const index = next.findIndex((state) => state.concept_id === conceptId);
+    const state = index >= 0 ? next[index] : emptyState(conceptId);
+    const failures = new Set(state.failure_modes.filter((mode) => mode !== "none"));
+    failures.delete("video_recall_missing");
+    const updated: UserConceptState = {
+      ...state,
+      mastery: clamp(state.mastery + result.response.correctness_score * 0.05 + retentionLift * 0.02),
+      recall_strength: clamp(state.recall_strength + result.response.correctness_score * 0.055),
+      recall_stability: clamp(state.recall_stability + retentionLift * 0.02),
+      transfer_score: clamp(state.transfer_score + transferLift * 0.03),
+      answer_latency_ms: Math.max(4_000, Math.round(result.response.latency_ms)),
+      confidence_calibration: clamp(
+        state.confidence_calibration * 0.82 +
+          (1 - Math.abs((result.response.confidence_reported ?? 0.5) - result.response.correctness_score)) *
+            0.18
+      ),
+      false_confidence_risk: clamp(state.false_confidence_risk * 0.9),
+      failure_modes: failures.size > 0 ? Array.from(failures) : ["none"],
+      last_seen_at: result.completedAt,
+      last_correct_at: result.completedAt,
+      times_seen: state.times_seen + 1,
+      times_recalled: state.times_recalled + 1,
+      modality_response_profile: {
+        ...state.modality_response_profile,
+        graphfeed_recall_score: result.response.correctness_score,
+        graphfeed_screen_minutes: result.screenMinutes,
+        graphfeed_screen_load: screenLoad,
+        graphfeed_video_quality: video.source_quality_score
+      },
+      status: graphFeedStatusFor(state),
+      updated_at: result.completedAt
+    };
+    if (index >= 0) next[index] = updated;
+    else next.push(updated);
+  }
+  return next;
+}
+
+function graphFeedStatusFor(state: UserConceptState): UserConceptState["status"] {
+  const strength = state.mastery * 0.5 + state.recall_strength * 0.3 + state.transfer_score * 0.2;
+  if (strength > 0.78) return "fluent";
+  if (strength > 0.62) return "known";
+  if (strength > 0.42) return "learning";
+  return "fragile";
 }
 
 function rankFlashAssets(

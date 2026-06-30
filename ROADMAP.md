@@ -348,6 +348,8 @@ Deliverables:
 
 Current implementation progress:
 
+- PWA GraphFeed runs as a bounded local session with selected packet videos, chapter metadata, transcript IDs, post-watch recall scoring, local cache, and WalkMode handoff only after recall passes.
+- First-party watch completion logs `video_watched` for audit but awards graph progress only when post-watch recall passes; failed recall keeps the watch out of concept progress.
 - First-party Flash engine selects graph-aligned assets, builds chunked session plans with display-unit controls, and reports estimated effective WPM with the comprehension gate.
 - PWA Flash player runs locally in the browser with chunk display, WPM controls, pause/rewind/skip, completion gate, strain rating, local cache, and graph-state updates without a third-party service.
 - Optional first-party persistence endpoints record effective WPM, comprehension, retention, strain, screen load, and gated advancement; completion logs `flashread_completed`, audits the result, and updates concept graph state only when the comprehension/strain gate allows progress.
