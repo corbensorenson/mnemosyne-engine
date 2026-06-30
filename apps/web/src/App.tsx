@@ -47,6 +47,7 @@ import {
   arbitrateProposal,
   castVote,
   computeBridgingPriority,
+  statusForArbiterDecision,
   type VoteType
 } from "@mnemosyne/content-court";
 import {
@@ -3588,7 +3589,7 @@ function CourtView({ verdict: initialVerdict }: { verdict: ReturnType<typeof arb
     setProposal({
       ...proposal,
       ai_review: nextVerdict as unknown as Record<string, unknown>,
-      status: courtStatusForVerdict(nextVerdict.decision),
+      status: statusForArbiterDecision(nextVerdict.decision),
       updated_at: nowIso()
     });
     setRelease(null);
@@ -4348,16 +4349,6 @@ function graphFeedStatusFor(state: UserConceptState): UserConceptState["status"]
   if (strength > 0.62) return "known";
   if (strength > 0.42) return "learning";
   return "fragile";
-}
-
-function courtStatusForVerdict(decision: string): Proposal["status"] {
-  if (decision === "accept") return "accepted";
-  if (decision === "accept_with_modifications") return "accepted_with_modifications";
-  if (decision === "reject") return "rejected";
-  if (decision === "mark_as_disputed") return "disputed";
-  if (decision === "send_to_human_moderation") return "human_review_required";
-  if (decision === "needs_more_evidence") return "needs_evidence";
-  return "ai_reviewing";
 }
 
 function toCourtCommentPreview(entry: Record<string, unknown>, index: number): CourtCommentPreview {

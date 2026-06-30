@@ -6,7 +6,7 @@ Mnemosyne treats background work and stored artifacts as first-party product sta
 
 `@mnemosyne/ops-core` owns the durable contract:
 
-- queue names: `scheduler`, `ingestion`, `ai`, `audio_render`, `notification`, `analytics`, `export`, `moderation`
+- queue names: `scheduler`, `ingestion`, `local_ai`, `audio_render`, `notification`, `analytics`, `export`, `moderation`
 - job lifecycle: `queued`, `running`, `completed`, `failed`, `dead_lettered`, `cancelled`
 - job safety: idempotency keys, `run_after`, priority, attempts, max attempts, worker locks, results, and last errors
 - object buckets: `audio`, `transcript`, `import`, `generated_asset`, `export`, `evidence`, `backup`
@@ -40,6 +40,8 @@ The audio renderer service registers `audio_render:render_sleep_audio`. The hand
 
 The notification worker registers `notification:deliver_learning_reminder`. The handler records first-party outbox audit events for in-app, web-push-ready, or native-companion-ready reminders without relying on a hosted notification API.
 
+The local AI worker registers `local_ai:review_proposal`. The handler runs the first-party Content Court arbiter against stored proposals, persists the verdict on the proposal, updates governance status, and audits the decision without calling a hosted model or moderation API.
+
 The moderation worker registers `moderation:triage_proposal`. The handler loads stored Content Court proposals, runs first-party moderation triage from risk, evidence, high-stakes labels, counterevidence, change size, and dispute signals, updates proposal status through existing governance states, adds a moderator-readable triage comment, and audits the result.
 
 The analytics worker registers `analytics:refresh_outcome_dashboard`. The handler builds outcome dashboards from persisted assessment responses, learning events, and graph state, saves the dashboard, and audits the rollup quality gates.
@@ -58,6 +60,7 @@ The API service now exposes:
 - `POST /api/jobs/:id/fail`
 - `POST /api/notifications/schedule`
 - `POST /api/outcomes/refresh/jobs`
+- `POST /api/proposals/:id/arbiter/jobs`
 - `POST /api/proposals/:id/moderation/jobs`
 - `POST /api/privacy/export/jobs`
 - `POST /api/objects`
@@ -99,4 +102,4 @@ The next production step is to map this contract onto:
 - normalized Postgres projections for canonical job and object-manifest records
 - optional Redis streams or sorted sets for runnable queue indexes when scale requires an external index
 - managed object storage for audio, transcripts, imports, generated assets, evidence files, backups, and privacy exports, using the same manifest and integrity behavior as the local adapter
-- worker binaries for ingestion and local AI jobs following the same `@mnemosyne/worker-core` handler contract
+- worker binaries for ingestion jobs following the same `@mnemosyne/worker-core` handler contract

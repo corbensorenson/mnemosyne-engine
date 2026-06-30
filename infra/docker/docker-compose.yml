@@ -176,6 +176,27 @@ services:
       api:
         condition: service_healthy
 
+  worker-local-ai:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+    command: ["npm", "run", "worker:start"]
+    environment:
+      MNEMOSYNE_ENV: local
+      MNEMOSYNE_STORAGE: postgres
+      DATABASE_URL: postgres://mnemosyne:mnemosyne@postgres:5432/mnemosyne
+      MNEMOSYNE_SEED_DEMO: "false"
+      MNEMOSYNE_OBJECT_STORAGE_ROOT: /var/lib/mnemosyne/objects
+      MNEMOSYNE_WORKER_ID: worker-local-ai
+      MNEMOSYNE_WORKER_MODE: loop
+      MNEMOSYNE_WORKER_QUEUES: local_ai
+      MNEMOSYNE_WORKER_POLL_MS: 1000
+    volumes:
+      - object-storage:/var/lib/mnemosyne/objects
+    depends_on:
+      api:
+        condition: service_healthy
+
   worker-moderation:
     build:
       context: ../..

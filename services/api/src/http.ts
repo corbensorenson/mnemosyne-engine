@@ -341,6 +341,9 @@ function createHttpRoutes(handlers: ReturnType<typeof createApiHandlers>): Route
     route("POST", "/api/proposals/:id/ai-review", (context) =>
       handlers.reviewProposal(withBodyField(context, "proposalId", pathParam(context, "id")))
     ),
+    route("POST", "/api/proposals/:id/arbiter/jobs", (context) =>
+      handlers.queueProposalArbiterReview(withBodyField(context, "proposalId", pathParam(context, "id")))
+    ),
     route("POST", "/api/proposals/:id/moderation/jobs", (context) =>
       handlers.queueProposalModeration(withBodyField(context, "proposalId", pathParam(context, "id")))
     ),

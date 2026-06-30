@@ -1,6 +1,11 @@
 import { createAudioRendererWorkerHandlers, type RenderManifest } from "@mnemosyne/audio-renderer-service";
 import { configFromEnv, createConfiguredStore, seedDemoStore, type ApiRuntimeConfig } from "@mnemosyne/api";
-import { triageProposalForModeration, type ModerationTriage } from "@mnemosyne/content-court";
+import {
+  arbitrateProposal,
+  statusForArbiterDecision,
+  triageProposalForModeration,
+  type ModerationTriage
+} from "@mnemosyne/content-court";
 import type { NotificationPlanItem } from "@mnemosyne/notification-core";
 import { queueNames, type QueueName } from "@mnemosyne/ops-core";
 import { buildOutcomeDashboard } from "@mnemosyne/outcome-core";
@@ -69,6 +74,7 @@ export async function createWorkerServiceRuntime(
     ...createSchedulerWorkerHandlers(),
     ...createAudioRendererWorkerHandlers(config.audioOutputFormat),
     ...createNotificationWorkerHandlers(),
+    ...createLocalArbiterWorkerHandlers(),
     ...createOutcomeAnalyticsWorkerHandlers(),
     ...createPrivacyExportWorkerHandlers(),
     ...createModerationWorkerHandlers()
@@ -198,6 +204,55 @@ export function createPrivacyExportWorkerHandlers(): WorkerHandlerDefinition[] {
           sha256: stored.sha256,
           audit_event_id: audit.id,
           schema_version: bundle.schema_version
+        };
+      }
+    }
+  ];
+}
+
+export function createLocalArbiterWorkerHandlers(): WorkerHandlerDefinition[] {
+  return [
+    {
+      queue: "local_ai",
+      type: "review_proposal",
+      async handle(context) {
+        const proposalId = payloadString(context.job.payload, "proposal_id");
+        const actorId = payloadString(context.job.payload, "actor_id");
+        const proposal = await context.store.getProposal(proposalId);
+        if (!proposal) throw new Error(`proposal not found: ${proposalId}`);
+
+        const verdict = arbitrateProposal(proposal);
+        const updated = await context.store.saveProposal({
+          ...proposal,
+          ai_review: verdict as unknown as Record<string, unknown>,
+          status: statusForArbiterDecision(verdict.decision),
+          updated_at: verdict.created_at
+        });
+        const audit = await context.store.appendAuditEvent({
+          actor_id: actorId,
+          action: "proposal_local_arbiter_reviewed",
+          object_type: "proposal",
+          object_id: proposal.id,
+          payload: {
+            job_id: context.job.id,
+            worker_id: context.workerId,
+            verdict_id: verdict.id,
+            decision: verdict.decision,
+            confidence: verdict.confidence,
+            status_before: proposal.status,
+            status_after: updated.status,
+            policy_version: verdict.policy_version,
+            model_version: verdict.model_version
+          }
+        });
+        return {
+          proposal_id: proposal.id,
+          verdict_id: verdict.id,
+          decision: verdict.decision,
+          confidence: verdict.confidence,
+          status_before: proposal.status,
+          status_after: updated.status,
+          audit_event_id: audit.id
         };
       }
     }

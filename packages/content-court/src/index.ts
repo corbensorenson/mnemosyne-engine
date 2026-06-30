@@ -169,6 +169,16 @@ export function arbitrateProposal(proposal: Proposal): ArbiterVerdict {
   };
 }
 
+export function statusForArbiterDecision(decision: ArbiterVerdict["decision"]): Proposal["status"] {
+  if (decision === "accept") return "accepted";
+  if (decision === "accept_with_modifications") return "accepted_with_modifications";
+  if (decision === "reject") return "rejected";
+  if (decision === "mark_as_disputed") return "disputed";
+  if (decision === "send_to_human_moderation") return "human_review_required";
+  if (decision === "needs_more_evidence") return "needs_evidence";
+  return "ai_reviewing";
+}
+
 export function triageProposalForModeration(proposal: Proposal, generatedAt = nowIso()): ModerationTriage {
   const sourceQuality = sourceQualityScore(proposal.evidence_for);
   const oppositionQuality = sourceQualityScore(proposal.evidence_against);

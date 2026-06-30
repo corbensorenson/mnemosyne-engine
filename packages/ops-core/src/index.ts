@@ -3,7 +3,7 @@ import { createId, nowIso, round, stableHash } from "@mnemosyne/shared-utils";
 export const queueNames = [
   "scheduler",
   "ingestion",
-  "ai",
+  "local_ai",
   "audio_render",
   "notification",
   "analytics",

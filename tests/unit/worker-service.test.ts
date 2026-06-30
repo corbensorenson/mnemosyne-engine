@@ -301,6 +301,81 @@ describe("worker-service", () => {
     }
   });
 
+  it("reviews proposals through the local-ai arbiter worker", async () => {
+    const objectStorageRoot = await mkdtemp(join(tmpdir(), "mnemosyne-worker-local-ai-"));
+    const config = workerServiceConfigFromEnv({
+      MNEMOSYNE_STORAGE: "memory",
+      MNEMOSYNE_SEED_DEMO: "true",
+      MNEMOSYNE_OBJECT_STORAGE_ROOT: objectStorageRoot,
+      MNEMOSYNE_WORKER_ID: "worker-local-ai-test",
+      MNEMOSYNE_WORKER_MODE: "batch",
+      MNEMOSYNE_WORKER_QUEUES: "local_ai",
+      MNEMOSYNE_WORKER_MAX_JOBS: "1"
+    });
+    const runtime = await createWorkerServiceRuntime(config);
+
+    try {
+      const proposal = await runtime.store.saveProposal(
+        createCourtProposal({
+          proposerId: demoUser.id,
+          proposalType: "modify_definition",
+          affectedObjectIds: ["attention_qkv"],
+          diff: {
+            before: "attention weights values",
+            after: "queries compare with keys to weight values"
+          },
+          rationale: "Improve precision for a common attention misconception.",
+          evidenceFor: [
+            {
+              id: "source_worker_attention",
+              title: "Attention reference",
+              source_type: "paper",
+              quality_score: 0.86
+            }
+          ],
+          riskLevel: "low"
+        })
+      );
+
+      const arbiterJob = await runtime.store.saveJob(
+        createJob({
+          queue: "local_ai",
+          type: "review_proposal",
+          payload: { proposal_id: proposal.id, actor_id: demoUser.id },
+          priority: "normal",
+          idempotencyKey: "worker-service-local-ai",
+          auditSubjectId: demoUser.id,
+          createdAt: "2026-06-29T12:00:00.000Z"
+        })
+      );
+
+      const result = await runWorkerServiceBatch(runtime);
+      expect(result.completed).toBe(1);
+      expect(result.failed).toBe(0);
+      expect((await runtime.store.getJob(arbiterJob.id))?.result).toEqual(
+        expect.objectContaining({
+          proposal_id: proposal.id,
+          decision: "accept_with_modifications",
+          status_before: "open",
+          status_after: "accepted_with_modifications"
+        })
+      );
+      const updated = await runtime.store.getProposal(proposal.id);
+      expect(updated).toEqual(
+        expect.objectContaining({
+          status: "accepted_with_modifications",
+          ai_review: expect.objectContaining({ decision: "accept_with_modifications" })
+        })
+      );
+      expect((await runtime.store.listAuditEvents(demoUser.id)).map((event) => event.action)).toEqual(
+        expect.arrayContaining(["proposal_local_arbiter_reviewed", "job_completed"])
+      );
+    } finally {
+      await runtime.close();
+      await rm(objectStorageRoot, { recursive: true, force: true });
+    }
+  });
+
   it("triages proposal moderation jobs through the moderation worker", async () => {
     const objectStorageRoot = await mkdtemp(join(tmpdir(), "mnemosyne-worker-moderation-"));
     const config = workerServiceConfigFromEnv({

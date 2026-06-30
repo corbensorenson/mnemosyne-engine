@@ -1064,8 +1064,19 @@ describe("persistence-backed API handlers", () => {
     );
     expect(created.proposal.status).toBe("open");
 
+    const arbiterJob = unwrap(
+      await handlers.queueProposalArbiterReview({
+        proposalId: created.proposal.id,
+        actorId: "local_arbiter",
+        idempotencyKey: "proposal-local-arbiter-test"
+      })
+    );
+    expect(arbiterJob.job.queue).toBe("local_ai");
+    expect(arbiterJob.job.type).toBe("review_proposal");
+    expect(arbiterJob.preview.proposal_id).toBe(created.proposal.id);
+
     const reviewed = unwrap(
-      await handlers.reviewProposal({ proposalId: created.proposal.id, actorId: "ai_agent" })
+      await handlers.reviewProposal({ proposalId: created.proposal.id, actorId: "local_arbiter" })
     );
     expect(reviewed.verdict.confidence).toBeGreaterThan(0);
 
@@ -1128,6 +1139,14 @@ describe("persistence-backed API handlers", () => {
         }),
         expect.objectContaining({
           action: "proposal_comment_added",
+          object_id: created.proposal.id
+        }),
+        expect.objectContaining({
+          action: "proposal_local_arbiter_queued",
+          object_id: arbiterJob.job.id
+        }),
+        expect.objectContaining({
+          action: "proposal_local_arbiter_reviewed",
           object_id: created.proposal.id
         }),
         expect.objectContaining({

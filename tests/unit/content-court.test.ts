@@ -1,7 +1,17 @@
-import { createProposal, triageProposalForModeration } from "@mnemosyne/content-court";
+import {
+  createProposal,
+  statusForArbiterDecision,
+  triageProposalForModeration
+} from "@mnemosyne/content-court";
 import { describe, expect, it } from "vitest";
 
 describe("content-court moderation triage", () => {
+  it("maps local arbiter decisions to proposal governance states", () => {
+    expect(statusForArbiterDecision("accept_with_modifications")).toBe("accepted_with_modifications");
+    expect(statusForArbiterDecision("send_to_human_moderation")).toBe("human_review_required");
+    expect(statusForArbiterDecision("needs_more_evidence")).toBe("needs_evidence");
+  });
+
   it("routes high-stakes proposal labels to human moderation without external services", () => {
     const proposal = createProposal({
       proposerId: "creator_demo",

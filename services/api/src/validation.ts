@@ -198,7 +198,7 @@ export const outcomeDashboardRequestSchema = z
 const queueNameSchema = z.enum([
   "scheduler",
   "ingestion",
-  "ai",
+  "local_ai",
   "audio_render",
   "notification",
   "analytics",
@@ -708,7 +708,18 @@ export const proposalCreateRequestSchema = z
 export const proposalReviewRequestSchema = z
   .object({
     proposalId: z.string().min(1),
-    actorId: z.union([z.string().min(1), z.literal("ai_agent")]).default("ai_agent")
+    actorId: z.string().min(1).default("local_arbiter")
+  })
+  .strict();
+
+export const proposalArbiterJobRequestSchema = z
+  .object({
+    proposalId: z.string().min(1),
+    actorId: z.string().min(1).default("local_arbiter"),
+    priority: jobPrioritySchema.default("normal"),
+    runAfter: z.string().optional(),
+    idempotencyKey: z.string().min(3).optional(),
+    maxAttempts: z.number().int().positive().max(25).default(3)
   })
   .strict();
 

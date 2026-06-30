@@ -25,6 +25,7 @@ import {
   castVote,
   computeBridgingPriority,
   createProposal as createCourtProposal,
+  statusForArbiterDecision,
   triageProposalForModeration,
   type ModerationTriage,
   type VoteType
@@ -187,6 +188,7 @@ import {
   privacyDeletionRequestSchema,
   privacyExportJobRequestSchema,
   privacyExportRequestSchema,
+  proposalArbiterJobRequestSchema,
   proposalCreateRequestSchema,
   proposalCommentRequestSchema,
   proposalModerationJobRequestSchema,
@@ -556,6 +558,20 @@ type ProposalModerationJobRequest = {
 type ProposalModerationJobResponse = {
   job: JobRecord;
   triage: ModerationTriage;
+};
+
+type ProposalArbiterJobRequest = {
+  proposalId: string;
+  actorId: string;
+  priority: JobPriority;
+  runAfter?: string;
+  idempotencyKey?: string;
+  maxAttempts: number;
+};
+
+type ProposalArbiterJobResponse = {
+  job: JobRecord;
+  preview: ArbiterVerdict;
 };
 
 type JobCreateRequest = {
@@ -2851,7 +2867,7 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
     ): Promise<HandlerEnvelope<{ proposal: Proposal; verdict: ArbiterVerdict }>> {
       const request = validateRequest(proposalReviewRequestSchema, input) as {
         proposalId: string;
-        actorId: string | "ai_agent";
+        actorId: string;
       };
       const proposal = await store.getProposal(request.proposalId);
       if (!proposal) return notFound<{ proposal: Proposal; verdict: ArbiterVerdict }>("proposal_not_found");
@@ -2859,13 +2875,13 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
       const updated = {
         ...proposal,
         ai_review: verdict as unknown as Record<string, unknown>,
-        status: statusForVerdict(verdict.decision),
+        status: statusForArbiterDecision(verdict.decision),
         updated_at: nowIso()
       };
       await store.saveProposal(updated);
       const audit = await store.appendAuditEvent({
         actor_id: request.actorId,
-        action: "proposal_ai_reviewed",
+        action: "proposal_local_arbiter_reviewed",
         object_type: "proposal",
         object_id: proposal.id,
         payload: {
@@ -2875,6 +2891,51 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
         }
       });
       return envelope({ proposal: updated, verdict }, audit.id);
+    },
+
+    async queueProposalArbiterReview(input: unknown): Promise<HandlerEnvelope<ProposalArbiterJobResponse>> {
+      const request = validateRequest(proposalArbiterJobRequestSchema, input) as ProposalArbiterJobRequest;
+      const proposal = await store.getProposal(request.proposalId);
+      if (!proposal) return notFound<ProposalArbiterJobResponse>("proposal_not_found");
+
+      const queuedAt = nowIso();
+      const preview = arbitrateProposal(proposal);
+      const job = await store.saveJob(
+        createOpsJob({
+          queue: "local_ai",
+          type: "review_proposal",
+          payload: {
+            proposal_id: proposal.id,
+            actor_id: request.actorId,
+            requested_at: queuedAt,
+            queued_preview: preview
+          },
+          priority: request.priority,
+          runAfter: request.runAfter,
+          idempotencyKey: request.idempotencyKey ?? `local_arbiter:${proposal.id}:${queuedAt}`,
+          maxAttempts: request.maxAttempts,
+          auditSubjectId: request.actorId === "local_arbiter" ? "system" : request.actorId,
+          createdAt: queuedAt
+        })
+      );
+      const audit = await store.appendAuditEvent({
+        actor_id: request.actorId,
+        action: "proposal_local_arbiter_queued",
+        object_type: "service_job",
+        object_id: job.id,
+        payload: {
+          proposal_id: proposal.id,
+          verdict_id: preview.id,
+          decision: preview.decision,
+          confidence: preview.confidence,
+          queue: job.queue,
+          type: job.type,
+          priority: job.priority,
+          run_after: job.run_after,
+          idempotency_key: job.idempotency_key
+        }
+      });
+      return envelope({ job, preview }, audit.id);
     },
 
     async queueProposalModeration(input: unknown): Promise<HandlerEnvelope<ProposalModerationJobResponse>> {
@@ -4497,16 +4558,6 @@ function deviceCapabilities(connections: WearableConnection[] = []): DeviceCapab
     bluetooth_supported: false,
     offline_cache_supported: true
   };
-}
-
-function statusForVerdict(decision: string): Proposal["status"] {
-  if (decision === "accept") return "accepted";
-  if (decision === "accept_with_modifications") return "accepted_with_modifications";
-  if (decision === "reject") return "rejected";
-  if (decision === "mark_as_disputed") return "disputed";
-  if (decision === "send_to_human_moderation") return "human_review_required";
-  if (decision === "needs_more_evidence") return "needs_evidence";
-  return "ai_reviewing";
 }
 
 function defaultReadinessFallback(): ReadinessProfile {

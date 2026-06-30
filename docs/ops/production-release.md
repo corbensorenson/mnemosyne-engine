@@ -126,8 +126,9 @@ The system should preserve audit events even when downstream analytics or person
 - The API HTTP adapter is serving CSP/security headers, CSRF enforcement, bounded JSON parsing, and rate-limit responses in the target environment.
 - Postgres migrations through `0003_job_claim_indexes.sql` are applied and the API is constructed with `createPostgresStore`.
 - Object storage root is mounted durably, and `/api/objects/store` writes bytes, validates SHA-256 integrity, and persists manifests.
-- Scheduler, audio-render, notification, moderation, analytics, and export workers run `@mnemosyne/worker-core` handlers for `scheduler:generate_daily_packet`, `audio_render:render_sleep_audio`, `notification:deliver_learning_reminder`, `moderation:triage_proposal`, `analytics:refresh_outcome_dashboard`, and `export:build_privacy_export`, including audit events, retries, and dead-letter handling.
+- Scheduler, audio-render, notification, local-AI, moderation, analytics, and export workers run `@mnemosyne/worker-core` handlers for `scheduler:generate_daily_packet`, `audio_render:render_sleep_audio`, `notification:deliver_learning_reminder`, `local_ai:review_proposal`, `moderation:triage_proposal`, `analytics:refresh_outcome_dashboard`, and `export:build_privacy_export`, including audit events, retries, and dead-letter handling.
 - `POST /api/notifications/schedule` queues reminder outbox work, and notification workers audit `notification_outbox_recorded` without fabricating push delivery.
+- `POST /api/proposals/:id/arbiter/jobs` queues local Content Court arbiter work, and local-AI workers audit `proposal_local_arbiter_reviewed` without calling a hosted model.
 - `POST /api/proposals/:id/moderation/jobs` queues Content Court triage work, and moderation workers audit `proposal_moderation_triaged` with first-party policy checks and status transitions.
 - `POST /api/outcomes/refresh/jobs` queues outcome rollups, and the analytics worker persists dashboards with quality-gate audit payloads.
 - `POST /api/privacy/export/jobs` queues export artifacts, and the export worker writes JSON bundles to the first-party `export` object bucket.

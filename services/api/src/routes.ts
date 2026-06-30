@@ -141,6 +141,7 @@ export const apiRoutes: ApiRoute[] = [
     eventType: "proposal_submitted"
   },
   { method: "POST", path: "/api/proposals/:id/ai-review", service: "Local Content Arbiter Service" },
+  { method: "POST", path: "/api/proposals/:id/arbiter/jobs", service: "Local Arbiter Worker Service" },
   { method: "POST", path: "/api/proposals/:id/moderation/jobs", service: "Admin/Moderation Worker Service" },
   { method: "POST", path: "/api/proposals/:id/vote", service: "Content Court Service" },
   { method: "POST", path: "/api/proposals/:id/comment", service: "Content Court Service" },
