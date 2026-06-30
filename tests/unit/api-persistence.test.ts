@@ -263,6 +263,16 @@ describe("persistence-backed API handlers", () => {
     expect(health.objects.find((object) => object.bucket === "audio")?.total_bytes).toBe(2048);
     expect(health.ready_for_release).toBe(true);
 
+    const monitoring = unwrap(
+      await handlers.getOpsMonitoring({
+        userId: demoUser.id,
+        environment: "production"
+      })
+    );
+    expect(monitoring.release_gates.ops).toBe(true);
+    expect(monitoring.release_gates.dependencies).toBe(false);
+    expect(monitoring.alerts.map((alert) => alert.id)).toContain("ops.dependency.object_storage");
+
     const exported = unwrap(await handlers.exportUserData({ userId: demoUser.id }));
     expect(exported.jobs.map((exportedJob) => exportedJob.id)).toContain(job.id);
     expect(exported.object_manifests.map((object) => object.id)).toContain(manifest.id);

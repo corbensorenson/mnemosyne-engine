@@ -51,6 +51,7 @@ import type {
 import { buildOutcomeDashboard, type OutcomeDashboard } from "@mnemosyne/outcome-core";
 import {
   buildOpsHealthDashboard,
+  buildOpsMonitoringDashboard,
   completeJob as completeOpsJob,
   createJob as createOpsJob,
   createObjectManifest as createOpsObjectManifest,
@@ -58,10 +59,12 @@ import {
   startJob as startOpsJob,
   type JobPriority,
   type JobRecord,
+  type MonitoringDependencyReadiness,
   type ObjectBucket,
   type ObjectManifest,
   type ObjectRetentionPolicy,
   type OpsHealthDashboard,
+  type OpsMonitoringDashboard,
   type QueueName
 } from "@mnemosyne/ops-core";
 import type {
@@ -168,6 +171,7 @@ import {
   morningForgeCompleteRequestSchema,
   objectManifestRequestSchema,
   objectPutRequestSchema,
+  opsMonitoringRequestSchema,
   outcomeDashboardRequestSchema,
   pacedReadCompleteRequestSchema,
   pacedReadGenerateRequestSchema,
@@ -548,6 +552,12 @@ type ObjectPutResponse = {
 };
 
 type SecurityReleaseGateRequest = {
+  userId: string;
+  environment: "local" | "staging" | "production";
+  reportUri?: string;
+};
+
+type OpsMonitoringRequest = {
   userId: string;
   environment: "local" | "staging" | "production";
   reportUri?: string;
@@ -1112,6 +1122,54 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
           objects
         })
       );
+    },
+
+    async getOpsMonitoring(input: unknown): Promise<HandlerEnvelope<OpsMonitoringDashboard>> {
+      const request = validateRequest(opsMonitoringRequestSchema, input) as OpsMonitoringRequest;
+      await requireUser(store, request.userId);
+      const [jobs, objects, dependencyReadiness] = await Promise.all([
+        store.listJobs(),
+        store.listObjectManifests(request.userId),
+        buildDependencyReadiness(store, options.objectStorage, request.environment)
+      ]);
+      const headers = buildSecurityHeaders({
+        environment: request.environment,
+        reportUri: request.reportUri
+      });
+      const rateLimitPolicies = defaultRateLimitPolicies();
+      const releaseGate = buildSecurityReleaseGate({
+        headers,
+        rateLimitPolicies,
+        highStakes: classifyHighStakesContent({}),
+        mutationRequiresCsrf: true,
+        auditPayload: {
+          actor_id: request.userId,
+          action: "ops_monitoring_checked",
+          policy_count: rateLimitPolicies.length
+        }
+      });
+      const opsHealth = buildOpsHealthDashboard({
+        jobs: jobs.filter((job) => job.audit_subject_id === request.userId),
+        objects
+      });
+      const monitoring = buildOpsMonitoringDashboard({
+        opsHealth,
+        securityGate: releaseGate,
+        dependencyReadiness
+      });
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "ops_monitoring_checked",
+        object_type: "ops_monitoring_dashboard",
+        object_id: request.environment,
+        payload: {
+          status: monitoring.status,
+          ready_for_release: monitoring.ready_for_release,
+          alert_counts: monitoring.alert_counts,
+          release_gates: monitoring.release_gates
+        }
+      });
+      return envelope(monitoring, audit.id);
     },
 
     async getSecurityReleaseGate(input: unknown): Promise<HandlerEnvelope<SecurityReleaseGateResponse>> {
@@ -2972,6 +3030,55 @@ async function requireUser(store: MnemosyneStore, userId: string) {
   const user = await store.getUser(userId);
   if (!user) throw new Error(`Unknown user: ${userId}`);
   return user;
+}
+
+async function buildDependencyReadiness(
+  store: MnemosyneStore,
+  objectStorage: ObjectStorageAdapter | undefined,
+  environment: OpsMonitoringRequest["environment"]
+): Promise<MonitoringDependencyReadiness> {
+  const checkedAt = nowIso();
+  const [storeComponent, objectStorageComponent] = await Promise.all([
+    readinessComponent(checkedAt, async () => {
+      await Promise.all([store.getMasterGraph(), store.listJobs(), store.listObjectManifests()]);
+    }),
+    objectStorage
+      ? readinessComponent(checkedAt, async () => {
+          await objectStorage.listManifests();
+        })
+      : Promise.resolve({
+          status: "error" as const,
+          checked_at: checkedAt,
+          message: "Object storage adapter is not configured."
+        })
+  ]);
+  const ready = storeComponent.status === "ok" && objectStorageComponent.status === "ok";
+  return {
+    service: "mnemosyne-api",
+    status: ready ? "ready" : "not_ready",
+    environment,
+    checked_at: checkedAt,
+    components: {
+      store: storeComponent,
+      object_storage: objectStorageComponent
+    }
+  };
+}
+
+async function readinessComponent(
+  checkedAt: string,
+  check: () => Promise<void>
+): Promise<MonitoringDependencyReadiness["components"][string]> {
+  try {
+    await check();
+    return { status: "ok", checked_at: checkedAt };
+  } catch (error) {
+    return {
+      status: "error",
+      checked_at: checkedAt,
+      message: error instanceof Error ? error.message : String(error)
+    };
+  }
 }
 
 async function buildSocialDashboardFor(

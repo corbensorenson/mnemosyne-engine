@@ -128,6 +128,7 @@ export const apiRoutes: ApiRoute[] = [
   { method: "POST", path: "/api/jobs/:id/fail", service: "Ops Queue Service" },
   { method: "POST", path: "/api/objects", service: "Object Manifest Service" },
   { method: "POST", path: "/api/objects/store", service: "Object Storage Service" },
+  { method: "GET", path: "/api/ops/monitoring", service: "Ops Monitoring Service" },
   { method: "GET", path: "/api/ops/health", service: "Ops Health Service" },
   { method: "GET", path: "/api/security/release-gate", service: "Security Service" },
   {

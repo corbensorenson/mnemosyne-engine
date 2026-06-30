@@ -131,6 +131,7 @@ The system should preserve audit events even when downstream analytics or person
 - `npm run worker:start` is deployed for worker processes with `MNEMOSYNE_WORKER_QUEUES`, `MNEMOSYNE_WORKER_ID`, and `MNEMOSYNE_OBJECT_STORAGE_ROOT` set per environment.
 - `npm run docker:config` passes for the local deployment manifest.
 - `GET /healthz` returns liveness, and `GET /readyz` returns dependency-backed readiness with healthy store and object-storage components.
+- `GET /api/ops/monitoring?userId=<operator>&environment=<target>` reports `ready_for_release: true`, `status: nominal`, and green ops, security, and dependency gates.
 - Production secrets are rotated into the target environment.
 - Database migrations are applied in staging first.
 - Restore drill completed for the release window.

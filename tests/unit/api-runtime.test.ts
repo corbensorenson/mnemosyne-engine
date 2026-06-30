@@ -207,6 +207,19 @@ describe("API runtime", () => {
           object_integrity_tracked: true
         })
       );
+
+      const monitoring = await fetch(`${baseUrl}/api/ops/monitoring?userId=${demoUser.id}`);
+      const monitoringBody = (await monitoring.json()) as ApiJson;
+      expect(monitoring.status).toBe(200);
+      expect(monitoringBody.data?.status).toBe("nominal");
+      expect(monitoringBody.data?.ready_for_release).toBe(true);
+      expect(monitoringBody.data?.release_gates).toEqual(
+        expect.objectContaining({
+          ops: true,
+          security: true,
+          dependencies: true
+        })
+      );
     } finally {
       await close(runtime.server);
       await runtime.close();

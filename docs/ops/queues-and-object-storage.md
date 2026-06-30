@@ -48,6 +48,7 @@ The API service now exposes:
 - `POST /api/jobs/:id/fail`
 - `POST /api/objects`
 - `POST /api/objects/store`
+- `GET /api/ops/monitoring`
 - `GET /api/ops/health`
 
 Handlers persist job records and object manifests through `MnemosyneStore`, emit audit events for job/object transitions, restrict job operations to the audited subject owner, and write uploaded object bytes through configured object storage before saving manifests.
@@ -61,6 +62,17 @@ Handlers persist job records and object manifests through `MnemosyneStore`, emit
 - release gates for configured queues, no dead letters, no stale running jobs, encrypted objects, SHA-256 coverage, and idempotency keys
 
 These gates are product-level readiness checks. They should remain green before promotion even if the backing adapter changes from in-memory development storage to Redis, Postgres, and managed object storage.
+
+## Monitoring
+
+`buildOpsMonitoringDashboard` turns health gates into deterministic alerts and service levels. The API route combines:
+
+- queue depth, runnable backlog, critical-priority backlog, retryable failures, dead letters, and stale locks
+- object encryption and SHA-256 integrity coverage by bucket
+- dependency readiness for store and object storage adapters
+- security release-gate status for CSP, CSRF, rate limits, high-stakes labels, expert review, and audit safety
+
+The dashboard reports `nominal`, `degraded`, or `critical`, alert counts, individual alert IDs, service levels, and a `ready_for_release` flag. This is a first-party contract; hosted monitoring, paging, or metrics exporters should consume it rather than redefining Mnemosyne's release semantics.
 
 ## Privacy
 
