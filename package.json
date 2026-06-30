@@ -12,6 +12,8 @@
   ],
   "scripts": {
     "dev": "npm run dev -w @mnemosyne/web",
+    "api:dev": "npm run start -w @mnemosyne/api",
+    "api:migrate": "npm run migrate -w @mnemosyne/api",
     "build": "npm run build -w @mnemosyne/web",
     "preview": "npm run preview -w @mnemosyne/web",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -25,9 +27,11 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^20.14.12",
+    "@types/pg": "^8.20.0",
     "eslint": "^10.6.0",
     "globals": "^17.7.0",
     "prettier": "^3.9.3",
+    "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.62.1",
     "vitest": "^4.1.9"

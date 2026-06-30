@@ -3,26 +3,31 @@
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "migrate": "tsx src/migrate.ts"
+  },
   "dependencies": {
     "@mnemosyne/assessment-core": "*",
-    "@mnemosyne/auth-core": "*",
     "@mnemosyne/audio-renderer-service": "*",
+    "@mnemosyne/auth-core": "*",
     "@mnemosyne/content-court": "*",
     "@mnemosyne/demo-fixtures": "*",
     "@mnemosyne/graph-core": "*",
     "@mnemosyne/ops-core": "*",
     "@mnemosyne/outcome-core": "*",
     "@mnemosyne/persistence-core": "*",
-    "@mnemosyne/schema": "*",
     "@mnemosyne/scheduler-core": "*",
+    "@mnemosyne/schema": "*",
     "@mnemosyne/security-core": "*",
     "@mnemosyne/shared-utils": "*",
     "@mnemosyne/sleep-core": "*",
     "@mnemosyne/social-core": "*",
     "@mnemosyne/technique-lab": "*",
     "@mnemosyne/tutor-core": "*",
-    "@mnemosyne/wearables-core": "*",
     "@mnemosyne/video-core": "*",
+    "@mnemosyne/wearables-core": "*",
+    "pg": "^8.22.0",
     "zod": "^3.23.8"
   },
   "exports": {
@@ -33,6 +38,10 @@
     "./http": {
       "types": "./src/http.ts",
       "import": "./src/http.ts"
+    },
+    "./runtime": {
+      "types": "./src/runtime.ts",
+      "import": "./src/runtime.ts"
     }
   }
 }

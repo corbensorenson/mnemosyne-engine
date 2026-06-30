@@ -510,6 +510,7 @@ Current implementation progress:
 - First-party ops core now models queue names, job lifecycle, idempotency, retries, dead letters, object manifests, encryption/integrity gates, and an ops health dashboard; API routes persist and audit jobs and object manifests.
 - First-party security core now exposes `GET /api/security/release-gate` with CSP/header policy, rate-limit profiles, high-stakes labels, CSRF expectations, and audit-safety checks.
 - The API service now has a first-party Node HTTP adapter that dispatches every route to handlers, attaches security headers, enforces production CSRF headers, bounds JSON bodies, maps route params, and applies the rate-limit profiles before expensive handlers.
+- The API service now has executable runtime scripts for server startup and migrations, env-based memory/Postgres storage selection, health/readiness endpoints, and ordered migration tracking.
 - Production release runbook covers deployment environments, required services and secrets, monitoring, backup/restore, accessibility, load/reliability, and release checklist.
 - Privacy documentation covers export bundle contents, deletion scopes, audit rules, product requirements, and test coverage.
 

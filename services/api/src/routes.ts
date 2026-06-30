@@ -190,5 +190,19 @@ export {
   createApiHttpServer,
   createSeededDemoApiHttpServer
 } from "./http";
+export {
+  configFromEnv,
+  createApiRuntime,
+  createConfiguredStore,
+  runApiServerFromEnv,
+  runMigrations,
+  runMigrationsFromEnv,
+  startApiRuntime,
+  type ApiRuntime,
+  type ApiRuntimeConfig,
+  type ApiRuntimeEnvironment,
+  type ApiStorageDriver,
+  type MigrationResult
+} from "./runtime";
 export { createDemoSeedData, demoKnowledgePacks, seedDemoStore } from "./seed";
 export * from "./validation";

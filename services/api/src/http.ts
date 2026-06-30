@@ -109,6 +109,18 @@ export function createApiHttpHandler(options: ApiHttpOptions) {
       return;
     }
 
+    if (method === "GET" && (url.pathname === "/healthz" || url.pathname === "/readyz")) {
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          service: "mnemosyne-api",
+          status: "ok",
+          environment
+        }
+      });
+      return;
+    }
+
     const route = routes
       .filter((candidate) => candidate.method === method)
       .map((candidate) => ({ candidate, params: matchPath(candidate.path, url.pathname) }))

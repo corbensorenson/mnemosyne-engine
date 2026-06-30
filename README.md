@@ -42,10 +42,13 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 ```bash
 npm install
 npm run dev
+npm run api:dev
+npm run api:migrate
 npm run verify
 ```
 
 The dev server runs the PWA at the URL printed by Vite, normally `http://localhost:5173`.
+The API server defaults to `http://localhost:8787` and can use memory or Postgres storage through `.env` settings.
 `npm run verify` runs lint, typecheck, unit tests, production build, and dependency audit.
 
 ## Roadmap
