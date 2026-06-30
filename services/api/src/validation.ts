@@ -228,6 +228,17 @@ export const privacyExportJobRequestSchema = z
   })
   .strict();
 
+export const notificationScheduleRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    date: z.string().optional(),
+    generatedAt: z.string().optional(),
+    channel: z.enum(["in_app", "web_push_ready", "native_companion_recommended"]).optional(),
+    idempotencyPrefix: z.string().min(3).optional(),
+    maxAttempts: z.number().int().positive().max(25).default(3)
+  })
+  .strict();
+
 const objectBucketSchema = z.enum([
   "audio",
   "transcript",

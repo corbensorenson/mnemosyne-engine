@@ -32,6 +32,7 @@ export const apiRoutes: ApiRoute[] = [
     service: "Scheduler Service",
     eventType: "session_started"
   },
+  { method: "POST", path: "/api/notifications/schedule", service: "Notification Scheduler Service" },
   {
     method: "POST",
     path: "/api/sessions/:id/events",

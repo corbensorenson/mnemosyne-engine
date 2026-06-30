@@ -9,6 +9,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `apps/web`: installable PWA shell with the core product surfaces: Today, Graph, Morning Forge, GraphFeed, WalkMode, Evening Lock-In, Sleep, Stats, Social, Wear, Packs, Content Court, Lab, Workbench, and Admin.
 - `packages/schema`: shared Zod schemas and TypeScript types for graph, user state, sessions, sleep cues, content court, experiments, packs, videos, and events.
 - `packages/auth-core`: session issuance, hashed tokens, CSRF checks, RBAC, consent gates, and object-level authorization.
+- `packages/notification-core`: first-party learning reminder planning for morning, evening, phone-down, and SleepCue recall prompts.
 - `packages/outcome-core`: immediate, 24h, 7d, and 30d learning outcome rollups with quality gates.
 - `packages/ops-core`: first-party queue, job lifecycle, object manifest, ops health, and monitoring alert primitives.
 - `packages/persistence-core`: in-memory and Postgres-backed stores for users, graphs, sessions, events, privacy, ops, and product state.
@@ -28,8 +29,8 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/content-court`: proposal, voting, AI arbitration, and moderation primitives.
 - `packages/audio-core`: deterministic audio timeline assembly for sparse sleep cue playback.
 - `master-graph`: open master graph layout, seed packs, schemas, policies, and release notes.
-- `services`: API, scheduler, audio-renderer, and worker services wired to the same shared models, including a first-party HTTP adapter with security headers, CSRF checks, rate limits, privacy export/deletion handlers, queued analytics rollups, queued export artifacts, and executable queue workers.
-- `infra/docker`: local production-like Compose stack for Postgres, Redis, MinIO, API, scheduler, audio, analytics, export workers, and shared object storage.
+- `services`: API, scheduler, audio-renderer, and worker services wired to the same shared models, including a first-party HTTP adapter with security headers, CSRF checks, rate limits, privacy export/deletion handlers, queued notifications, queued analytics rollups, queued export artifacts, and executable queue workers.
+- `infra/docker`: local production-like Compose stack for Postgres, Redis, MinIO, API, scheduler, audio, notification, analytics, export workers, and shared object storage.
 
 ## Product Principles
 

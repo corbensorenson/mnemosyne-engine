@@ -234,6 +234,9 @@ function createHttpRoutes(handlers: ReturnType<typeof createApiHandlers>): Route
       handlers.getTodayPacket(requiredQuery(context, "userId"), optionalQuery(context, "date"))
     ),
     route("POST", "/api/daily-packet/generate", (context) => handlers.generateDailyPacket(context.body)),
+    route("POST", "/api/notifications/schedule", (context) => handlers.scheduleNotifications(context.body), {
+      rateLimitKey: "ops_job"
+    }),
     route("POST", "/api/sessions/:id/events", (context) =>
       handlers.recordSessionEvent(withBodyField(context, "sessionId", pathParam(context, "id")))
     ),

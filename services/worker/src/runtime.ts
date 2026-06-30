@@ -1,5 +1,6 @@
 import { createAudioRendererWorkerHandlers, type RenderManifest } from "@mnemosyne/audio-renderer-service";
 import { configFromEnv, createConfiguredStore, seedDemoStore, type ApiRuntimeConfig } from "@mnemosyne/api";
+import type { NotificationPlanItem } from "@mnemosyne/notification-core";
 import { queueNames, type QueueName } from "@mnemosyne/ops-core";
 import { buildOutcomeDashboard } from "@mnemosyne/outcome-core";
 import { createSchedulerWorkerHandlers } from "@mnemosyne/scheduler-service";
@@ -66,6 +67,7 @@ export async function createWorkerServiceRuntime(
   const handlers = createWorkerHandlerRegistry([
     ...createSchedulerWorkerHandlers(),
     ...createAudioRendererWorkerHandlers(config.audioOutputFormat),
+    ...createNotificationWorkerHandlers(),
     ...createOutcomeAnalyticsWorkerHandlers(),
     ...createPrivacyExportWorkerHandlers()
   ]);
@@ -249,6 +251,43 @@ export function createOutcomeAnalyticsWorkerHandlers(): WorkerHandlerDefinition[
   ];
 }
 
+export function createNotificationWorkerHandlers(): WorkerHandlerDefinition[] {
+  return [
+    {
+      queue: "notification",
+      type: "deliver_learning_reminder",
+      async handle(context) {
+        const notification = notificationPayload(context.job.payload);
+        const audit = await context.store.appendAuditEvent({
+          actor_id: notification.user_id,
+          action: "notification_outbox_recorded",
+          object_type: "notification",
+          object_id: notification.id,
+          payload: {
+            job_id: context.job.id,
+            worker_id: context.workerId,
+            kind: notification.kind,
+            channel: notification.channel,
+            title: notification.title,
+            scheduled_for: notification.scheduled_for,
+            delivery_status: notification.channel === "in_app" ? "recorded" : "adapter_ready",
+            notification_payload: notification.payload
+          }
+        });
+        return {
+          notification_id: notification.id,
+          user_id: notification.user_id,
+          kind: notification.kind,
+          channel: notification.channel,
+          scheduled_for: notification.scheduled_for,
+          delivery_status: notification.channel === "in_app" ? "recorded" : "adapter_ready",
+          audit_event_id: audit.id
+        };
+      }
+    }
+  ];
+}
+
 function parseWorkerMode(value: string | undefined): WorkerServiceMode {
   if (value === "once" || value === "batch" || value === "loop" || value === "recover") return value;
   return "loop";
@@ -294,4 +333,36 @@ function payloadString(payload: Record<string, unknown>, key: string): string {
 
 function safePathSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function notificationPayload(payload: Record<string, unknown>): NotificationPlanItem {
+  const value = payload.notification;
+  if (!isRecord(value)) throw new Error("notification job payload requires notification");
+  const notification = value as Partial<NotificationPlanItem>;
+  if (
+    typeof notification.id !== "string" ||
+    typeof notification.user_id !== "string" ||
+    typeof notification.kind !== "string" ||
+    typeof notification.title !== "string" ||
+    typeof notification.body !== "string" ||
+    typeof notification.channel !== "string" ||
+    typeof notification.scheduled_for !== "string"
+  ) {
+    throw new Error("notification job payload is incomplete");
+  }
+  return {
+    id: notification.id,
+    user_id: notification.user_id,
+    kind: notification.kind as NotificationPlanItem["kind"],
+    title: notification.title,
+    body: notification.body,
+    channel: notification.channel as NotificationPlanItem["channel"],
+    scheduled_for: notification.scheduled_for,
+    priority: notification.priority ?? "normal",
+    payload: isRecord(notification.payload) ? notification.payload : {}
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

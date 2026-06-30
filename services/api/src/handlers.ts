@@ -50,6 +50,11 @@ import type {
 } from "@mnemosyne/persistence-core";
 import { buildOutcomeDashboard, type OutcomeDashboard } from "@mnemosyne/outcome-core";
 import {
+  buildNotificationPlan,
+  type NotificationChannel,
+  type NotificationPlan
+} from "@mnemosyne/notification-core";
+import {
   buildOpsHealthDashboard,
   buildOpsMonitoringDashboard,
   completeJob as completeOpsJob,
@@ -169,6 +174,7 @@ import {
   jobCreateRequestSchema,
   jobTransitionRequestSchema,
   morningForgeCompleteRequestSchema,
+  notificationScheduleRequestSchema,
   objectManifestRequestSchema,
   objectPutRequestSchema,
   opsMonitoringRequestSchema,
@@ -223,6 +229,20 @@ export type ApiHandlerOptions = {
 export type GenerateDailyPacketRequest = {
   userId: string;
   readiness?: ReadinessProfile;
+};
+
+type NotificationScheduleRequest = {
+  userId: string;
+  date?: string;
+  generatedAt?: string;
+  channel?: NotificationChannel;
+  idempotencyPrefix?: string;
+  maxAttempts: number;
+};
+
+type NotificationScheduleResponse = {
+  plan: NotificationPlan;
+  jobs: JobRecord[];
 };
 
 type ExperimentAssignmentRequest = {
@@ -1435,6 +1455,57 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
       if (request.readiness) await store.saveReadiness(request.userId, request.readiness);
       const scheduled = await generateAndPersistDailyPacket(store, request.userId, readiness);
       return envelope(scheduled, scheduled.audit.id);
+    },
+
+    async scheduleNotifications(input: unknown): Promise<HandlerEnvelope<NotificationScheduleResponse>> {
+      const request = validateRequest(
+        notificationScheduleRequestSchema,
+        input
+      ) as NotificationScheduleRequest;
+      const user = await requireUser(store, request.userId);
+      const packet = await store.getDailyPacket(request.userId, request.date);
+      const plan = buildNotificationPlan({
+        user,
+        packet,
+        generatedAt: request.generatedAt,
+        channel: request.channel
+      });
+      const jobs = await Promise.all(
+        plan.items.map((notification) =>
+          store.saveJob(
+            createOpsJob({
+              queue: "notification",
+              type: "deliver_learning_reminder",
+              payload: {
+                notification,
+                plan_generated_at: plan.generated_at
+              },
+              priority: notification.priority,
+              runAfter: notification.scheduled_for,
+              idempotencyKey: request.idempotencyPrefix
+                ? `${request.idempotencyPrefix}:${notification.kind}:${notification.scheduled_for}`
+                : `notification:${notification.id}:${notification.scheduled_for}`,
+              maxAttempts: request.maxAttempts,
+              auditSubjectId: request.userId,
+              createdAt: plan.generated_at
+            })
+          )
+        )
+      );
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "notifications_scheduled",
+        object_type: "notification_plan",
+        object_id: plan.packet_id ?? request.userId,
+        payload: {
+          packet_id: plan.packet_id,
+          scheduled_count: jobs.length,
+          suppressed: plan.suppressed,
+          kinds: plan.items.map((item) => item.kind),
+          channels: Array.from(new Set(plan.items.map((item) => item.channel)))
+        }
+      });
+      return envelope({ plan, jobs }, audit.id);
     },
 
     async assignExperiments(input: unknown): Promise<HandlerEnvelope<ExperimentDashboardResponse>> {

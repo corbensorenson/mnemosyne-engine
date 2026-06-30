@@ -38,6 +38,8 @@ The scheduler service registers `scheduler:generate_daily_packet`. The handler l
 
 The audio renderer service registers `audio_render:render_sleep_audio`. The handler builds the deterministic render manifest, stores it as a first-party object when object storage is configured, updates the audio plan render status, and leaves failures for the worker runtime to retry or dead-letter.
 
+The notification worker registers `notification:deliver_learning_reminder`. The handler records first-party outbox audit events for in-app, web-push-ready, or native-companion-ready reminders without relying on a hosted notification API.
+
 The analytics worker registers `analytics:refresh_outcome_dashboard`. The handler builds outcome dashboards from persisted assessment responses, learning events, and graph state, saves the dashboard, and audits the rollup quality gates.
 
 The privacy export worker registers `export:build_privacy_export`. The handler loads the user export bundle from `MnemosyneStore`, writes the bundle as JSON through configured object storage, persists the `export` object manifest, and audits the stored artifact.
@@ -52,6 +54,7 @@ The API service now exposes:
 - `POST /api/jobs/:id/start`
 - `POST /api/jobs/:id/complete`
 - `POST /api/jobs/:id/fail`
+- `POST /api/notifications/schedule`
 - `POST /api/outcomes/refresh/jobs`
 - `POST /api/privacy/export/jobs`
 - `POST /api/objects`

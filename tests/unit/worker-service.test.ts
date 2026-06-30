@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { demoUser } from "@mnemosyne/demo-fixtures";
+import { buildNotificationPlan } from "@mnemosyne/notification-core";
 import { createJob, startJob } from "@mnemosyne/ops-core";
 import type { AssessmentResponse } from "@mnemosyne/schema";
 import {
@@ -240,6 +241,58 @@ describe("worker-service", () => {
       );
       expect((await runtime.store.listAuditEvents(demoUser.id)).map((event) => event.action)).toEqual(
         expect.arrayContaining(["outcome_dashboard_refreshed", "job_completed"])
+      );
+    } finally {
+      await runtime.close();
+      await rm(objectStorageRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("records notification outbox reminders through the notification worker", async () => {
+    const objectStorageRoot = await mkdtemp(join(tmpdir(), "mnemosyne-worker-notification-"));
+    const config = workerServiceConfigFromEnv({
+      MNEMOSYNE_STORAGE: "memory",
+      MNEMOSYNE_SEED_DEMO: "true",
+      MNEMOSYNE_OBJECT_STORAGE_ROOT: objectStorageRoot,
+      MNEMOSYNE_WORKER_ID: "worker-notification-test",
+      MNEMOSYNE_WORKER_MODE: "batch",
+      MNEMOSYNE_WORKER_QUEUES: "notification",
+      MNEMOSYNE_WORKER_MAX_JOBS: "1"
+    });
+    const runtime = await createWorkerServiceRuntime(config);
+
+    try {
+      const plan = buildNotificationPlan({
+        user: demoUser,
+        generatedAt: "2026-06-29T06:00:00.000Z",
+        channel: "in_app"
+      });
+      const notification = plan.items.find((item) => item.kind === "morning_prompt");
+      if (!notification) throw new Error("missing morning notification");
+      const notificationJob = await runtime.store.saveJob(
+        createJob({
+          queue: "notification",
+          type: "deliver_learning_reminder",
+          payload: { notification, plan_generated_at: plan.generated_at },
+          priority: "high",
+          idempotencyKey: "worker-service-notification",
+          auditSubjectId: demoUser.id,
+          runAfter: "2026-06-29T08:00:00.000Z",
+          createdAt: "2026-06-29T06:00:00.000Z"
+        })
+      );
+
+      const result = await runWorkerServiceBatch(runtime);
+      expect(result.completed).toBe(1);
+      expect(result.failed).toBe(0);
+      expect((await runtime.store.getJob(notificationJob.id))?.result).toEqual(
+        expect.objectContaining({
+          notification_id: notification.id,
+          delivery_status: "recorded"
+        })
+      );
+      expect((await runtime.store.listAuditEvents(demoUser.id)).map((event) => event.action)).toEqual(
+        expect.arrayContaining(["notification_outbox_recorded", "job_completed"])
       );
     } finally {
       await runtime.close();

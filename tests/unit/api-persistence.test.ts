@@ -37,6 +37,23 @@ describe("persistence-backed API handlers", () => {
     expect(unwrap(persisted).packet.id).toBe(generatedData.packet.id);
     expect(generatedData.summary.sleep_cues).toBeGreaterThan(0);
 
+    const notifications = unwrap(
+      await handlers.scheduleNotifications({
+        userId: demoUser.id,
+        date: generatedData.packet.date,
+        generatedAt: "2026-06-30T06:00:00.000Z",
+        idempotencyPrefix: "daily-notifications-test"
+      })
+    );
+    expect(notifications.jobs).toHaveLength(4);
+    expect(notifications.jobs.every((job) => job.queue === "notification")).toBe(true);
+    expect(notifications.plan.items.map((item) => item.kind)).toEqual(
+      expect.arrayContaining(["morning_prompt", "evening_lock_in", "phone_down", "sleep_recall"])
+    );
+    expect(notifications.jobs.map((job) => job.run_after)).toEqual(
+      notifications.plan.items.map((item) => item.scheduled_for)
+    );
+
     const events = await store.listLearningEvents(demoUser.id);
     expect(events.some((event) => event.payload.daily_packet_id === generatedData.packet.id)).toBe(true);
 
@@ -46,7 +63,8 @@ describe("persistence-backed API handlers", () => {
         expect.objectContaining({
           action: "daily_packet_generated",
           object_id: generatedData.packet.id
-        })
+        }),
+        expect.objectContaining({ action: "notifications_scheduled" })
       ])
     );
   });
