@@ -914,12 +914,14 @@ export default function App() {
   function submitAnswer() {
     const prompt = activeForgePrompt;
     if (!prompt || answer.trim().length === 0) return;
+    const submittedAnswer = answer;
+    const latencyMs = Math.max(1_000, Date.now() - forgeStartedAt);
     const response = scoreAssessmentResponse({
       userId: activeUser.id,
       item: prompt,
-      rawResponse: answer,
+      rawResponse: submittedAnswer,
       confidence,
-      latencyMs: Math.max(1_000, Date.now() - forgeStartedAt)
+      latencyMs
     });
     setLastResponse(response);
     setRepairTips(repairTipsFor(response));
@@ -947,10 +949,22 @@ export default function App() {
       endpoint: "/api/morning-forge/complete",
       method: "POST",
       payload: {
-        daily_packet_id: scheduled.packet.id,
-        answer_mode: answerMode,
-        transcript_retention: answerMode === "voice" ? "transcript_only" : "none",
-        response: assessmentResponseSyncPayload(response)
+        userId: activeUser.id,
+        dailyPacketId: scheduled.packet.id,
+        packetDate: scheduled.packet.date,
+        responses: [
+          {
+            item: prompt,
+            rawResponse: submittedAnswer,
+            confidence,
+            latencyMs,
+            entryMode: answerMode,
+            transcript: answerMode === "voice" ? submittedAnswer : undefined
+          }
+        ],
+        screenMinutes: round(latencyMs / 60_000, 2),
+        voiceUsed: answerMode === "voice",
+        completedAt: new Date().toISOString()
       },
       payloadScope: answerMode === "voice" ? "voice" : "learning",
       idempotencyKey: `${activeUser.id}:morning_forge:${prompt.id}:${response.id}`
