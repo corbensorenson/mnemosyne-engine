@@ -1535,6 +1535,39 @@ describe("persistence-backed API handlers", () => {
     expect(submitted.proposals[0]?.proposal_type).toBe("add_video");
     expect(submitted.proposals[0]?.affected_object_ids).toContain("video_creator_attention_walkthrough");
 
+    const queued = unwrap(
+      await handlers.queueCreatorIngestion({
+        creatorId: demoUser.id,
+        title: "Queued attention walkthrough creator submission",
+        license: "CC-BY-4.0",
+        source: {
+          id: "src_creator_attention_queued",
+          title: "Queued creator transcript packet",
+          source_type: "expert",
+          quality_score: 0.82
+        },
+        draft: {
+          videos: [
+            {
+              ...seedVideo,
+              id: "video_creator_attention_queued",
+              source_platform: "creator_upload",
+              external_url: "https://example.com/creator-attention-queued",
+              embed_url: "https://example.com/embed/creator-attention-queued",
+              title: "Queued attention walkthrough",
+              creator: demoUser.handle,
+              status: "submitted"
+            }
+          ]
+        },
+        idempotencyKey: "creator-ingestion-queued-test"
+      })
+    );
+    expect(queued.job.queue).toBe("ingestion");
+    expect(queued.job.type).toBe("process_creator_submission");
+    expect(queued.job.payload.creator_id).toBe(demoUser.id);
+    expect(queued.content_counts.videos).toBe(1);
+
     const listed = unwrap(await handlers.listCreatorIngestions(demoUser.id));
     expect(listed.map((submission) => submission.id)).toContain(submitted.submission.id);
 
@@ -1557,6 +1590,10 @@ describe("persistence-backed API handlers", () => {
         expect.objectContaining({
           action: "creator_ingestion_submitted",
           object_id: submitted.submission.id
+        }),
+        expect.objectContaining({
+          action: "creator_ingestion_queued",
+          object_id: queued.job.id
         })
       ])
     );

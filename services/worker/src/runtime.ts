@@ -1,5 +1,11 @@
 import { createAudioRendererWorkerHandlers, type RenderManifest } from "@mnemosyne/audio-renderer-service";
-import { configFromEnv, createConfiguredStore, seedDemoStore, type ApiRuntimeConfig } from "@mnemosyne/api";
+import {
+  configFromEnv,
+  createApiHandlers,
+  createConfiguredStore,
+  seedDemoStore,
+  type ApiRuntimeConfig
+} from "@mnemosyne/api";
 import {
   arbitrateProposal,
   statusForArbiterDecision,
@@ -74,6 +80,7 @@ export async function createWorkerServiceRuntime(
     ...createSchedulerWorkerHandlers(),
     ...createAudioRendererWorkerHandlers(config.audioOutputFormat),
     ...createNotificationWorkerHandlers(),
+    ...createCreatorIngestionWorkerHandlers(),
     ...createLocalArbiterWorkerHandlers(),
     ...createOutcomeAnalyticsWorkerHandlers(),
     ...createPrivacyExportWorkerHandlers(),
@@ -204,6 +211,46 @@ export function createPrivacyExportWorkerHandlers(): WorkerHandlerDefinition[] {
           sha256: stored.sha256,
           audit_event_id: audit.id,
           schema_version: bundle.schema_version
+        };
+      }
+    }
+  ];
+}
+
+export function createCreatorIngestionWorkerHandlers(): WorkerHandlerDefinition[] {
+  return [
+    {
+      queue: "ingestion",
+      type: "process_creator_submission",
+      async handle(context) {
+        const request = creatorIngestionJobPayload(context.job.payload);
+        const result = await createApiHandlers(context.store).submitCreatorIngestion(request);
+        if (!result.ok) {
+          throw new Error(result.error?.code ?? "creator ingestion failed");
+        }
+        const { submission, proposals, risk_flags: riskFlags } = result.data;
+        const audit = await context.store.appendAuditEvent({
+          actor_id: submission.creator_id,
+          action: "creator_ingestion_processed",
+          object_type: "creator_ingestion",
+          object_id: submission.id,
+          payload: {
+            job_id: context.job.id,
+            worker_id: context.workerId,
+            status: submission.status,
+            proposal_ids: submission.proposal_ids,
+            proposal_count: proposals.length,
+            risk_flags: riskFlags
+          }
+        });
+        return {
+          creator_ingestion_id: submission.id,
+          creator_id: submission.creator_id,
+          status: submission.status,
+          proposal_ids: submission.proposal_ids,
+          proposal_count: proposals.length,
+          risk_flags: riskFlags,
+          audit_event_id: audit.id
         };
       }
     }
@@ -483,6 +530,12 @@ function notificationPayload(payload: Record<string, unknown>): NotificationPlan
     priority: notification.priority ?? "normal",
     payload: isRecord(notification.payload) ? notification.payload : {}
   };
+}
+
+function creatorIngestionJobPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const value = payload.ingestion_request;
+  if (!isRecord(value)) throw new Error("creator ingestion job payload requires ingestion_request");
+  return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

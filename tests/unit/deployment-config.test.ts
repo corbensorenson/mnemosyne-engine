@@ -19,6 +19,7 @@ describe("deployment config", () => {
     expect(dockerfile).toContain("FROM node:22.13.0-slim");
     expect(dockerfile).toContain("npm ci --omit=optional");
     expect(compose).toContain("api:");
+    expect(compose).toContain("worker-ingestion:");
     expect(compose).toContain("worker-scheduler:");
     expect(compose).toContain("worker-audio:");
     expect(compose).toContain("worker-export:");
@@ -29,6 +30,7 @@ describe("deployment config", () => {
     expect(compose).toContain("MNEMOSYNE_STORAGE: postgres");
     expect(compose).toContain('MNEMOSYNE_RUN_MIGRATIONS: "true"');
     expect(compose).toContain("MNEMOSYNE_WORKER_QUEUES: scheduler");
+    expect(compose).toContain("MNEMOSYNE_WORKER_QUEUES: ingestion");
     expect(compose).toContain("MNEMOSYNE_WORKER_QUEUES: audio_render");
     expect(compose).toContain("MNEMOSYNE_WORKER_QUEUES: export");
     expect(compose).toContain("MNEMOSYNE_WORKER_QUEUES: analytics");

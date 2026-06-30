@@ -40,6 +40,8 @@ The audio renderer service registers `audio_render:render_sleep_audio`. The hand
 
 The notification worker registers `notification:deliver_learning_reminder`. The handler records first-party outbox audit events for in-app, web-push-ready, or native-companion-ready reminders without relying on a hosted notification API.
 
+The ingestion worker registers `ingestion:process_creator_submission`. The handler reuses the first-party Creator Studio ingestion handler against the worker store, turning queued creator drafts into Content Court proposals, high-stakes labels, creator submission records, and audit events.
+
 The local AI worker registers `local_ai:review_proposal`. The handler runs the first-party Content Court arbiter against stored proposals, persists the verdict on the proposal, updates governance status, and audits the decision without calling a hosted model or moderation API.
 
 The moderation worker registers `moderation:triage_proposal`. The handler loads stored Content Court proposals, runs first-party moderation triage from risk, evidence, high-stakes labels, counterevidence, change size, and dispute signals, updates proposal status through existing governance states, adds a moderator-readable triage comment, and audits the result.
@@ -58,6 +60,7 @@ The API service now exposes:
 - `POST /api/jobs/:id/start`
 - `POST /api/jobs/:id/complete`
 - `POST /api/jobs/:id/fail`
+- `POST /api/creator/ingestions/jobs`
 - `POST /api/notifications/schedule`
 - `POST /api/outcomes/refresh/jobs`
 - `POST /api/proposals/:id/arbiter/jobs`
@@ -102,4 +105,4 @@ The next production step is to map this contract onto:
 - normalized Postgres projections for canonical job and object-manifest records
 - optional Redis streams or sorted sets for runnable queue indexes when scale requires an external index
 - managed object storage for audio, transcripts, imports, generated assets, evidence files, backups, and privacy exports, using the same manifest and integrity behavior as the local adapter
-- worker binaries for ingestion jobs following the same `@mnemosyne/worker-core` handler contract
+- optional external queue indexes for high-volume ingestion bursts, without changing the first-party `ingestion:process_creator_submission` contract

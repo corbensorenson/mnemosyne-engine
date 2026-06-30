@@ -153,6 +153,7 @@ export const apiRoutes: ApiRoute[] = [
     service: "Creator Studio Service",
     eventType: "proposal_submitted"
   },
+  { method: "POST", path: "/api/creator/ingestions/jobs", service: "Creator Ingestion Worker Service" },
   { method: "GET", path: "/api/creator/ingestions", service: "Creator Studio Service" },
   { method: "GET", path: "/api/creator/ingestions/:id", service: "Creator Studio Service" },
   { method: "GET", path: "/api/packs", service: "Master Graph Service" },

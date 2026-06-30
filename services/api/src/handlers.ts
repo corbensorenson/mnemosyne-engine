@@ -168,6 +168,7 @@ import {
   challengeCreateRequestSchema,
   completeOnboardingRequestSchema,
   completeWatchPacketRequestSchema,
+  creatorIngestionJobRequestSchema,
   createGoalRequestSchema,
   creatorIngestionRequestSchema,
   eveningLockInCompleteRequestSchema,
@@ -732,6 +733,18 @@ type CreatorIngestionResponse = {
   submission: CreatorSubmissionRecord;
   proposals: Proposal[];
   risk_flags: string[];
+};
+
+type CreatorIngestionJobRequest = CreatorIngestionRequest & {
+  priority: JobPriority;
+  runAfter?: string;
+  idempotencyKey?: string;
+  maxAttempts: number;
+};
+
+type CreatorIngestionJobResponse = {
+  job: JobRecord;
+  content_counts: ReturnType<typeof creatorContentCounts>;
 };
 
 type GraphReleaseArtifact = {
@@ -3136,6 +3149,45 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
       return envelope(updated, audit.id);
     },
 
+    async queueCreatorIngestion(input: unknown): Promise<HandlerEnvelope<CreatorIngestionJobResponse>> {
+      const request = validateRequest(creatorIngestionJobRequestSchema, input) as CreatorIngestionJobRequest;
+      await requireUser(store, request.creatorId);
+      const queuedAt = nowIso();
+      const contentCounts = creatorContentCounts(request);
+      const job = await store.saveJob(
+        createOpsJob({
+          queue: "ingestion",
+          type: "process_creator_submission",
+          payload: {
+            creator_id: request.creatorId,
+            requested_at: queuedAt,
+            ingestion_request: creatorIngestionJobPayload(request)
+          },
+          priority: request.priority,
+          runAfter: request.runAfter,
+          idempotencyKey: request.idempotencyKey ?? `creator_ingestion:${request.creatorId}:${queuedAt}`,
+          maxAttempts: request.maxAttempts,
+          auditSubjectId: request.creatorId,
+          createdAt: queuedAt
+        })
+      );
+      const audit = await store.appendAuditEvent({
+        actor_id: request.creatorId,
+        action: "creator_ingestion_queued",
+        object_type: "service_job",
+        object_id: job.id,
+        payload: {
+          queue: job.queue,
+          type: job.type,
+          priority: job.priority,
+          run_after: job.run_after,
+          idempotency_key: job.idempotency_key,
+          content_counts: contentCounts
+        }
+      });
+      return envelope({ job, content_counts: contentCounts }, audit.id);
+    },
+
     async submitCreatorIngestion(input: unknown): Promise<HandlerEnvelope<CreatorIngestionResponse>> {
       const request = validateRequest(creatorIngestionRequestSchema, input) as CreatorIngestionRequest;
       const creator = await requireUser(store, request.creatorId);
@@ -4210,6 +4262,18 @@ async function applyProposalToMasterGraph(
 
 function creatorRationale(request: CreatorIngestionRequest, summary: string): string {
   return request.notes ? `${summary} Creator notes: ${request.notes}` : summary;
+}
+
+function creatorIngestionJobPayload(request: CreatorIngestionJobRequest): CreatorIngestionRequest {
+  return {
+    creatorId: request.creatorId,
+    title: request.title,
+    license: request.license,
+    notes: request.notes,
+    source: request.source,
+    evidence: request.evidence,
+    draft: request.draft
+  };
 }
 
 function creatorContentCounts(request: CreatorIngestionRequest) {

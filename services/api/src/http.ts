@@ -362,6 +362,9 @@ function createHttpRoutes(handlers: ReturnType<typeof createApiHandlers>): Route
     route("POST", "/api/creator/ingestions", (context) => handlers.submitCreatorIngestion(context.body), {
       rateLimitKey: "creator_ingestion"
     }),
+    route("POST", "/api/creator/ingestions/jobs", (context) => handlers.queueCreatorIngestion(context.body), {
+      rateLimitKey: "creator_ingestion"
+    }),
     route("GET", "/api/creator/ingestions", (context) =>
       handlers.listCreatorIngestions(requiredQuery(context, "creatorId"))
     ),

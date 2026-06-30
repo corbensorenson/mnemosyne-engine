@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createProposal as createCourtProposal } from "@mnemosyne/content-court";
-import { demoUser } from "@mnemosyne/demo-fixtures";
+import { demoMasterGraph, demoUser } from "@mnemosyne/demo-fixtures";
 import { buildNotificationPlan } from "@mnemosyne/notification-core";
 import { createJob, startJob } from "@mnemosyne/ops-core";
 import type { AssessmentResponse } from "@mnemosyne/schema";
@@ -294,6 +294,93 @@ describe("worker-service", () => {
       );
       expect((await runtime.store.listAuditEvents(demoUser.id)).map((event) => event.action)).toEqual(
         expect.arrayContaining(["notification_outbox_recorded", "job_completed"])
+      );
+    } finally {
+      await runtime.close();
+      await rm(objectStorageRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("processes creator submissions through the ingestion worker", async () => {
+    const objectStorageRoot = await mkdtemp(join(tmpdir(), "mnemosyne-worker-ingestion-"));
+    const seedVideo = demoMasterGraph.videos[0];
+    if (!seedVideo) throw new Error("missing seed video");
+    const config = workerServiceConfigFromEnv({
+      MNEMOSYNE_STORAGE: "memory",
+      MNEMOSYNE_SEED_DEMO: "true",
+      MNEMOSYNE_OBJECT_STORAGE_ROOT: objectStorageRoot,
+      MNEMOSYNE_WORKER_ID: "worker-ingestion-test",
+      MNEMOSYNE_WORKER_MODE: "batch",
+      MNEMOSYNE_WORKER_QUEUES: "ingestion",
+      MNEMOSYNE_WORKER_MAX_JOBS: "1"
+    });
+    const runtime = await createWorkerServiceRuntime(config);
+
+    try {
+      const ingestionJob = await runtime.store.saveJob(
+        createJob({
+          queue: "ingestion",
+          type: "process_creator_submission",
+          payload: {
+            ingestion_request: {
+              creatorId: demoUser.id,
+              title: "Worker queued creator submission",
+              license: "CC-BY-4.0",
+              source: {
+                id: "src_worker_creator_submission",
+                title: "Worker creator transcript packet",
+                source_type: "expert",
+                quality_score: 0.84
+              },
+              draft: {
+                videos: [
+                  {
+                    ...seedVideo,
+                    id: "video_worker_creator_submission",
+                    source_platform: "creator_upload",
+                    external_url: "https://example.com/worker-creator-submission",
+                    embed_url: "https://example.com/embed/worker-creator-submission",
+                    title: "Worker queued attention walkthrough",
+                    creator: demoUser.handle,
+                    status: "submitted"
+                  }
+                ]
+              }
+            }
+          },
+          priority: "normal",
+          idempotencyKey: "worker-service-ingestion",
+          auditSubjectId: demoUser.id,
+          createdAt: "2026-06-29T12:00:00.000Z"
+        })
+      );
+
+      const result = await runWorkerServiceBatch(runtime);
+      expect(result.completed).toBe(1);
+      expect(result.failed).toBe(0);
+      expect((await runtime.store.getJob(ingestionJob.id))?.result).toEqual(
+        expect.objectContaining({
+          creator_id: demoUser.id,
+          status: "proposal_created",
+          proposal_count: 1
+        })
+      );
+      const submissions = await runtime.store.listCreatorSubmissions(demoUser.id);
+      const submission = submissions.find(
+        (candidate) => candidate.title === "Worker queued creator submission"
+      );
+      expect(submission).toEqual(
+        expect.objectContaining({
+          status: "proposal_created",
+          proposal_ids: expect.arrayContaining([expect.any(String)])
+        })
+      );
+      expect((await runtime.store.listAuditEvents(demoUser.id)).map((event) => event.action)).toEqual(
+        expect.arrayContaining([
+          "creator_ingestion_submitted",
+          "creator_ingestion_processed",
+          "job_completed"
+        ])
       );
     } finally {
       await runtime.close();
