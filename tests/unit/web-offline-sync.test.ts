@@ -275,4 +275,129 @@ describe("web offline sync transport", () => {
       })
     );
   });
+
+  it("routes backend-compatible SleepCue playback queue items to the playback endpoint", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "sleep_playback_event",
+      endpoint: "/api/sleep/playback/events",
+      method: "POST",
+      payload: {
+        userId: "user_demo",
+        sleepPacketId: "sleep_packet_demo",
+        nightDate: "2026-06-30",
+        audioPlanId: "audio_plan_demo",
+        playbackStartedAt: "2026-06-30T22:00:00.000Z",
+        playbackEndedAt: "2026-06-30T22:30:00.000Z",
+        cueEvents: [
+          {
+            conceptId: "concept_demo",
+            bucket: "reactivate",
+            playedAt: "2026-06-30T22:05:00.000Z",
+            volume: 0.18,
+            completed: true
+          }
+        ],
+        stopCondition: "none",
+        sleepDisruptionReported: false
+      },
+      idempotencyKey: "sleep-playback-domain-write"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787/", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/sleep/playback/events",
+        body: item.payload,
+        directDomainWrite: true
+      })
+    );
+  });
+
+  it("keeps legacy SleepCue playback payloads on the offline receipt route", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "sleep_playback_event",
+      endpoint: "/api/sleep/playback/events",
+      method: "POST",
+      payload: {
+        sleep_packet_id: "sleep_packet_demo",
+        cue_events: [{ concept_id: "concept_demo", bucket: "reactivate" }]
+      },
+      idempotencyKey: "legacy-sleep-playback-receipt"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/offline/actions/sync",
+        body: { item },
+        directDomainWrite: false
+      })
+    );
+  });
+
+  it("routes backend-compatible SleepCue recall queue items to the recall endpoint", () => {
+    const sleepResponse = {
+      item: prompt,
+      rawResponse: "A clear explanation.",
+      confidence: 0.72,
+      latencyMs: 18_000,
+      entryMode: "text"
+    };
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "sleep_recall_completion",
+      endpoint: "/api/sleep/recall/complete",
+      method: "POST",
+      payload: {
+        userId: "user_demo",
+        sleepPacketId: "sleep_packet_demo",
+        nightDate: "2026-06-30",
+        cuedResponses: [sleepResponse],
+        controlResponses: [{ ...sleepResponse, rawResponse: "not sure yet", confidence: 0.34 }],
+        screenMinutes: 2.4,
+        voiceUsed: false,
+        completedAt: "2026-07-01T07:00:00.000Z"
+      },
+      idempotencyKey: "sleep-recall-domain-write"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787/", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/sleep/recall/complete",
+        body: item.payload,
+        directDomainWrite: true
+      })
+    );
+  });
+
+  it("keeps legacy SleepCue recall payloads on the offline receipt route", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "sleep_recall_completion",
+      endpoint: "/api/sleep/recall/complete",
+      method: "POST",
+      payload: {
+        sleep_packet_id: "sleep_packet_demo",
+        controls_revealed: true,
+        responses: [{ response_id: "local_only" }]
+      },
+      idempotencyKey: "legacy-sleep-recall-receipt"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/offline/actions/sync",
+        body: { item },
+        directDomainWrite: false
+      })
+    );
+  });
 });

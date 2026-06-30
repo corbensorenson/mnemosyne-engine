@@ -18,7 +18,7 @@ npm run docker:up
 Release-gate routes include `/api/security/release-gate`, `/api/accessibility/release-gate`, `/api/reliability/release-gate`, and `/api/ops/monitoring`.
 The PWA app bootstrap route is `GET /api/app/bootstrap`, which returns the persisted user, goals, readiness profile, personal graph, installed packs, latest outcome dashboard, today's packet summary, and the stored sleep audio plan for the configured learner. When a daily packet and audio plan are present, the PWA uses them as the primary session and sleep-playback plan.
 The PWA offline sync receipt route is `POST /api/offline/actions/sync`.
-Backend-compatible Morning Forge, GraphFeed, WalkMode, and Evening Lock-In queue items sync directly to `POST /api/morning-forge/complete`, `POST /api/watch-packets/:id/complete`, `POST /api/walk-mode/complete`, and `POST /api/evening-lock-in/complete` from the PWA transport; older receipt-only payloads continue to use `/api/offline/actions/sync`.
+Backend-compatible Morning Forge, GraphFeed, WalkMode, Evening Lock-In, and SleepCue queue items sync directly to `POST /api/morning-forge/complete`, `POST /api/watch-packets/:id/complete`, `POST /api/walk-mode/complete`, `POST /api/evening-lock-in/complete`, `POST /api/sleep/playback/events`, and `POST /api/sleep/recall/complete` from the PWA transport; older receipt-only payloads continue to use `/api/offline/actions/sync`.
 
 `GET /healthz` is a cheap liveness check. `GET /readyz` verifies the configured `MnemosyneStore` and object-storage adapter before returning `200`; dependency failures return `503 service_not_ready` with per-component status details.
 

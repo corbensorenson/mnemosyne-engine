@@ -1505,13 +1505,15 @@ export default function App() {
         endpoint: "/api/sleep/playback/events",
         method: "POST",
         payload: {
-          sleep_packet_id: scheduled.packet.sleep.id,
-          audio_plan_id: scheduled.packet.sleep.audio_plan_id,
-          playback_started_at: sleepPlaybackStartedAt ?? loggedAt,
-          playback_ended_at: loggedAt,
-          stop_condition: sleepStopCondition,
-          sleep_disruption_reported: sleepDisruptionReported,
-          cue_events: cueEvents
+          userId: activeUser.id,
+          sleepPacketId: scheduled.packet.sleep.id,
+          nightDate: scheduled.packet.sleep.night_date,
+          audioPlanId: scheduled.packet.sleep.audio_plan_id,
+          playbackStartedAt: sleepPlaybackStartedAt ?? loggedAt,
+          playbackEndedAt: loggedAt,
+          cueEvents,
+          stopCondition: sleepStopCondition,
+          sleepDisruptionReported
         },
         payloadScope: "sleep",
         idempotencyKey: `${activeUser.id}:sleep_playback:${scheduled.packet.sleep.id}:${loggedAt}`
@@ -1531,34 +1533,58 @@ export default function App() {
 
   function runSleepRecallCheck() {
     const completedAt = new Date().toISOString();
-    const scoredCued = sleepCuedConceptIds.flatMap((conceptId) => {
+    const cuedResponseInputs: SessionAssessmentSyncInput[] = sleepCuedConceptIds.flatMap((conceptId) => {
       const concept = demoMasterGraph.concepts.find((candidate) => candidate.id === conceptId);
       if (!concept) return [];
       const item = generateAssessmentForConcept(concept, "free_recall");
       return [
-        scoreAssessmentResponse({
-          userId: activeUser.id,
+        {
           item,
           rawResponse: item.expected_answer ?? item.prompt,
           confidence: 0.76,
-          latencyMs: 18_000
-        })
+          latencyMs: 18_000,
+          entryMode: "text" as const
+        }
       ];
     });
-    const scoredControls = sleepControlConceptIds.flatMap((conceptId) => {
-      const concept = demoMasterGraph.concepts.find((candidate) => candidate.id === conceptId);
-      if (!concept) return [];
-      const item = generateAssessmentForConcept(concept, "free_recall");
-      return [
-        scoreAssessmentResponse({
-          userId: activeUser.id,
-          item,
-          rawResponse: "not sure yet",
-          confidence: 0.34,
-          latencyMs: 38_000
-        })
-      ];
-    });
+    const scoredCued = cuedResponseInputs.map((responseInput) =>
+      scoreAssessmentResponse({
+        userId: activeUser.id,
+        item: responseInput.item,
+        rawResponse: responseInput.rawResponse,
+        confidence: responseInput.confidence,
+        latencyMs: responseInput.latencyMs,
+        hintCount: responseInput.hintCount,
+        retries: responseInput.retries
+      })
+    );
+    const controlResponseInputs: SessionAssessmentSyncInput[] = sleepControlConceptIds.flatMap(
+      (conceptId) => {
+        const concept = demoMasterGraph.concepts.find((candidate) => candidate.id === conceptId);
+        if (!concept) return [];
+        const item = generateAssessmentForConcept(concept, "free_recall");
+        return [
+          {
+            item,
+            rawResponse: "not sure yet",
+            confidence: 0.34,
+            latencyMs: 38_000,
+            entryMode: "text" as const
+          }
+        ];
+      }
+    );
+    const scoredControls = controlResponseInputs.map((responseInput) =>
+      scoreAssessmentResponse({
+        userId: activeUser.id,
+        item: responseInput.item,
+        rawResponse: responseInput.rawResponse,
+        confidence: responseInput.confidence,
+        latencyMs: responseInput.latencyMs,
+        hintCount: responseInput.hintCount,
+        retries: responseInput.retries
+      })
+    );
     const cuedScore = avg(scoredCued.map((response) => response.correctness_score));
     const controlScore = avg(scoredControls.map((response) => response.correctness_score));
     const cueGainDelta = round(cuedScore - controlScore, 3);
@@ -1610,14 +1636,17 @@ export default function App() {
         endpoint: "/api/sleep/recall/complete",
         method: "POST",
         payload: {
-          sleep_packet_id: scheduled.packet.sleep.id,
-          controls_revealed: true,
-          cued_concept_ids: sleepCuedConceptIds,
-          control_concept_ids: sleepControlConceptIds,
-          average_cued_correctness: cuedScore,
-          average_control_correctness: controlScore,
-          cue_gain_delta: cueGainDelta,
-          responses: [...scoredCued, ...scoredControls].map(assessmentResponseSyncPayload)
+          userId: activeUser.id,
+          sleepPacketId: scheduled.packet.sleep.id,
+          nightDate: scheduled.packet.sleep.night_date,
+          cuedResponses: cuedResponseInputs,
+          controlResponses: controlResponseInputs,
+          screenMinutes: round(
+            (18_000 * cuedResponseInputs.length + 38_000 * controlResponseInputs.length) / 60_000,
+            2
+          ),
+          voiceUsed: false,
+          completedAt
         },
         payloadScope: "sleep",
         idempotencyKey: `${activeUser.id}:sleep_recall:${scheduled.packet.sleep.id}:${completedAt}`
@@ -5090,22 +5119,6 @@ function uniqueResponses(responses: Array<AssessmentResponse | null | undefined>
         .map((response) => [response.id, response])
     ).values()
   ];
-}
-
-function assessmentResponseSyncPayload(response: AssessmentResponse): Record<string, unknown> {
-  return {
-    id: response.id,
-    assessment_item_id: response.assessment_item_id,
-    concept_ids: response.graph_updates.map((update) => update.concept_id),
-    correctness_score: response.correctness_score,
-    semantic_score: response.semantic_score,
-    confidence_reported: response.confidence_reported,
-    latency_ms: response.latency_ms,
-    hint_count: response.hint_count,
-    retries: response.retries,
-    graph_updates: response.graph_updates,
-    failure_modes: response.detected_failure_modes
-  };
 }
 
 function uniqueBadgeTemplates(templates: typeof outcomeBadgeTemplates): typeof outcomeBadgeTemplates {

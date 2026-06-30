@@ -341,6 +341,7 @@ Current implementation progress:
 - API SleepCue playback flow logs played cue events, bucket counts, stop conditions, disruption reports, completed sleep sessions, and audit records against persisted sleep packets.
 - API next-morning SleepCue recall flow scores cued and matched-control prompts, reveals control comparison in results, updates graph state with `sleep_replays` and `cue_gain_estimate`, and records event/audit trails.
 - PWA Sleep surface now lets a learner start and log Night Reactivation, set stop conditions and sleep-disruption status, run a next-morning recall check, and view cue-gain comparison with matched controls revealed only in results.
+- PWA SleepCue playback and next-morning recall sync now queue backend-compatible payloads and post directly to `POST /api/sleep/playback/events` and `POST /api/sleep/recall/complete` when API sync is configured, so persisted sessions, cue events, scored recall responses, graph updates, and audit trails are first-party.
 
 Exit criteria:
 

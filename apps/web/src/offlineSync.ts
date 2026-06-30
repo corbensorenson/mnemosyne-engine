@@ -64,7 +64,7 @@ async function postOfflineItem(apiBaseUrl: string, item: OfflineQueueItem) {
 
 export function offlineSyncRequestForItem(apiBaseUrl: string, item: OfflineQueueItem): OfflineSyncRequest {
   const baseUrl = apiBaseUrl.replace(/\/$/, "");
-  if (isDomainWritableSessionCompletionItem(item)) {
+  if (isDomainWritableOfflineActionItem(item)) {
     return {
       url: `${baseUrl}${item.endpoint}`,
       body: item.payload,
@@ -78,7 +78,7 @@ export function offlineSyncRequestForItem(apiBaseUrl: string, item: OfflineQueue
   };
 }
 
-function isDomainWritableSessionCompletionItem(item: OfflineQueueItem): boolean {
+function isDomainWritableOfflineActionItem(item: OfflineQueueItem): boolean {
   const hasAssessmentResponses = Array.isArray(item.payload.responses) && item.payload.responses.length > 0;
   const isMorningForge =
     item.action_type === "morning_forge_response" &&
@@ -116,7 +116,29 @@ function isDomainWritableSessionCompletionItem(item: OfflineQueueItem): boolean 
     item.payload.videoIds.length > 0 &&
     typeof item.payload.recallPassed === "boolean" &&
     typeof item.payload.screenMinutes === "number";
-  return isMorningForge || isWalkMode || isEveningLockIn || isGraphFeed;
+  const isSleepPlayback =
+    item.action_type === "sleep_playback_event" &&
+    item.method === "POST" &&
+    item.endpoint === "/api/sleep/playback/events" &&
+    typeof item.payload.userId === "string" &&
+    typeof item.payload.sleepPacketId === "string" &&
+    Array.isArray(item.payload.cueEvents) &&
+    item.payload.cueEvents.length > 0 &&
+    typeof item.payload.stopCondition === "string" &&
+    typeof item.payload.sleepDisruptionReported === "boolean";
+  const isSleepRecall =
+    item.action_type === "sleep_recall_completion" &&
+    item.method === "POST" &&
+    item.endpoint === "/api/sleep/recall/complete" &&
+    typeof item.payload.userId === "string" &&
+    typeof item.payload.sleepPacketId === "string" &&
+    Array.isArray(item.payload.cuedResponses) &&
+    item.payload.cuedResponses.length > 0 &&
+    Array.isArray(item.payload.controlResponses) &&
+    item.payload.controlResponses.length > 0 &&
+    typeof item.payload.screenMinutes === "number" &&
+    typeof item.payload.voiceUsed === "boolean";
+  return isMorningForge || isWalkMode || isEveningLockIn || isGraphFeed || isSleepPlayback || isSleepRecall;
 }
 
 function domainReceiptId(
