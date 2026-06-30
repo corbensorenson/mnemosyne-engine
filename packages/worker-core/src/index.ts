@@ -1,12 +1,4 @@
-import {
-  completeJob,
-  failJob,
-  isJobRunnable,
-  jobPriorities,
-  startJob,
-  type JobRecord,
-  type QueueName
-} from "@mnemosyne/ops-core";
+import { completeJob, failJob, type JobRecord, type QueueName } from "@mnemosyne/ops-core";
 import type { MnemosyneStore } from "@mnemosyne/persistence-core";
 import { nowIso } from "@mnemosyne/shared-utils";
 import type { ObjectStorageAdapter } from "@mnemosyne/storage-core";
@@ -210,15 +202,12 @@ export async function claimNextRunnableJob(
   options: Pick<WorkerRunOptions, "store" | "workerId" | "handlers" | "queues">,
   at = nowIso()
 ): Promise<JobRecord | undefined> {
-  const jobs = await options.store.listJobs();
-  const candidates = jobs
-    .filter((job) => queueAllowed(job, options.queues))
-    .filter((job) => options.handlers.has(workerHandlerKey(job.queue, job.type)))
-    .filter((job) => isJobRunnable(job, at))
-    .sort(compareRunnableJobs);
-  const next = candidates[0];
-  if (!next) return undefined;
-  return options.store.saveJob(startJob(next, options.workerId, at));
+  return options.store.claimNextRunnableJob({
+    workerId: options.workerId,
+    queues: options.queues,
+    handlerKeys: [...options.handlers.keys()],
+    at
+  });
 }
 
 async function failRunningJob(store: MnemosyneStore, job: JobRecord, message: string): Promise<JobRecord> {
@@ -250,22 +239,6 @@ async function appendJobAudit(
 
 function terminalAuditAction(job: JobRecord): "job_failed" | "job_dead_lettered" {
   return job.status === "dead_lettered" ? "job_dead_lettered" : "job_failed";
-}
-
-function queueAllowed(job: JobRecord, queues: QueueName[] | undefined): boolean {
-  return !queues || queues.includes(job.queue);
-}
-
-function compareRunnableJobs(left: JobRecord, right: JobRecord): number {
-  const priorityDelta = priorityRank(right.priority) - priorityRank(left.priority);
-  if (priorityDelta !== 0) return priorityDelta;
-  const runAfterDelta = left.run_after.localeCompare(right.run_after);
-  if (runAfterDelta !== 0) return runAfterDelta;
-  return left.created_at.localeCompare(right.created_at);
-}
-
-function priorityRank(priority: JobRecord["priority"]): number {
-  return jobPriorities.indexOf(priority);
 }
 
 function errorMessage(error: unknown): string {

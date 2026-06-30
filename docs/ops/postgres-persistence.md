@@ -8,8 +8,9 @@ Apply migrations in order:
 
 1. `infra/migrations/0001_foundation.sql`
 2. `infra/migrations/0002_postgres_record_store.sql`
+3. `infra/migrations/0003_job_claim_indexes.sql`
 
-`0001` keeps the normalized relational foundation. `0002` adds `mnemosyne_records`, a JSONB record table used by the first production store adapter so every `MnemosyneStore` entity has durable storage while normalized projections continue to mature.
+`0001` keeps the normalized relational foundation. `0002` adds `mnemosyne_records`, a JSONB record table used by the first production store adapter so every `MnemosyneStore` entity has durable storage while normalized projections continue to mature. `0003` adds job queue/status and handler-key indexes for worker lease scans.
 
 ## Adapter Contract
 
@@ -42,3 +43,7 @@ The Postgres adapter preserves the same export and deletion behavior as the memo
 - sleep deletion removes cue packets, sleep audio plans, sleep object manifests, and sleep learning events
 - health deletion removes wearable connections and normalized sleep imports
 - account deletion removes user-owned records, removes pack installations, updates/deletes social challenge participation, and anonymizes retained audit events
+
+## Queue Leasing
+
+Workers call `MnemosyneStore.claimNextRunnableJob` before executing work. In Postgres, the adapter uses a single row-locking claim query with `FOR UPDATE SKIP LOCKED`, handler-key filtering, priority ordering, `run_after` checks, attempt increments, and `locked_at`/`locked_by` updates. Parallel worker processes can therefore compete for the same queue without double-starting the same job record.

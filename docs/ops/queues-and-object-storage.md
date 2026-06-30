@@ -30,6 +30,8 @@ The ops package is intentionally storage-agnostic. Redis workers, Postgres table
 - supports bounded single-run, batch, and polling-loop execution for service processes
 - passes optional object storage into handlers so generated artifacts can be persisted without a vendor API
 
+`MnemosyneStore.claimNextRunnableJob` is the store-level lease contract. The memory adapter uses the same priority/run-after ordering as tests and local demos. The Postgres adapter claims jobs with a single row-locking `UPDATE ... FOR UPDATE SKIP LOCKED` query, filters to registered handler keys, increments attempts, sets `locked_at`/`locked_by`, and returns the running job. This keeps parallel worker processes from double-starting the same job while preserving the first-party `JobRecord` lifecycle.
+
 The scheduler service registers `scheduler:generate_daily_packet`. The handler loads the user, goals, readiness, master graph, personal graph, and personalization profile from `MnemosyneStore`, saves the daily packet, sleep packet, and audio plan, then queues `audio_render:render_sleep_audio`.
 
 The audio renderer service registers `audio_render:render_sleep_audio`. The handler builds the deterministic render manifest, stores it as a first-party object when object storage is configured, updates the audio plan render status, and leaves failures for the worker runtime to retry or dead-letter.
@@ -68,7 +70,7 @@ User data export includes owned jobs and object manifests. Full account deletion
 
 The next production step is to map this contract onto:
 
-- Postgres tables for canonical job and object-manifest records
-- Redis streams or sorted sets for runnable queue indexes
+- normalized Postgres projections for canonical job and object-manifest records
+- optional Redis streams or sorted sets for runnable queue indexes when scale requires an external index
 - managed object storage for audio, transcripts, imports, generated assets, evidence files, backups, and privacy exports, using the same manifest and integrity behavior as the local adapter
 - worker binaries for analytics rollups, notifications, moderation, ingestion, export, and AI jobs following the same `@mnemosyne/worker-core` handler contract

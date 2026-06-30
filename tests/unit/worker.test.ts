@@ -12,6 +12,42 @@ import { createWorkerHandlerRegistry, runWorkerOnce } from "@mnemosyne/worker-co
 import { describe, expect, it } from "vitest";
 
 describe("worker-core", () => {
+  it("leases only jobs with registered handlers", async () => {
+    const store = createMemoryStore();
+    await seedDemoStore(store);
+    const handlers = createWorkerHandlerRegistry(createSchedulerWorkerHandlers());
+    await store.saveJob(
+      createJob({
+        queue: "scheduler",
+        type: "unregistered_job",
+        payload: { user_id: demoUser.id },
+        priority: "critical",
+        idempotencyKey: "unhandled"
+      })
+    );
+    const handled = await store.saveJob(
+      createJob({
+        queue: "scheduler",
+        type: "generate_daily_packet",
+        payload: { user_id: demoUser.id },
+        priority: "normal",
+        idempotencyKey: "handled"
+      })
+    );
+
+    const result = await runWorkerOnce({
+      store,
+      workerId: "worker-scheduler",
+      handlers,
+      queues: ["scheduler"]
+    });
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") throw new Error("Scheduler worker did not complete.");
+    expect(result.job.id).toBe(handled.id);
+    expect((await store.getJob(handled.id))?.status).toBe("completed");
+  });
+
   it("runs scheduler and audio render jobs through first-party workers", async () => {
     const root = await mkdtemp(join(tmpdir(), "mnemosyne-worker-objects-"));
     const objectStorage = createLocalObjectStorage(root);

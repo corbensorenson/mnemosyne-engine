@@ -124,9 +124,10 @@ The system should preserve audit events even when downstream analytics or person
 - `README.md`, `ROADMAP.md`, `SECURITY.md`, and docs are current.
 - `/api/security/release-gate` passes for the target environment.
 - The API HTTP adapter is serving CSP/security headers, CSRF enforcement, bounded JSON parsing, and rate-limit responses in the target environment.
-- Postgres migrations through `0002_postgres_record_store.sql` are applied and the API is constructed with `createPostgresStore`.
+- Postgres migrations through `0003_job_claim_indexes.sql` are applied and the API is constructed with `createPostgresStore`.
 - Object storage root is mounted durably, and `/api/objects/store` writes bytes, validates SHA-256 integrity, and persists manifests.
 - Scheduler and audio-render workers run `@mnemosyne/worker-core` handlers for `scheduler:generate_daily_packet` and `audio_render:render_sleep_audio`, including audit events, retries, and dead-letter handling.
+- Postgres job leasing uses `claimNextRunnableJob` row locks so parallel worker processes do not double-start runnable jobs.
 - `npm run worker:start` is deployed for worker processes with `MNEMOSYNE_WORKER_QUEUES`, `MNEMOSYNE_WORKER_ID`, and `MNEMOSYNE_OBJECT_STORAGE_ROOT` set per environment.
 - `npm run docker:config` passes for the local deployment manifest.
 - `GET /healthz` returns liveness, and `GET /readyz` returns dependency-backed readiness with healthy store and object-storage components.

@@ -19,7 +19,14 @@ import type {
   UserKnowledgeGraph,
   VideoAsset
 } from "@mnemosyne/schema";
-import type { JobRecord, ObjectManifest, QueueName } from "@mnemosyne/ops-core";
+import {
+  isJobRunnable,
+  jobPriorities,
+  startJob,
+  type JobRecord,
+  type ObjectManifest,
+  type QueueName
+} from "@mnemosyne/ops-core";
 import type { OutcomeDashboard } from "@mnemosyne/outcome-core";
 import { createId, nowIso, stableHash, todayIsoDate } from "@mnemosyne/shared-utils";
 import type { NormalizedWearableSleepSession, WearableConnection } from "@mnemosyne/wearables-core";
@@ -207,6 +214,13 @@ export type UserDataDeletionSummary = {
   retained_audit_event_ids: string[];
 };
 
+export type ClaimRunnableJobInput = {
+  workerId: string;
+  queues?: QueueName[];
+  handlerKeys?: string[];
+  at?: string;
+};
+
 export type AppendLearningEventInput = Omit<LearningEvent, "id" | "created_at"> & {
   id?: string;
   created_at?: string;
@@ -273,6 +287,7 @@ export interface MnemosyneStore {
   saveJob(job: JobRecord): Promise<JobRecord>;
   getJob(jobId: string): Promise<JobRecord | undefined>;
   listJobs(queue?: QueueName): Promise<JobRecord[]>;
+  claimNextRunnableJob(input: ClaimRunnableJobInput): Promise<JobRecord | undefined>;
   saveObjectManifest(manifest: ObjectManifest): Promise<ObjectManifest>;
   getObjectManifest(objectId: string): Promise<ObjectManifest | undefined>;
   listObjectManifests(ownerId?: string): Promise<ObjectManifest[]>;
@@ -598,6 +613,19 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
   async listJobs(queue?: QueueName): Promise<JobRecord[]> {
     const jobs = [...this.jobs.values()];
     return queue ? jobs.filter((job) => job.queue === queue) : jobs;
+  }
+
+  async claimNextRunnableJob(input: ClaimRunnableJobInput): Promise<JobRecord | undefined> {
+    const at = input.at ?? nowIso();
+    const candidate = [...this.jobs.values()]
+      .filter((job) => queueAllowedForClaim(job, input.queues))
+      .filter((job) => handlerAllowedForClaim(job, input.handlerKeys))
+      .filter((job) => isJobRunnable(job, at))
+      .sort(compareClaimCandidates)[0];
+    if (!candidate) return undefined;
+    const running = startJob(candidate, input.workerId, at);
+    this.jobs.set(running.id, running);
+    return running;
   }
 
   async saveObjectManifest(manifest: ObjectManifest): Promise<ObjectManifest> {
@@ -950,6 +978,22 @@ export function packetKey(userId: string, date: string): string {
 
 export function stateKey(userId: string, conceptId: string): string {
   return `${userId}:${conceptId}`;
+}
+
+function queueAllowedForClaim(job: JobRecord, queues: QueueName[] | undefined): boolean {
+  return !queues || queues.includes(job.queue);
+}
+
+function handlerAllowedForClaim(job: JobRecord, handlerKeys: string[] | undefined): boolean {
+  return !handlerKeys || handlerKeys.includes(`${job.queue}:${job.type}`);
+}
+
+function compareClaimCandidates(left: JobRecord, right: JobRecord): number {
+  const priorityDelta = jobPriorities.indexOf(right.priority) - jobPriorities.indexOf(left.priority);
+  if (priorityDelta !== 0) return priorityDelta;
+  const runAfterDelta = left.run_after.localeCompare(right.run_after);
+  if (runAfterDelta !== 0) return runAfterDelta;
+  return left.created_at.localeCompare(right.created_at);
 }
 
 function defaultPackRecords(): KnowledgePackRecord[] {

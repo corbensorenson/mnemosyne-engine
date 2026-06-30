@@ -22,6 +22,7 @@ import type {
   AppendLearningEventInput,
   AuditEvent,
   AwardedBadgeRecord,
+  ClaimRunnableJobInput,
   CreatorSubmissionRecord,
   DataDeletionScope,
   ExperimentAssignmentRecord,
@@ -418,6 +419,64 @@ export class PostgresMnemosyneStore implements MnemosyneStore {
   async listJobs(queue?: QueueName): Promise<JobRecord[]> {
     const jobs = await this.listRecords<JobRecord>("job");
     return queue ? jobs.filter((job) => job.queue === queue) : jobs;
+  }
+
+  async claimNextRunnableJob(input: ClaimRunnableJobInput): Promise<JobRecord | undefined> {
+    const at = input.at ?? nowIso();
+    const result = await this.sql.query<RecordRow>(
+      `WITH candidate AS (
+         SELECT record_id, payload
+         FROM mnemosyne_records
+         WHERE record_type = 'job'
+           AND payload->>'status' IN ('queued', 'failed')
+           AND COALESCE((payload->>'attempts')::int, 0) < COALESCE((payload->>'max_attempts')::int, 0)
+           AND (payload->>'run_after')::timestamptz <= $1::timestamptz
+           AND ($2::text[] IS NULL OR payload->>'queue' = ANY($2::text[]))
+           AND ($3::text[] IS NULL OR ((payload->>'queue') || ':' || (payload->>'type')) = ANY($3::text[]))
+         ORDER BY CASE payload->>'priority'
+                    WHEN 'critical' THEN 3
+                    WHEN 'high' THEN 2
+                    WHEN 'normal' THEN 1
+                    ELSE 0
+                  END DESC,
+                  payload->>'run_after' ASC,
+                  payload->>'created_at' ASC
+         FOR UPDATE SKIP LOCKED
+         LIMIT 1
+       ),
+       updated AS (
+         UPDATE mnemosyne_records records
+         SET payload = jsonb_set(
+             jsonb_set(
+               jsonb_set(
+                 jsonb_set(
+                   jsonb_set(
+                     candidate.payload,
+                     '{status}',
+                     '"running"'::jsonb
+                   ),
+                   '{attempts}',
+                   to_jsonb(COALESCE((candidate.payload->>'attempts')::int, 0) + 1)
+                 ),
+                 '{locked_at}',
+                 to_jsonb($1::text)
+               ),
+               '{locked_by}',
+               to_jsonb($4::text)
+             ),
+             '{updated_at}',
+             to_jsonb($1::text)
+           ),
+             updated_at = $1::timestamptz
+         FROM candidate
+         WHERE records.record_type = 'job'
+           AND records.record_id = candidate.record_id
+         RETURNING records.payload
+       )
+       SELECT payload FROM updated`,
+      [at, input.queues ?? null, input.handlerKeys ?? null, input.workerId]
+    );
+    return result.rows[0] ? readPayload<JobRecord>(result.rows[0].payload) : undefined;
   }
 
   async saveObjectManifest(manifest: ObjectManifest): Promise<ObjectManifest> {

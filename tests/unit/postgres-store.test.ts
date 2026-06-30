@@ -1,5 +1,6 @@
 import { createApiHandlers, seedDemoStore } from "@mnemosyne/api";
 import { demoUser } from "@mnemosyne/demo-fixtures";
+import { createJob, type JobRecord } from "@mnemosyne/ops-core";
 import { createPostgresStore, type SqlExecutor, type SqlQueryResult } from "@mnemosyne/persistence-core";
 import { describe, expect, it } from "vitest";
 
@@ -22,6 +23,36 @@ class MemorySqlExecutor implements SqlExecutor {
     params: readonly unknown[] = []
   ): Promise<SqlQueryResult<TRow>> {
     this.statements.push(statement);
+    if (statement.includes("WITH candidate AS") && statement.includes("FOR UPDATE SKIP LOCKED")) {
+      const [at, queues, handlerKeys, workerId] = params as [
+        string,
+        string[] | null,
+        string[] | null,
+        string
+      ];
+      const candidate = [...this.records.values()]
+        .filter((record) => record.record_type === "job")
+        .map((record) => ({ record, job: record.payload as JobRecord }))
+        .filter(({ job }) => job.status === "queued" || job.status === "failed")
+        .filter(({ job }) => job.attempts < job.max_attempts)
+        .filter(({ job }) => Date.parse(job.run_after) <= Date.parse(at))
+        .filter(({ job }) => !queues || queues.includes(job.queue))
+        .filter(({ job }) => !handlerKeys || handlerKeys.includes(`${job.queue}:${job.type}`))
+        .sort((left, right) => compareJobs(left.job, right.job))[0];
+      if (!candidate) return rows([]);
+      const running: JobRecord = {
+        ...candidate.job,
+        status: "running",
+        attempts: candidate.job.attempts + 1,
+        locked_at: at,
+        locked_by: workerId,
+        last_error: undefined,
+        updated_at: at
+      };
+      candidate.record.payload = running;
+      return rows([{ payload: running }]);
+    }
+
     if (statement.startsWith("INSERT INTO mnemosyne_records")) {
       const [recordType, recordId, ownerId, sortKey, payload] = params as [
         string,
@@ -136,6 +167,74 @@ describe("PostgresMnemosyneStore", () => {
     expect(JSON.stringify(exportBundle.learning_events)).not.toContain("spoken private answer");
     expect(JSON.stringify(exportBundle.learning_events)).toContain("[deleted]");
   });
+
+  it("claims the next runnable handled job through the Postgres record adapter", async () => {
+    const sql = new MemorySqlExecutor();
+    const store = createPostgresStore(sql);
+    const createdAt = "2026-06-30T10:00:00.000Z";
+    const delayed = await store.saveJob(
+      createJob({
+        queue: "scheduler",
+        type: "generate_daily_packet",
+        payload: { user_id: demoUser.id, variant: "delayed" },
+        priority: "critical",
+        runAfter: "2026-06-30T12:00:00.000Z",
+        idempotencyKey: "delayed",
+        createdAt
+      })
+    );
+    const unhandled = await store.saveJob(
+      createJob({
+        queue: "scheduler",
+        type: "unregistered_job",
+        payload: { user_id: demoUser.id },
+        priority: "critical",
+        idempotencyKey: "unhandled",
+        createdAt
+      })
+    );
+    const normal = await store.saveJob(
+      createJob({
+        queue: "scheduler",
+        type: "generate_daily_packet",
+        payload: { user_id: demoUser.id, variant: "normal" },
+        priority: "normal",
+        idempotencyKey: "normal",
+        createdAt: "2026-06-30T10:01:00.000Z"
+      })
+    );
+    const high = await store.saveJob(
+      createJob({
+        queue: "scheduler",
+        type: "generate_daily_packet",
+        payload: { user_id: demoUser.id, variant: "high" },
+        priority: "high",
+        idempotencyKey: "high",
+        createdAt: "2026-06-30T10:02:00.000Z"
+      })
+    );
+
+    const claimed = await store.claimNextRunnableJob({
+      workerId: "worker-scheduler",
+      queues: ["scheduler"],
+      handlerKeys: ["scheduler:generate_daily_packet"],
+      at: "2026-06-30T10:05:00.000Z"
+    });
+
+    expect(claimed).toEqual(
+      expect.objectContaining({
+        id: high.id,
+        status: "running",
+        attempts: 1,
+        locked_by: "worker-scheduler",
+        locked_at: "2026-06-30T10:05:00.000Z"
+      })
+    );
+    expect((await store.getJob(delayed.id))?.status).toBe("queued");
+    expect((await store.getJob(unhandled.id))?.status).toBe("queued");
+    expect((await store.getJob(normal.id))?.status).toBe("queued");
+    expect(sql.statements.some((statement) => statement.includes("FOR UPDATE SKIP LOCKED"))).toBe(true);
+  });
 });
 
 function unwrap<T>(envelope: Envelope<T>): T {
@@ -153,4 +252,19 @@ function key(recordType: string, recordId: string): string {
 
 function bySortKeyDesc(left: StoredRecord, right: StoredRecord): number {
   return (right.sort_key ?? "").localeCompare(left.sort_key ?? "");
+}
+
+function compareJobs(left: JobRecord, right: JobRecord): number {
+  const priorityDelta = priorityRank(right.priority) - priorityRank(left.priority);
+  if (priorityDelta !== 0) return priorityDelta;
+  const runAfterDelta = left.run_after.localeCompare(right.run_after);
+  if (runAfterDelta !== 0) return runAfterDelta;
+  return left.created_at.localeCompare(right.created_at);
+}
+
+function priorityRank(priority: JobRecord["priority"]): number {
+  if (priority === "critical") return 3;
+  if (priority === "high") return 2;
+  if (priority === "normal") return 1;
+  return 0;
 }
