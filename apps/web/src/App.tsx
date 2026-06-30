@@ -40,8 +40,15 @@ import { estimateCueDensity } from "@mnemosyne/audio-core";
 import { arbitrateProposal, computeBridgingPriority } from "@mnemosyne/content-court";
 import { buildGraphSnapshot } from "@mnemosyne/graph-core";
 import { buildDailyLearningPacket } from "@mnemosyne/scheduler-core";
-import type { AssessmentResponse, ConceptNode, ReadinessProfile, UserConceptState } from "@mnemosyne/schema";
-import { clamp, humanMinutes, round } from "@mnemosyne/shared-utils";
+import type {
+  AssessmentItem,
+  AssessmentResponse,
+  ConceptNode,
+  ReadinessProfile,
+  UserConceptState
+} from "@mnemosyne/schema";
+import { clamp, humanMinutes, round, unique } from "@mnemosyne/shared-utils";
+import { buildSleepCuePacket } from "@mnemosyne/sleep-core";
 import { createTechniqueExperiment, recommendTechniques, techniqueRegistry } from "@mnemosyne/technique-lab";
 import { rankVideosForUser } from "@mnemosyne/video-core";
 import {
@@ -87,6 +94,14 @@ const tabs: Array<{ id: TabId; label: string; icon: typeof Home }> = [
   { id: "admin", label: "Admin", icon: ShieldCheck }
 ];
 
+type AnswerMode = "text" | "voice";
+type PhoneDownKey = "notificationsSilenced" | "screenDimmingEnabled" | "chargerReady" | "alarmSet";
+type EveningPromptPhase = "recall" | "review" | "transfer";
+type EveningPrompt = {
+  phase: EveningPromptPhase;
+  item: AssessmentItem;
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("onboarding");
   const [readiness, setReadiness] = useState<ReadinessProfile>(defaultReadiness);
@@ -94,13 +109,31 @@ export default function App() {
   const [selectedNodeId, setSelectedNodeId] = useState("attention_qkv");
   const [answer, setAnswer] = useState("");
   const [confidence, setConfidence] = useState(0.66);
-  const [answerMode, setAnswerMode] = useState<"text" | "voice">("text");
+  const [answerMode, setAnswerMode] = useState<AnswerMode>("text");
   const [forgeIndex, setForgeIndex] = useState(0);
   const [forgeStartedAt, setForgeStartedAt] = useState(Date.now());
   const [forgeResponses, setForgeResponses] = useState(0);
   const [lastResponse, setLastResponse] = useState<AssessmentResponse | null>(null);
   const [repairTips, setRepairTips] = useState<string[]>([]);
   const [offlineCacheStatus, setOfflineCacheStatus] = useState("pending");
+  const [lockAnswer, setLockAnswer] = useState("");
+  const [lockConfidence, setLockConfidence] = useState(0.58);
+  const [lockAnswerMode, setLockAnswerMode] = useState<AnswerMode>("voice");
+  const [lockIndex, setLockIndex] = useState(0);
+  const [lockStartedAt, setLockStartedAt] = useState(Date.now());
+  const [lockResponses, setLockResponses] = useState(0);
+  const [lockLastResponse, setLockLastResponse] = useState<AssessmentResponse | null>(null);
+  const [lockRepairTips, setLockRepairTips] = useState<string[]>([]);
+  const [boundCueIds, setBoundCueIds] = useState<string[]>([]);
+  const [phoneDownChecklist, setPhoneDownChecklist] = useState<Record<PhoneDownKey, boolean>>({
+    notificationsSilenced: true,
+    screenDimmingEnabled: true,
+    chargerReady: true,
+    alarmSet: true
+  });
+  const [lockSleepCacheStatus, setLockSleepCacheStatus] = useState("pending");
+  const [lockCompletedAt, setLockCompletedAt] = useState<string | null>(null);
+  const [lockAudioPlaying, setLockAudioPlaying] = useState(false);
   const [eventLog, setEventLog] = useState<string[]>([
     "daily packet generated",
     "sleep controls assigned",
@@ -168,6 +201,63 @@ export default function App() {
     [scheduled.packet.evening.transfer_drills, scheduled.packet.morning.cold_retrieval_items]
   );
   const activeForgePrompt = forgeQueue[forgeIndex % Math.max(forgeQueue.length, 1)];
+  const eveningQueue = useMemo<EveningPrompt[]>(
+    () => [
+      ...scheduled.packet.evening.recall_items.map((item) => ({ phase: "recall" as const, item })),
+      ...scheduled.packet.evening.interleaved_review_items
+        .slice(0, 2)
+        .map((item) => ({ phase: "review" as const, item })),
+      ...scheduled.packet.evening.transfer_drills.map((item) => ({ phase: "transfer" as const, item }))
+    ],
+    [
+      scheduled.packet.evening.interleaved_review_items,
+      scheduled.packet.evening.recall_items,
+      scheduled.packet.evening.transfer_drills
+    ]
+  );
+  const activeLockPrompt = eveningQueue[lockIndex % Math.max(eveningQueue.length, 1)];
+  const defaultBoundCueIds = useMemo(
+    () => scheduled.packet.evening.sleep_cue_binding_items.slice(0, 3).map((cue) => cue.id),
+    [scheduled.packet.evening.sleep_cue_binding_items]
+  );
+  const selectedBoundCueIds = boundCueIds.length > 0 ? boundCueIds : defaultBoundCueIds;
+  const boundCues = useMemo(
+    () =>
+      scheduled.packet.evening.sleep_cue_binding_items.filter((cue) => selectedBoundCueIds.includes(cue.id)),
+    [scheduled.packet.evening.sleep_cue_binding_items, selectedBoundCueIds]
+  );
+  const lockSleepResult = useMemo(
+    () =>
+      buildSleepCuePacket({
+        user: demoUser,
+        concepts: demoMasterGraph.concepts,
+        states,
+        knownIds: unique([
+          ...scheduled.packet.evening.recall_items.flatMap((item) => item.concept_ids),
+          ...boundCues.map((cue) => cue.concept_id)
+        ]),
+        frontierIds: unique([
+          ...scheduled.packet.evening.transfer_drills.flatMap((item) => item.concept_ids),
+          ...boundCues.map((cue) => cue.concept_id)
+        ]),
+        horizonIds: scheduled.packet.morning.horizon_items.map((concept) => concept.id),
+        readiness,
+        conservative:
+          scheduled.packet.evening.screen_policy === "audio_only" ||
+          readiness.dusk_mode ||
+          readiness.fatigue > 0.7
+      }),
+    [
+      boundCues,
+      readiness,
+      scheduled.packet.evening.recall_items,
+      scheduled.packet.evening.screen_policy,
+      scheduled.packet.evening.transfer_drills,
+      scheduled.packet.morning.horizon_items,
+      states
+    ]
+  );
+  const phoneDownReady = Object.values(phoneDownChecklist).every(Boolean);
 
   useEffect(() => {
     try {
@@ -225,6 +315,97 @@ export default function App() {
     setForgeStartedAt(Date.now());
   }
 
+  function submitLockInAnswer() {
+    const prompt = activeLockPrompt;
+    if (!prompt || lockAnswer.trim().length === 0) return;
+    const response = scoreAssessmentResponse({
+      userId: demoUser.id,
+      item: prompt.item,
+      rawResponse: lockAnswer,
+      confidence: lockConfidence,
+      latencyMs: Math.max(1_000, Date.now() - lockStartedAt)
+    });
+    setLockLastResponse(response);
+    setLockRepairTips(repairTipsFor(response));
+    setLockResponses((count) => count + 1);
+    setLockCompletedAt(null);
+    setLockSleepCacheStatus("pending");
+    setStates((current) => {
+      const next = [...current];
+      for (const conceptId of prompt.item.concept_ids) {
+        const index = next.findIndex((state) => state.concept_id === conceptId);
+        const state = index >= 0 ? next[index] : emptyState(conceptId);
+        const updated = applyAssessmentToUserState(state, response);
+        if (index >= 0) next[index] = updated;
+        else next.push(updated);
+      }
+      return next;
+    });
+    setEventLog((current) =>
+      [
+        `evening ${prompt.phase} scored: ${response.model_feedback}`,
+        `sleep prep latency: ${Math.round(response.latency_ms / 1000)}s`,
+        ...current
+      ].slice(0, 6)
+    );
+    setLockAnswer("");
+    setLockIndex((index) => (eveningQueue.length > 0 ? (index + 1) % eveningQueue.length : index));
+    setLockStartedAt(Date.now());
+  }
+
+  function toggleBoundCue(cueId: string) {
+    setBoundCueIds((current) => {
+      const selected = current.length > 0 ? current : defaultBoundCueIds;
+      return selected.includes(cueId)
+        ? selected.filter((id) => id !== cueId)
+        : unique([...selected, cueId]).slice(0, 6);
+    });
+    setLockCompletedAt(null);
+    setLockSleepCacheStatus("pending");
+  }
+
+  function togglePhoneDownItem(key: PhoneDownKey) {
+    setPhoneDownChecklist((current) => ({ ...current, [key]: !current[key] }));
+    setLockCompletedAt(null);
+    setLockSleepCacheStatus("pending");
+  }
+
+  function completeLockIn() {
+    const completedAt = new Date().toISOString();
+    try {
+      window.localStorage.setItem(
+        "mnemosyne.eveningLockIn.v1",
+        JSON.stringify({
+          cached_at: completedAt,
+          user_id: demoUser.id,
+          daily_packet_id: scheduled.packet.id,
+          screen_policy: scheduled.packet.evening.screen_policy,
+          phone_down_ready: phoneDownReady,
+          completed_responses: lockResponses,
+          bound_cue_ids: selectedBoundCueIds,
+          bound_concept_ids: boundCues.map((cue) => cue.concept_id),
+          sleep_packet_id: lockSleepResult.packet.id,
+          audio_plan_id: lockSleepResult.audioPlan.id,
+          cue_spacing_seconds: lockSleepResult.packet.cue_spacing_seconds,
+          max_cues_per_hour: lockSleepResult.packet.max_cues_per_hour,
+          local_reminder_at: lockSleepResult.packet.target_sleep_window.estimated_sleep_onset_at
+        })
+      );
+      setLockSleepCacheStatus("ready");
+    } catch {
+      setLockSleepCacheStatus("unavailable");
+    }
+    setLockCompletedAt(completedAt);
+    setEventLog((current) =>
+      [
+        `evening lock-in completed: ${boundCues.length} cues bound`,
+        `sleep packet cached: ${lockSleepResult.packet.id}`,
+        `phone-down ready: ${phoneDownReady ? "yes" : "no"}`,
+        ...current
+      ].slice(0, 6)
+    );
+  }
+
   function launchFromOnboarding(config: OnboardingLaunch) {
     setReadiness(config.readiness);
     setStates(config.states);
@@ -234,6 +415,14 @@ export default function App() {
     setRepairTips([]);
     setLastResponse(null);
     setForgeStartedAt(Date.now());
+    setLockIndex(0);
+    setLockResponses(0);
+    setLockRepairTips([]);
+    setLockLastResponse(null);
+    setLockSleepCacheStatus("pending");
+    setLockCompletedAt(null);
+    setLockStartedAt(Date.now());
+    setBoundCueIds([]);
     setEventLog((current) =>
       [
         `onboarding completed: ${config.goalTitle}`,
@@ -293,7 +482,36 @@ export default function App() {
     ),
     cinema: <CinemaView rankedVideos={rankedVideos} packet={scheduled.packet.optional_watch_packets[0]} />,
     walk: <WalkView prompts={scheduled.packet.walk_packets[0]?.prompts ?? []} />,
-    lock: <LockInView packet={scheduled.packet} />,
+    lock: (
+      <LockInView
+        packet={scheduled.packet}
+        prompt={activeLockPrompt}
+        promptIndex={eveningQueue.length > 0 ? lockIndex + 1 : 0}
+        queueLength={eveningQueue.length}
+        answer={lockAnswer}
+        setAnswer={setLockAnswer}
+        answerMode={lockAnswerMode}
+        setAnswerMode={setLockAnswerMode}
+        confidence={lockConfidence}
+        setConfidence={setLockConfidence}
+        latencySeconds={Math.max(1, Math.round((Date.now() - lockStartedAt) / 1000))}
+        submitAnswer={submitLockInAnswer}
+        lastResponse={lockLastResponse}
+        repairTips={lockRepairTips}
+        completedCount={lockResponses}
+        selectedCueIds={selectedBoundCueIds}
+        toggleCue={toggleBoundCue}
+        phoneDownChecklist={phoneDownChecklist}
+        togglePhoneDownItem={togglePhoneDownItem}
+        phoneDownReady={phoneDownReady}
+        sleepResult={lockSleepResult}
+        cacheStatus={lockSleepCacheStatus}
+        completedAt={lockCompletedAt}
+        completeLockIn={completeLockIn}
+        audioPlaying={lockAudioPlaying}
+        setAudioPlaying={setLockAudioPlaying}
+      />
+    ),
     sleep: (
       <SleepView packet={scheduled.packet.sleep} audioPlan={scheduled.audioPlan} integrity={sleepIntegrity} />
     ),
@@ -1131,40 +1349,224 @@ function WalkView({
   );
 }
 
-function LockInView({ packet }: { packet: ReturnType<typeof buildDailyLearningPacket>["packet"] }) {
+function LockInView({
+  packet,
+  prompt,
+  promptIndex,
+  queueLength,
+  answer,
+  setAnswer,
+  answerMode,
+  setAnswerMode,
+  confidence,
+  setConfidence,
+  latencySeconds,
+  submitAnswer,
+  lastResponse,
+  repairTips,
+  completedCount,
+  selectedCueIds,
+  toggleCue,
+  phoneDownChecklist,
+  togglePhoneDownItem,
+  phoneDownReady,
+  sleepResult,
+  cacheStatus,
+  completedAt,
+  completeLockIn,
+  audioPlaying,
+  setAudioPlaying
+}: {
+  packet: ReturnType<typeof buildDailyLearningPacket>["packet"];
+  prompt: EveningPrompt | undefined;
+  promptIndex: number;
+  queueLength: number;
+  answer: string;
+  setAnswer: (value: string) => void;
+  answerMode: AnswerMode;
+  setAnswerMode: (value: AnswerMode) => void;
+  confidence: number;
+  setConfidence: (value: number) => void;
+  latencySeconds: number;
+  submitAnswer: () => void;
+  lastResponse: AssessmentResponse | null;
+  repairTips: string[];
+  completedCount: number;
+  selectedCueIds: string[];
+  toggleCue: (cueId: string) => void;
+  phoneDownChecklist: Record<PhoneDownKey, boolean>;
+  togglePhoneDownItem: (key: PhoneDownKey) => void;
+  phoneDownReady: boolean;
+  sleepResult: ReturnType<typeof buildSleepCuePacket>;
+  cacheStatus: string;
+  completedAt: string | null;
+  completeLockIn: () => void;
+  audioPlaying: boolean;
+  setAudioPlaying: (value: boolean) => void;
+}) {
+  const phoneDownItems: Array<{ key: PhoneDownKey; label: string }> = [
+    { key: "notificationsSilenced", label: "Notifications silenced" },
+    { key: "screenDimmingEnabled", label: "Dimming enabled" },
+    { key: "chargerReady", label: "Charger ready" },
+    { key: "alarmSet", label: "Alarm set" }
+  ];
+  const selectedCueCount = packet.evening.sleep_cue_binding_items.filter((cue) =>
+    selectedCueIds.includes(cue.id)
+  ).length;
   return (
     <div className="page-grid lock-grid">
-      <section className="panel dusk-panel">
+      <section className="panel session-player lock-session">
         <PanelTitle icon={Headphones} title="Evening Lock-In" meta={packet.evening.screen_policy} />
-        <div className="dusk-meter">
-          <Moon size={54} />
-          <div>
-            <h2>{packet.evening.transfer_drills.length} transfer drills</h2>
-            <p>{packet.evening.sleep_cue_binding_items.length} cue bindings queued</p>
+        <div className="forge-status-grid">
+          <MiniStat label="Prompt" value={`${promptIndex}/${Math.max(queueLength, 1)}`} />
+          <MiniStat label="Latency" value={`${latencySeconds}s`} />
+          <MiniStat label="Completed" value={`${completedCount}`} />
+          <MiniStat label="Sleep cache" value={cacheStatus} />
+        </div>
+        <div className="lock-audio-strip">
+          <button
+            className="icon-button"
+            title={audioPlaying ? "Pause evening audio" : "Play evening audio"}
+            aria-label={audioPlaying ? "Pause evening audio" : "Play evening audio"}
+            onClick={() => setAudioPlaying(!audioPlaying)}
+          >
+            {audioPlaying ? <Pause size={18} /> : <Play size={18} />}
+          </button>
+          <div className={`mini-waveform ${audioPlaying ? "is-playing" : ""}`}>
+            {Array.from({ length: 22 }).map((_, index) => (
+              <span key={index} style={{ height: `${12 + ((index * 13) % 34)}px` }} />
+            ))}
+          </div>
+          <strong>{audioPlaying ? "audio-first" : "ready"}</strong>
+        </div>
+        <div className="prompt-box lock-prompt">
+          <p className="eyebrow">{prompt?.phase ?? "complete"}</p>
+          <h2>{prompt?.item.prompt ?? "Sleep handoff ready"}</h2>
+        </div>
+        <div className="segmented-control" aria-label="Evening answer mode">
+          {(["voice", "text"] as const).map((mode) => (
+            <button
+              className={answerMode === mode ? "is-active" : ""}
+              key={mode}
+              onClick={() => setAnswerMode(mode)}
+            >
+              {mode === "voice" ? <AudioLines size={16} /> : <ClipboardCheck size={16} />}
+              <span>{mode}</span>
+            </button>
+          ))}
+        </div>
+        <textarea
+          value={answer}
+          onChange={(event) => setAnswer(event.target.value)}
+          placeholder={answerMode === "voice" ? "Soft transcript..." : "One compact answer..."}
+          rows={5}
+        />
+        <Slider
+          label="Confidence"
+          value={confidence}
+          onChange={setConfidence}
+          suffix={`${Math.round(confidence * 100)}%`}
+        />
+        <div className="action-row">
+          <button className="command primary" onClick={submitAnswer}>
+            <CheckCircle2 size={18} />
+            Score
+          </button>
+          <button
+            className="command"
+            onClick={() => setAnswer(answer || "I can state the mechanism, boundary, and a new example.")}
+          >
+            <Wand2 size={18} />
+            Prime
+          </button>
+          <button className="command" onClick={completeLockIn}>
+            <Moon size={18} />
+            Complete
+          </button>
+        </div>
+        {lastResponse && (
+          <div className="feedback-band lock-feedback">
+            <strong>{Math.round(lastResponse.correctness_score * 100)}%</strong>
+            <span>{lastResponse.model_feedback}</span>
+          </div>
+        )}
+        {repairTips.length > 0 && (
+          <div className="repair-list">
+            {repairTips.map((tip) => (
+              <ObjectLine key={tip} label="Repair" value={tip} />
+            ))}
+          </div>
+        )}
+      </section>
+      <section className="lock-side">
+        <div className="panel dusk-panel phone-down-panel">
+          <PanelTitle icon={ShieldCheck} title="Phone-Down" meta={phoneDownReady ? "ready" : "open"} />
+          <div className="checklist-grid">
+            {phoneDownItems.map((item) => (
+              <button
+                className={`check-row ${phoneDownChecklist[item.key] ? "is-ready" : ""}`}
+                key={item.key}
+                onClick={() => togglePhoneDownItem(item.key)}
+              >
+                <CheckCircle2 size={18} />
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+          <div className="guard-grid compact-guard">
+            {["leaderboards", "infinite video", "bright UI", "friend comparisons"].map((item) => (
+              <div className="guard-item" key={item}>
+                <ShieldCheck size={18} />
+                <span>{item}</span>
+              </div>
+            ))}
           </div>
         </div>
-        <div className="ritual-list">
-          {packet.evening.recall_items.slice(0, 4).map((item) => (
-            <ObjectLine key={item.id} label="Recall" value={item.prompt} />
-          ))}
+        <div className="panel cue-binding-panel">
+          <PanelTitle icon={Moon} title="Cue Binding" meta={`${selectedCueCount} selected`} />
+          <div className="cue-bind-grid">
+            {packet.evening.sleep_cue_binding_items.slice(0, 6).map((cue) => {
+              const selected = selectedCueIds.includes(cue.id);
+              return (
+                <button
+                  className={`cue-card ${selected ? "is-selected" : ""}`}
+                  key={cue.id}
+                  onClick={() => toggleCue(cue.id)}
+                >
+                  <span>{cue.cue_type}</span>
+                  <strong>{cue.text ?? cue.concept_id}</strong>
+                  <small>{Math.round(cue.sleep_safety_score * 100)} safety</small>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </section>
-      <section className="panel">
-        <PanelTitle icon={ShieldCheck} title="Dusk Guard" meta="active" />
-        <div className="guard-grid">
-          {[
-            "leaderboards",
-            "graph browsing",
-            "infinite video",
-            "bright UI",
-            "unneeded typing",
-            "friend comparisons"
-          ].map((item) => (
-            <div className="guard-item" key={item}>
-              <ShieldCheck size={18} />
-              <span>{item}</span>
+        <div className="panel sleep-handoff-panel">
+          <PanelTitle icon={Radio} title="Sleep Handoff" meta={completedAt ? "armed" : "draft"} />
+          <div className="case-grid">
+            <MiniStat label="Reactivate" value={`${sleepResult.packet.reactivate_concept_ids.length}`} />
+            <MiniStat label="Stabilize" value={`${sleepResult.packet.stabilize_concept_ids.length}`} />
+            <MiniStat label="Controls" value={`${sleepResult.packet.control_concept_ids.length}`} />
+            <MiniStat label="Spacing" value={`${sleepResult.packet.cue_spacing_seconds}s`} />
+          </div>
+          <ObjectLine label="Audio plan" value={sleepResult.audioPlan.render_status} />
+          <ObjectLine
+            label="Reminder"
+            value={new Date(
+              sleepResult.packet.target_sleep_window.estimated_sleep_onset_at
+            ).toLocaleTimeString([], {
+              hour: "numeric",
+              minute: "2-digit"
+            })}
+          />
+          {completedAt && (
+            <div className="feedback-band lock-complete-band">
+              <strong>armed</strong>
+              <span>
+                {new Date(completedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+              </span>
             </div>
-          ))}
+          )}
         </div>
       </section>
     </div>

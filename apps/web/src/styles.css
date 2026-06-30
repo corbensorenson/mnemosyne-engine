@@ -902,6 +902,151 @@ input[type="range"] {
   margin-bottom: 14px;
 }
 
+.lock-side {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.lock-session {
+  align-content: start;
+}
+
+.lock-audio-strip {
+  min-height: 74px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 84px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #17231f;
+  color: var(--paper);
+}
+
+.mini-waveform {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.mini-waveform span {
+  width: 5px;
+  min-width: 5px;
+  border-radius: 999px;
+  background: rgba(43, 174, 159, 0.45);
+}
+
+.mini-waveform.is-playing span {
+  background: var(--teal);
+}
+
+.lock-prompt {
+  border-left-color: var(--teal);
+  background: var(--teal-soft);
+}
+
+.lock-feedback {
+  border-color: var(--indigo);
+  background: var(--indigo-soft);
+}
+
+.phone-down-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.checklist-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.check-row,
+.cue-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-align: left;
+}
+
+.check-row {
+  min-height: 54px;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.check-row.is-ready {
+  border-color: rgba(43, 174, 159, 0.72);
+  background: var(--teal-soft);
+}
+
+.dusk-panel .check-row,
+.dusk-panel .guard-item {
+  background: rgba(247, 244, 237, 0.1);
+  border-color: rgba(247, 244, 237, 0.2);
+  color: var(--paper);
+}
+
+.dusk-panel .check-row.is-ready {
+  background: rgba(43, 174, 159, 0.28);
+  border-color: rgba(43, 174, 159, 0.74);
+}
+
+.compact-guard {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cue-binding-panel,
+.sleep-handoff-panel {
+  align-self: start;
+}
+
+.cue-bind-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.cue-card {
+  min-height: 92px;
+  padding: 12px;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.cue-card span,
+.cue-card small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.cue-card strong {
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.cue-card.is-selected {
+  border-color: var(--teal);
+  background: var(--teal-soft);
+}
+
+.lock-complete-band {
+  border-color: var(--green);
+  background: #e7f3e9;
+}
+
 .guard-grid,
 .service-grid {
   display: grid;
@@ -1185,6 +1330,8 @@ input[type="range"] {
   .lab-grid,
   .service-grid,
   .guard-grid,
+  .checklist-grid,
+  .compact-guard,
   .sleep-ratio,
   .case-grid,
   .forge-status-grid,

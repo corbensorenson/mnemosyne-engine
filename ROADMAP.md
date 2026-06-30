@@ -302,6 +302,7 @@ Deliverables:
 Current implementation progress:
 
 - API Evening Lock-In completion flow scores recall and transfer responses, records phone-down readiness and cue bindings, completes the session, and generates a fresh SleepCue packet plus audio plan from evening bindings and graph state.
+- PWA Evening Lock-In surface now runs an audio-first low-screen prompt queue, captures voice/text answers with confidence and latency, binds sleep cues, tracks the phone-down checklist, previews the generated sleep handoff, and caches the handoff locally.
 
 Exit criteria:
 
