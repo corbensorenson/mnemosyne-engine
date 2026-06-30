@@ -238,9 +238,10 @@ describe("worker-service", () => {
           retention_policy: "backup"
         })
       );
+      if (!manifest) throw new Error("Expected backup object manifest");
       const stored = await runtime.objectStorage.getObject({
         bucket: "backup",
-        key: manifest?.key ?? ""
+        key: manifest.key
       });
       const backup = JSON.parse(Buffer.from(stored?.body ?? []).toString("utf8")) as {
         schema_version?: string;
@@ -258,6 +259,42 @@ describe("worker-service", () => {
       expect(backup.global?.jobs?.map((job) => job.id)).toContain(backupJob.id);
       expect((await runtime.store.listAuditEvents(demoUser.id)).map((event) => event.action)).toEqual(
         expect.arrayContaining(["system_backup_object_stored", "job_completed"])
+      );
+
+      const restoreDrillJob = await runtime.store.saveJob(
+        createJob({
+          queue: "export",
+          type: "run_system_backup_restore_drill",
+          payload: {
+            operator_id: demoUser.id,
+            object_manifest_id: manifest.id,
+            requested_at: "2026-06-29T12:05:00.000Z"
+          },
+          priority: "high",
+          idempotencyKey: "worker-service-restore-drill",
+          auditSubjectId: demoUser.id,
+          createdAt: "2026-06-29T12:05:00.000Z"
+        })
+      );
+      const restoreDrillResult = await runWorkerServiceBatch(runtime);
+      expect(restoreDrillResult.completed).toBe(1);
+      expect(restoreDrillResult.failed).toBe(0);
+      expect((await runtime.store.getJob(restoreDrillJob.id))?.result).toEqual(
+        expect.objectContaining({
+          schema_version: "mnemosyne-restore-drill-v0.1",
+          passed: true,
+          object_manifest_id: manifest.id,
+          backup_schema_version: "mnemosyne-system-backup-v0.1",
+          counts: expect.objectContaining({
+            users: 1,
+            jobs: 1,
+            user_graph_states: expect.any(Number)
+          }),
+          failed_check_ids: []
+        })
+      );
+      expect((await runtime.store.listAuditEvents(demoUser.id)).map((event) => event.action)).toEqual(
+        expect.arrayContaining(["system_backup_restore_drill_completed"])
       );
     } finally {
       await runtime.close();

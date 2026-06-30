@@ -52,6 +52,8 @@ The privacy export worker registers `export:build_privacy_export`. The handler l
 
 The system backup worker registers `export:build_system_backup`. The handler loads the store-wide backup bundle from `MnemosyneStore`, writes the bundle as JSON through configured object storage, persists the `backup` object manifest, and audits the stored artifact with bundle counts for restore drills.
 
+The restore drill worker registers `export:run_system_backup_restore_drill`. The handler reads a stored backup object by manifest, verifies object SHA-256 and size continuity, parses the `mnemosyne-system-backup-v0.1` payload, checks declared counts against bundle contents, verifies user graph bundle shape, sleep packet ownership, audit-event id continuity, and privacy export field presence, then audits a `mnemosyne-restore-drill-v0.1` report.
+
 `@mnemosyne/worker-service` is the executable process wrapper. `npm run worker:start` uses the same `MNEMOSYNE_STORAGE`, `DATABASE_URL`, migration, demo-seed, and object-root settings as the API runtime, plus worker-specific queue, mode, batch, poll, and audio-format settings.
 
 ## API Surface
@@ -69,6 +71,7 @@ The API service now exposes:
 - `POST /api/proposals/:id/moderation/jobs`
 - `POST /api/privacy/export/jobs`
 - `POST /api/ops/backups/jobs`
+- `POST /api/ops/backups/:id/restore-drills/jobs`
 - `POST /api/objects`
 - `POST /api/objects/store`
 - `GET /api/ops/monitoring`
@@ -103,7 +106,9 @@ User data export includes owned jobs and object manifests. Full account deletion
 
 ## Backups
 
-System backups are queued with `POST /api/ops/backups/jobs` using an `operatorId`. The worker stores a `mnemosyne-system-backup-v0.1` JSON artifact in the `backup` bucket with managed encryption metadata, SHA-256 integrity, a durable object manifest, global jobs/object/audit records, the master graph, and per-user export bundles. Restore drills should verify the backup object's manifest, schema version, counts, user graph content, audit log continuity, and privacy export/deletion flows before promotion.
+System backups are queued with `POST /api/ops/backups/jobs` using an `operatorId`. The worker stores a `mnemosyne-system-backup-v0.1` JSON artifact in the `backup` bucket with managed encryption metadata, SHA-256 integrity, a durable object manifest, global jobs/object/audit records, the master graph, and per-user export bundles.
+
+Restore drills are queued with `POST /api/ops/backups/:id/restore-drills/jobs`, where `:id` is the backup object manifest id and the body includes `operatorId`. The worker reads the object back through first-party object storage, emits `system_backup_restore_drill_completed` when all checks pass, and fails with `system_backup_restore_drill_failed` when the manifest, object bytes, schema, counts, graph bundles, sleep ownership, audit ids, or export/deletion fields do not validate. Restore drills should run before promotion and on a recurring staging schedule.
 
 ## Next Adapter Work
 

@@ -227,6 +227,15 @@ function createHttpRoutes(handlers: ReturnType<typeof createApiHandlers>): Route
     route("POST", "/api/ops/backups/jobs", (context) => handlers.queueSystemBackup(context.body), {
       rateLimitKey: "ops_job"
     }),
+    route(
+      "POST",
+      "/api/ops/backups/:id/restore-drills/jobs",
+      (context) =>
+        handlers.queueSystemBackupRestoreDrill(
+          withBodyField(context, "objectManifestId", pathParam(context, "id"))
+        ),
+      { rateLimitKey: "ops_job" }
+    ),
     route("DELETE", "/api/privacy/data", (context) => handlers.deleteUserData(context.body)),
     route("GET", "/api/me/capabilities", (context) =>
       handlers.getCapabilities(requiredQuery(context, "userId"))

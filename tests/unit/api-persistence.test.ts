@@ -1374,6 +1374,32 @@ describe("persistence-backed API handlers", () => {
       "system_backup_queued"
     );
 
+    const backupManifest = unwrap(
+      await handlers.createObjectManifest({
+        userId: demoUser.id,
+        bucket: "backup",
+        key: "backups/system/demo-backup.json",
+        contentType: "application/json",
+        sizeBytes: 4096,
+        sha256: "c".repeat(64),
+        retentionPolicy: "backup",
+        metadata: { schema_version: "mnemosyne-system-backup-v0.1" }
+      })
+    );
+    const queuedRestoreDrill = unwrap(
+      await handlers.queueSystemBackupRestoreDrill({
+        operatorId: demoUser.id,
+        objectManifestId: backupManifest.id,
+        idempotencyKey: "system_backup_restore_drill_test"
+      })
+    );
+    expect(queuedRestoreDrill.queue).toBe("export");
+    expect(queuedRestoreDrill.type).toBe("run_system_backup_restore_drill");
+    expect(queuedRestoreDrill.payload.object_manifest_id).toBe(backupManifest.id);
+    expect((await store.listAuditEvents(demoUser.id)).map((event) => event.action)).toContain(
+      "system_backup_restore_drill_queued"
+    );
+
     const voiceDeleted = unwrap(
       await handlers.deleteUserData({
         userId: demoUser.id,

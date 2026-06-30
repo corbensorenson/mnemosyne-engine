@@ -209,6 +209,7 @@ import {
   sleepRecallCompleteRequestSchema,
   startSessionRequestSchema,
   systemBackupJobRequestSchema,
+  systemBackupRestoreDrillJobRequestSchema,
   tutorTurnRequestSchema,
   updatePreferencesRequestSchema,
   userGraphReplayRequestSchema,
@@ -536,6 +537,15 @@ type PrivacyExportJobRequest = {
 
 type SystemBackupJobRequest = {
   operatorId: string;
+  priority: JobPriority;
+  runAfter?: string;
+  idempotencyKey?: string;
+  maxAttempts: number;
+};
+
+type SystemBackupRestoreDrillJobRequest = {
+  operatorId: string;
+  objectManifestId: string;
   priority: JobPriority;
   runAfter?: string;
   idempotencyKey?: string;
@@ -1076,6 +1086,53 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
           priority: job.priority,
           run_after: job.run_after,
           idempotency_key: job.idempotency_key
+        }
+      });
+      return envelope(job, audit.id);
+    },
+
+    async queueSystemBackupRestoreDrill(input: unknown): Promise<HandlerEnvelope<JobRecord>> {
+      const request = validateRequest(
+        systemBackupRestoreDrillJobRequestSchema,
+        input
+      ) as SystemBackupRestoreDrillJobRequest;
+      await requireUser(store, request.operatorId);
+      const manifest = await store.getObjectManifest(request.objectManifestId);
+      if (!manifest) throw new Error(`Unknown backup object manifest: ${request.objectManifestId}`);
+      if (manifest.bucket !== "backup") {
+        throw new Error(`Restore drill requires a backup object manifest: ${request.objectManifestId}`);
+      }
+      const queuedAt = nowIso();
+      const job = await store.saveJob(
+        createOpsJob({
+          queue: "export",
+          type: "run_system_backup_restore_drill",
+          payload: {
+            operator_id: request.operatorId,
+            object_manifest_id: request.objectManifestId,
+            requested_at: queuedAt
+          },
+          priority: request.priority,
+          runAfter: request.runAfter,
+          idempotencyKey:
+            request.idempotencyKey ?? `system_backup_restore_drill:${request.objectManifestId}:${queuedAt}`,
+          maxAttempts: request.maxAttempts,
+          auditSubjectId: request.operatorId,
+          createdAt: queuedAt
+        })
+      );
+      const audit = await store.appendAuditEvent({
+        actor_id: request.operatorId,
+        action: "system_backup_restore_drill_queued",
+        object_type: "service_job",
+        object_id: job.id,
+        payload: {
+          queue: job.queue,
+          type: job.type,
+          priority: job.priority,
+          run_after: job.run_after,
+          idempotency_key: job.idempotency_key,
+          object_manifest_id: request.objectManifestId
         }
       });
       return envelope(job, audit.id);

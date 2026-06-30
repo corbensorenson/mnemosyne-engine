@@ -13,7 +13,7 @@ import {
   type ModerationTriage
 } from "@mnemosyne/content-court";
 import type { NotificationPlanItem } from "@mnemosyne/notification-core";
-import { queueNames, type QueueName } from "@mnemosyne/ops-core";
+import { queueNames, type ObjectManifest, type QueueName } from "@mnemosyne/ops-core";
 import { buildOutcomeDashboard } from "@mnemosyne/outcome-core";
 import { createSchedulerWorkerHandlers } from "@mnemosyne/scheduler-service";
 import { createLocalObjectStorage } from "@mnemosyne/storage-core";
@@ -54,6 +54,36 @@ export type WorkerServiceRuntime = {
 
 export type WorkerServiceRunResult =
   WorkerRunResult | WorkerBatchResult | WorkerRunResult[] | WorkerRecoveryResult;
+
+type RestoreDrillCheck = {
+  id: string;
+  status: "pass" | "fail";
+  detail: string;
+  expected?: unknown;
+  actual?: unknown;
+};
+
+type SystemBackupRestoreDrillReport = {
+  schema_version: "mnemosyne-restore-drill-v0.1";
+  generated_at: string;
+  operator_id: string;
+  object_manifest_id: string;
+  object_key: string;
+  backup_schema_version?: string;
+  passed: boolean;
+  checks: RestoreDrillCheck[];
+  failed_check_ids: string[];
+  counts: {
+    users: number;
+    jobs: number;
+    object_manifests: number;
+    audit_events: number;
+    user_graph_states: number;
+    daily_packets: number;
+    sleep_cue_packets: number;
+  };
+  sampled_user_ids: string[];
+};
 
 export function workerServiceConfigFromEnv(env: NodeJS.ProcessEnv = process.env): WorkerServiceConfig {
   return {
@@ -272,6 +302,85 @@ export function createSystemBackupWorkerHandlers(): WorkerHandlerDefinition[] {
           audit_event_id: audit.id,
           schema_version: bundle.schema_version,
           counts: bundle.counts
+        };
+      }
+    },
+    {
+      queue: "export",
+      type: "run_system_backup_restore_drill",
+      async handle(context) {
+        if (!context.objectStorage) throw new Error("system backup restore drill requires object storage");
+        const operatorId = payloadString(context.job.payload, "operator_id");
+        const objectManifestId = payloadString(context.job.payload, "object_manifest_id");
+        const manifest = await context.store.getObjectManifest(objectManifestId);
+        if (!manifest) {
+          const audit = await context.store.appendAuditEvent({
+            actor_id: operatorId,
+            action: "system_backup_restore_drill_failed",
+            object_type: "object_manifest",
+            object_id: objectManifestId,
+            payload: {
+              job_id: context.job.id,
+              worker_id: context.workerId,
+              error: "backup object manifest was not found"
+            }
+          });
+          throw new Error(
+            `system backup restore drill failed: missing manifest ${objectManifestId} (${audit.id})`
+          );
+        }
+
+        const stored = await context.objectStorage.getObject({
+          bucket: manifest.bucket,
+          key: manifest.key
+        });
+        if (!stored) {
+          const audit = await context.store.appendAuditEvent({
+            actor_id: operatorId,
+            action: "system_backup_restore_drill_failed",
+            object_type: "object_manifest",
+            object_id: objectManifestId,
+            payload: {
+              job_id: context.job.id,
+              worker_id: context.workerId,
+              bucket: manifest.bucket,
+              key: manifest.key,
+              error: "backup object bytes were not found"
+            }
+          });
+          throw new Error(`system backup restore drill failed: missing object ${manifest.key} (${audit.id})`);
+        }
+
+        const report = buildSystemBackupRestoreDrillReport({
+          operatorId,
+          manifest,
+          storedManifest: stored.manifest,
+          body: stored.body
+        });
+        const audit = await context.store.appendAuditEvent({
+          actor_id: operatorId,
+          action: report.passed
+            ? "system_backup_restore_drill_completed"
+            : "system_backup_restore_drill_failed",
+          object_type: "object_manifest",
+          object_id: manifest.id,
+          payload: {
+            job_id: context.job.id,
+            worker_id: context.workerId,
+            passed: report.passed,
+            failed_check_ids: report.failed_check_ids,
+            counts: report.counts,
+            backup_schema_version: report.backup_schema_version
+          }
+        });
+        if (!report.passed) {
+          throw new Error(
+            `system backup restore drill failed: ${report.failed_check_ids.join(", ")} (${audit.id})`
+          );
+        }
+        return {
+          ...report,
+          audit_event_id: audit.id
         };
       }
     }
@@ -553,6 +662,211 @@ function moderationTriageComment(triage: ModerationTriage): string {
   return `Moderation triage: ${triage.required_action}. ${triage.reasons.join(" ")}`;
 }
 
+function buildSystemBackupRestoreDrillReport(input: {
+  operatorId: string;
+  manifest: ObjectManifest;
+  storedManifest: ObjectManifest;
+  body: Uint8Array;
+}): SystemBackupRestoreDrillReport {
+  const checks: RestoreDrillCheck[] = [];
+  const check = (id: string, passed: boolean, detail: string, expected?: unknown, actual?: unknown) => {
+    checks.push({
+      id,
+      status: passed ? "pass" : "fail",
+      detail,
+      ...(expected === undefined ? {} : { expected }),
+      ...(actual === undefined ? {} : { actual })
+    });
+  };
+
+  const bodyText = Buffer.from(input.body).toString("utf8");
+  const parsed = parseJsonObject(bodyText);
+  const backup = parsed.ok ? parsed.value : undefined;
+  const counts = recordValue(backup, "counts");
+  const global = recordValue(backup, "global");
+  const masterGraph = recordValue(backup, "master_graph");
+  const users = arrayRecordValue(backup, "users");
+  const userGraphStateCount = users.reduce((total, userBundle) => {
+    const graph = recordValue(userBundle, "user_graph");
+    return total + arrayRecordValue(graph, "states").length;
+  }, 0);
+  const dailyPacketCount = users.reduce(
+    (total, userBundle) => total + arrayRecordValue(userBundle, "daily_packets").length,
+    0
+  );
+  const sleepCuePacketCount = users.reduce(
+    (total, userBundle) => total + arrayRecordValue(userBundle, "sleep_cue_packets").length,
+    0
+  );
+  const globalJobs = arrayRecordValue(global, "jobs");
+  const globalObjectManifests = arrayRecordValue(global, "object_manifests");
+  const globalAuditEvents = arrayRecordValue(global, "audit_events");
+
+  check(
+    "manifest_bucket",
+    input.manifest.bucket === "backup",
+    "Manifest is in the backup bucket.",
+    "backup",
+    input.manifest.bucket
+  );
+  check(
+    "manifest_content_type",
+    input.manifest.content_type === "application/json",
+    "Manifest content type is JSON.",
+    "application/json",
+    input.manifest.content_type
+  );
+  check(
+    "manifest_retention",
+    input.manifest.retention_policy === "backup",
+    "Manifest retention policy is backup.",
+    "backup",
+    input.manifest.retention_policy
+  );
+  check(
+    "object_sha256_matches_manifest",
+    input.storedManifest.sha256 === input.manifest.sha256,
+    "Stored object SHA-256 matches the persisted object manifest.",
+    input.manifest.sha256,
+    input.storedManifest.sha256
+  );
+  check(
+    "object_size_matches_manifest",
+    input.storedManifest.size_bytes === input.manifest.size_bytes,
+    "Stored object size matches the persisted object manifest.",
+    input.manifest.size_bytes,
+    input.storedManifest.size_bytes
+  );
+  check("json_parsed", parsed.ok, parsed.ok ? "Backup JSON parses." : parsed.error);
+  check(
+    "schema_version",
+    stringValue(backup, "schema_version") === "mnemosyne-system-backup-v0.1",
+    "Backup schema version is supported.",
+    "mnemosyne-system-backup-v0.1",
+    stringValue(backup, "schema_version")
+  );
+  check("counts_object", Boolean(counts), "Backup includes a counts object.");
+  check("master_graph_object", Boolean(masterGraph), "Backup includes a master graph object.");
+  check(
+    "users_array",
+    backup !== undefined && hasRecordArray(backup, "users"),
+    "Backup users value is an array of user export bundles."
+  );
+  check("global_object", Boolean(global), "Backup includes a global records object.");
+  check(
+    "global_arrays",
+    global !== undefined &&
+      [
+        "jobs",
+        "object_manifests",
+        "audit_events",
+        "proposals",
+        "creator_submissions",
+        "knowledge_packs",
+        "experiments",
+        "social_challenges"
+      ].every((key) => hasRecordArray(global, key)),
+    "Global backup fields are arrays of records."
+  );
+  check(
+    "user_count_matches",
+    numberValue(counts, "users") === users.length &&
+      numberValue(counts, "user_export_bundles") === users.length,
+    "Declared user counts match user export bundles.",
+    { users: users.length, user_export_bundles: users.length },
+    {
+      users: numberValue(counts, "users"),
+      user_export_bundles: numberValue(counts, "user_export_bundles")
+    }
+  );
+  check(
+    "job_count_matches",
+    numberValue(counts, "jobs") === globalJobs.length,
+    "Declared job count matches global job records.",
+    globalJobs.length,
+    numberValue(counts, "jobs")
+  );
+  check(
+    "object_manifest_count_matches",
+    numberValue(counts, "object_manifests") === globalObjectManifests.length,
+    "Declared object manifest count matches global object manifests.",
+    globalObjectManifests.length,
+    numberValue(counts, "object_manifests")
+  );
+  check(
+    "audit_event_count_matches",
+    numberValue(counts, "audit_events") === globalAuditEvents.length,
+    "Declared audit-event count matches global audit events.",
+    globalAuditEvents.length,
+    numberValue(counts, "audit_events")
+  );
+  for (const key of [
+    "proposals",
+    "creator_submissions",
+    "knowledge_packs",
+    "experiments",
+    "social_challenges"
+  ]) {
+    check(
+      `${key}_count_matches`,
+      numberValue(counts, key) === arrayRecordValue(global, key).length,
+      `Declared ${key} count matches global ${key}.`,
+      arrayRecordValue(global, key).length,
+      numberValue(counts, key)
+    );
+  }
+  check(
+    "user_graph_bundles_valid",
+    users.every(isValidUserGraphBundle),
+    "Every user bundle has a matching user id and graph-state array."
+  );
+  check(
+    "sleep_packets_owned",
+    users.every(hasOwnedSleepPackets),
+    "Daily packets and sleep cue packets stay inside their owning user bundle."
+  );
+  check(
+    "privacy_export_fields_present",
+    users.every(hasPrivacyExportFields),
+    "Each user bundle contains the fields needed by export and deletion flows."
+  );
+  check(
+    "audit_event_ids_unique",
+    uniqueStringIds(globalAuditEvents).size === globalAuditEvents.length,
+    "Global audit event ids are unique.",
+    globalAuditEvents.length,
+    uniqueStringIds(globalAuditEvents).size
+  );
+
+  const failedCheckIds = checks
+    .filter((candidate) => candidate.status === "fail")
+    .map((candidate) => candidate.id);
+  return {
+    schema_version: "mnemosyne-restore-drill-v0.1",
+    generated_at: new Date().toISOString(),
+    operator_id: input.operatorId,
+    object_manifest_id: input.manifest.id,
+    object_key: input.manifest.key,
+    backup_schema_version: stringValue(backup, "schema_version"),
+    passed: failedCheckIds.length === 0,
+    checks,
+    failed_check_ids: failedCheckIds,
+    counts: {
+      users: users.length,
+      jobs: globalJobs.length,
+      object_manifests: globalObjectManifests.length,
+      audit_events: globalAuditEvents.length,
+      user_graph_states: userGraphStateCount,
+      daily_packets: dailyPacketCount,
+      sleep_cue_packets: sleepCuePacketCount
+    },
+    sampled_user_ids: users
+      .map((userBundle) => stringValue(userBundle, "user_id"))
+      .filter(isString)
+      .slice(0, 10)
+  };
+}
+
 function payloadString(payload: Record<string, unknown>, key: string): string {
   const value = payload[key];
   if (typeof value !== "string" || !value.trim()) {
@@ -563,6 +877,96 @@ function payloadString(payload: Record<string, unknown>, key: string): string {
 
 function safePathSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function parseJsonObject(
+  json: string
+): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (!isRecord(parsed)) return { ok: false, error: "Backup JSON root is not an object." };
+    return { ok: true, value: parsed };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Backup JSON parse failed."
+    };
+  }
+}
+
+function recordValue(
+  record: Record<string, unknown> | undefined,
+  key: string
+): Record<string, unknown> | undefined {
+  const value = record?.[key];
+  return isRecord(value) ? value : undefined;
+}
+
+function arrayRecordValue(
+  record: Record<string, unknown> | undefined,
+  key: string
+): Record<string, unknown>[] {
+  const value = record?.[key];
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function stringValue(record: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = record?.[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function numberValue(record: Record<string, unknown> | undefined, key: string): number | undefined {
+  const value = record?.[key];
+  return typeof value === "number" ? value : undefined;
+}
+
+function hasRecordArray(record: Record<string, unknown>, key: string): boolean {
+  const value = record[key];
+  return Array.isArray(value) && value.every(isRecord);
+}
+
+function isValidUserGraphBundle(userBundle: Record<string, unknown>): boolean {
+  const userId = stringValue(userBundle, "user_id");
+  const user = recordValue(userBundle, "user");
+  const graph = recordValue(userBundle, "user_graph");
+  const states = graph?.states;
+  return (
+    Boolean(userId) &&
+    (!user || stringValue(user, "id") === userId) &&
+    Array.isArray(states) &&
+    states.every((state) => isRecord(state) && typeof state.concept_id === "string")
+  );
+}
+
+function hasOwnedSleepPackets(userBundle: Record<string, unknown>): boolean {
+  const userId = stringValue(userBundle, "user_id");
+  if (!userId) return false;
+  const dailyPackets = arrayRecordValue(userBundle, "daily_packets");
+  const sleepCuePackets = arrayRecordValue(userBundle, "sleep_cue_packets");
+  return [...dailyPackets, ...sleepCuePackets].every((packet) => stringValue(packet, "user_id") === userId);
+}
+
+function hasPrivacyExportFields(userBundle: Record<string, unknown>): boolean {
+  return [
+    "goals",
+    "daily_packets",
+    "sleep_cue_packets",
+    "audio_plans",
+    "assessment_responses",
+    "learning_events",
+    "audit_events",
+    "sessions",
+    "jobs",
+    "object_manifests"
+  ].every((key) => hasRecordArray(userBundle, key));
+}
+
+function uniqueStringIds(records: Record<string, unknown>[]): Set<string> {
+  return new Set(records.map((record) => stringValue(record, "id")).filter(isString));
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
 }
 
 function notificationPayload(payload: Record<string, unknown>): NotificationPlanItem {

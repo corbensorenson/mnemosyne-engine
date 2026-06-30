@@ -510,6 +510,7 @@ Current implementation progress:
 - Persistence layer can produce export bundles across user profile, goals, graph state, packets, sessions, events, experiments, social state, and wearable data, while account deletion removes user-owned records and anonymizes retained audit entries.
 - Privacy exports now support asynchronous `export:build_privacy_export` jobs that write readable JSON artifacts to first-party object storage with manifests and audit events.
 - System backups now support asynchronous `export:build_system_backup` jobs that write store-wide JSON artifacts to the first-party `backup` bucket with manifests, counts, and audit events for restore drills.
+- Restore drills now support asynchronous `export:run_system_backup_restore_drill` jobs that read backup objects back through first-party storage, verify integrity/schema/counts/graph/sleep/audit/privacy bundle continuity, and audit completed or failed drill reports.
 - PWA Admin surface includes Privacy Ops cards for export, voice deletion, health deletion, and account deletion alongside the service map and audit log.
 - Creator ingestion now uses first-party `ingestion:process_creator_submission` jobs for queued creator drafts, preserving the same validation, high-stakes labels, proposal generation, and audit trail as synchronous submissions.
 - Notification scheduling now uses first-party `@mnemosyne/notification-core` plans and `notification:deliver_learning_reminder` workers for Morning Forge, Evening Lock-In, phone-down, and SleepCue recall outbox reminders.
