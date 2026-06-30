@@ -8,7 +8,23 @@
     "id": { "type": "string" },
     "concept_ids": { "type": "array", "items": { "type": "string" } },
     "assessment_type": {
-      "enum": ["free_recall", "short_answer", "multiple_choice", "classification", "voice_explanation", "pronunciation", "translation", "timeline", "graph_reconstruction", "sketch", "worked_problem", "debugging", "simulation", "boss_fight", "transfer"]
+      "enum": [
+        "free_recall",
+        "short_answer",
+        "multiple_choice",
+        "classification",
+        "voice_explanation",
+        "pronunciation",
+        "translation",
+        "timeline",
+        "graph_reconstruction",
+        "sketch",
+        "worked_problem",
+        "debugging",
+        "simulation",
+        "boss_fight",
+        "transfer"
+      ]
     },
     "prompt": { "type": "string" },
     "expected_answer": { "type": "string" },

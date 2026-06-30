@@ -68,10 +68,14 @@ export function computeBridgingPriority(proposal: Proposal): number {
     )
   ).length;
   const disputeSignals = voteEntries.filter(([key]) =>
-    ["wrong", "outdated", "misleading", "wrong_prerequisite", "bad_sleep_cue"].some((vote) => key.startsWith(vote))
+    ["wrong", "outdated", "misleading", "wrong_prerequisite", "bad_sleep_cue"].some((vote) =>
+      key.startsWith(vote)
+    )
   ).length;
   const riskBoost = { low: 0.05, medium: 0.18, high: 0.35, critical: 0.5 }[proposal.risk_level];
-  return clamp((helpfulAcrossPerspectives + disputeSignals * 1.4) / Math.max(voteEntries.length, 1) + riskBoost);
+  return clamp(
+    (helpfulAcrossPerspectives + disputeSignals * 1.4) / Math.max(voteEntries.length, 1) + riskBoost
+  );
 }
 
 export function arbitrateProposal(proposal: Proposal): ArbiterVerdict {
@@ -113,13 +117,18 @@ export function arbitrateProposal(proposal: Proposal): ArbiterVerdict {
       }
     ],
     ontology_audit: { affected_objects: proposal.affected_object_ids, split_needed: false },
-    pedagogy_audit: { expected_learning_impact: proposal.expected_learning_impact ?? "unknown", prerequisite_risk: "check" },
+    pedagogy_audit: {
+      expected_learning_impact: proposal.expected_learning_impact ?? "unknown",
+      prerequisite_risk: "check"
+    },
     safety_audit: { risk_level: proposal.risk_level, human_review_required: riskNeedsHuman },
-    confidence: clamp(weightedAverage([
-      { value: sourceQuality, weight: 0.5 },
-      { value: 1 - oppositionQuality, weight: 0.2 },
-      { value: proposal.risk_level === "low" ? 0.8 : 0.45, weight: 0.3 }
-    ])),
+    confidence: clamp(
+      weightedAverage([
+        { value: sourceQuality, weight: 0.5 },
+        { value: 1 - oppositionQuality, weight: 0.2 },
+        { value: proposal.risk_level === "low" ? 0.8 : 0.45, weight: 0.3 }
+      ])
+    ),
     appealable: true,
     required_review_date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 180).toISOString(),
     model_version: "policy-simulated-local-arbiter-v0.1",

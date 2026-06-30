@@ -3,12 +3,28 @@
   "$id": "https://mnemosyne.engine/schema/verdict.schema.json",
   "title": "ArbiterVerdict",
   "type": "object",
-  "required": ["id", "proposal_id", "decision", "reasoning_summary", "confidence", "model_version", "policy_version"],
+  "required": [
+    "id",
+    "proposal_id",
+    "decision",
+    "reasoning_summary",
+    "confidence",
+    "model_version",
+    "policy_version"
+  ],
   "properties": {
     "id": { "type": "string" },
     "proposal_id": { "type": "string" },
     "decision": {
-      "enum": ["accept", "accept_with_modifications", "reject", "needs_more_evidence", "send_to_human_moderation", "mark_as_disputed", "split_into_multiple_claims"]
+      "enum": [
+        "accept",
+        "accept_with_modifications",
+        "reject",
+        "needs_more_evidence",
+        "send_to_human_moderation",
+        "mark_as_disputed",
+        "split_into_multiple_claims"
+      ]
     },
     "reasoning_summary": { "type": "string" },
     "confidence": { "type": "number", "minimum": 0, "maximum": 1 },

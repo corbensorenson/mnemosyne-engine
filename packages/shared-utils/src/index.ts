@@ -16,9 +16,7 @@ export function todayIsoDate(date = new Date()): string {
 }
 
 export function createId(prefix: string, seed?: string): string {
-  const body = seed
-    ? stableHash(seed).toString(36)
-    : Math.random().toString(36).slice(2, 10);
+  const body = seed ? stableHash(seed).toString(36) : Math.random().toString(36).slice(2, 10);
   return `${prefix}_${body}`;
 }
 
@@ -36,9 +34,7 @@ export function seededScore(seed: string, min = 0, max = 1): number {
   return round(min + normalized * (max - min), 4);
 }
 
-export function weightedAverage(
-  entries: Array<{ value: number; weight: number }>
-): number {
+export function weightedAverage(entries: Array<{ value: number; weight: number }>): number {
   const denominator = entries.reduce((sum, entry) => sum + entry.weight, 0);
   if (denominator === 0) return 0;
   return entries.reduce((sum, entry) => sum + entry.value * entry.weight, 0) / denominator;
@@ -65,11 +61,7 @@ export function sortByScore<T>(
   return [...items].sort((left, right) => multiplier * (score(left) - score(right)));
 }
 
-export function takeWeighted<T>(
-  items: T[],
-  count: number,
-  score: (item: T) => number
-): T[] {
+export function takeWeighted<T>(items: T[], count: number, score: (item: T) => number): T[] {
   return sortByScore(items, score).slice(0, Math.max(0, count));
 }
 

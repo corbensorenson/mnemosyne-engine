@@ -9,7 +9,9 @@
     "title": { "type": "string" },
     "url": { "type": "string", "format": "uri" },
     "citation": { "type": "string" },
-    "source_type": { "enum": ["paper", "book", "website", "dataset", "expert", "course", "user_note", "unknown"] },
+    "source_type": {
+      "enum": ["paper", "book", "website", "dataset", "expert", "course", "user_note", "unknown"]
+    },
     "quality_score": { "type": "number", "minimum": 0, "maximum": 1 }
   }
 }

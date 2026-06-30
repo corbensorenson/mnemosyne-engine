@@ -1,4 +1,11 @@
-import type { Goal, ReadinessProfile, User, UserConceptState, VideoAsset, WatchPacket } from "@mnemosyne/schema";
+import type {
+  Goal,
+  ReadinessProfile,
+  User,
+  UserConceptState,
+  VideoAsset,
+  WatchPacket
+} from "@mnemosyne/schema";
 import { clamp, createId, nowIso, sortByScore, unique } from "@mnemosyne/shared-utils";
 
 export type RankedVideo = {
@@ -24,7 +31,8 @@ export function rankVideosForUser(input: {
         const horizonFit = overlap(video.horizon_concept_ids, input.horizonConceptIds);
         const prereqFit = prerequisiteFit(video, input.states);
         const goalFit = video.concept_ids.some((id) => targetDomains.has(id.split("_")[0])) ? 0.15 : 0;
-        const timeFit = video.duration_seconds / 60 <= Math.max(5, input.readiness.screen_budget_minutes) ? 1 : 0.4;
+        const timeFit =
+          video.duration_seconds / 60 <= Math.max(5, input.readiness.screen_budget_minutes) ? 1 : 0.4;
         const sleepPenalty = input.readiness.dusk_mode ? video.cognitive_load_score * 0.18 : 0;
         const score = clamp(
           conceptFit * 0.22 +
@@ -122,7 +130,13 @@ function overlap(left: string[], right: string[]): number {
   return left.filter((item) => rightSet.has(item)).length / Math.max(left.length, right.length);
 }
 
-function reasonsFor(video: VideoAsset, conceptFit: number, horizonFit: number, prereqFit: number, timeFit: number): string[] {
+function reasonsFor(
+  video: VideoAsset,
+  conceptFit: number,
+  horizonFit: number,
+  prereqFit: number,
+  timeFit: number
+): string[] {
   const reasons: string[] = [];
   if (conceptFit > 0) reasons.push("frontier match");
   if (horizonFit > 0) reasons.push("horizon preview");

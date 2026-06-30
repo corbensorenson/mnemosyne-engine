@@ -34,7 +34,6 @@ import { useMemo, useState } from "react";
 import { applyAssessmentToUserState, scoreAssessmentResponse } from "@mnemosyne/assessment-core";
 import { estimateCueDensity } from "@mnemosyne/audio-core";
 import { arbitrateProposal, computeBridgingPriority } from "@mnemosyne/content-court";
-import { buildFlashReadSession } from "@mnemosyne/flashread-core";
 import { buildGraphSnapshot } from "@mnemosyne/graph-core";
 import { buildDailyLearningPacket } from "@mnemosyne/scheduler-core";
 import type { AssessmentResponse, ConceptNode, ReadinessProfile, UserConceptState } from "@mnemosyne/schema";
@@ -43,14 +42,13 @@ import { createTechniqueExperiment, recommendTechniques, techniqueRegistry } fro
 import { rankVideosForUser } from "@mnemosyne/video-core";
 import {
   defaultReadiness,
-  demoBadges,
   demoGoals,
   demoMasterGraph,
   demoProposals,
   demoUser,
   emptyState,
   initialUserStates
-} from "./data";
+} from "@mnemosyne/demo-fixtures";
 
 type TabId =
   | "today"
@@ -147,7 +145,6 @@ export default function App() {
       }),
     [readiness.dusk_mode, scheduled.packet.morning.frontier_items, states]
   );
-  const flashSession = buildFlashReadSession(demoMasterGraph.flashReads[0], "phrase", 380);
   const verdict = arbitrateProposal(demoProposals[0]);
 
   function submitAnswer() {
@@ -214,7 +211,9 @@ export default function App() {
     cinema: <CinemaView rankedVideos={rankedVideos} packet={scheduled.packet.optional_watch_packets[0]} />,
     walk: <WalkView prompts={scheduled.packet.walk_packets[0]?.prompts ?? []} />,
     lock: <LockInView packet={scheduled.packet} />,
-    sleep: <SleepView packet={scheduled.packet.sleep} audioPlan={scheduled.audioPlan} integrity={sleepIntegrity} />,
+    sleep: (
+      <SleepView packet={scheduled.packet.sleep} audioPlan={scheduled.audioPlan} integrity={sleepIntegrity} />
+    ),
     stats: (
       <StatsView
         snapshot={snapshot}
@@ -260,7 +259,11 @@ export default function App() {
             <h1>{tabs.find((tab) => tab.id === activeTab)?.label}</h1>
           </div>
           <div className="topbar-actions">
-            <IconButton title="Regenerate packet" icon={RefreshCcw} onClick={() => setEventLog((log) => ["packet refreshed", ...log])} />
+            <IconButton
+              title="Regenerate packet"
+              icon={RefreshCcw}
+              onClick={() => setEventLog((log) => ["packet refreshed", ...log])}
+            />
             <IconButton title="Search graph" icon={Search} />
             <IconButton title="Start audio" icon={Volume2} />
           </div>
@@ -280,15 +283,40 @@ function TodayView({
   readiness: ReadinessProfile;
   setReadiness: (next: ReadinessProfile) => void;
   packet: ReturnType<typeof buildDailyLearningPacket>["packet"];
-  metrics: { graphVelocity: number; durableMastery: number; screenEfficiency: number; sleepIntegrity: number };
+  metrics: {
+    graphVelocity: number;
+    durableMastery: number;
+    screenEfficiency: number;
+    sleepIntegrity: number;
+  };
 }) {
   return (
     <div className="page-grid today-grid">
       <section className="metric-strip">
-        <MetricTile icon={GitBranch} label="Graph Velocity" value={`${metrics.graphVelocity}/wk`} tone="teal" />
-        <MetricTile icon={CircleGauge} label="Durable Mastery" value={`${Math.round(metrics.durableMastery * 100)}%`} tone="amber" />
-        <MetricTile icon={Activity} label="Screen Efficiency" value={metrics.screenEfficiency.toFixed(2)} tone="coral" />
-        <MetricTile icon={Moon} label="Sleep Integrity" value={`${Math.round(metrics.sleepIntegrity * 100)}%`} tone="indigo" />
+        <MetricTile
+          icon={GitBranch}
+          label="Graph Velocity"
+          value={`${metrics.graphVelocity}/wk`}
+          tone="teal"
+        />
+        <MetricTile
+          icon={CircleGauge}
+          label="Durable Mastery"
+          value={`${Math.round(metrics.durableMastery * 100)}%`}
+          tone="amber"
+        />
+        <MetricTile
+          icon={Activity}
+          label="Screen Efficiency"
+          value={metrics.screenEfficiency.toFixed(2)}
+          tone="coral"
+        />
+        <MetricTile
+          icon={Moon}
+          label="Sleep Integrity"
+          value={`${Math.round(metrics.sleepIntegrity * 100)}%`}
+          tone="indigo"
+        />
       </section>
 
       <section className="panel timeline-panel">
@@ -318,7 +346,11 @@ function TodayView({
             icon={Footprints}
             title="WalkMode"
             time="12 min"
-            details={[`${packet.walk_packets[0]?.prompts.length ?? 0} prompts`, "screen locked", "voice scored"]}
+            details={[
+              `${packet.walk_packets[0]?.prompts.length ?? 0} prompts`,
+              "screen locked",
+              "voice scored"
+            ]}
           />
           <SessionRow
             icon={Headphones}
@@ -344,7 +376,11 @@ function TodayView({
       </section>
 
       <section className="panel readiness-panel">
-        <PanelTitle icon={ClipboardCheck} title="Readiness" meta={readiness.dusk_mode ? "Dusk mode" : "Day mode"} />
+        <PanelTitle
+          icon={ClipboardCheck}
+          title="Readiness"
+          meta={readiness.dusk_mode ? "Dusk mode" : "Day mode"}
+        />
         <Slider
           label="Sleep quality"
           value={readiness.sleep_quality}
@@ -438,11 +474,24 @@ function GraphView({
         <div className="case-grid">
           <MiniStat label="Mastery" value={`${Math.round((selectedState?.mastery ?? 0) * 100)}%`} />
           <MiniStat label="Transfer" value={`${Math.round((selectedState?.transfer_score ?? 0) * 100)}%`} />
-          <MiniStat label="Latency" value={selectedState?.answer_latency_ms ? `${Math.round(selectedState.answer_latency_ms / 1000)}s` : "new"} />
-          <MiniStat label="Cue gain" value={`${Math.round((selectedState?.cue_gain_estimate ?? 0) * 100)}%`} />
+          <MiniStat
+            label="Latency"
+            value={
+              selectedState?.answer_latency_ms
+                ? `${Math.round(selectedState.answer_latency_ms / 1000)}s`
+                : "new"
+            }
+          />
+          <MiniStat
+            label="Cue gain"
+            value={`${Math.round((selectedState?.cue_gain_estimate ?? 0) * 100)}%`}
+          />
         </div>
         <div className="object-list">
-          <ObjectLine label="Prerequisites" value={selectedNode.prerequisites.map((edge) => edge.from_id).join(", ") || "none"} />
+          <ObjectLine
+            label="Prerequisites"
+            value={selectedNode.prerequisites.map((edge) => edge.from_id).join(", ") || "none"}
+          />
           <ObjectLine label="Sleep cue" value={selectedNode.sleep_cues[0]?.text ?? "none"} />
           <ObjectLine label="Video assets" value={`${selectedNode.video_assets.length}`} />
           <ObjectLine label="Review after" value="180 days" />
@@ -462,7 +511,9 @@ function ForgeView({
   submitAnswer,
   lastResponse
 }: {
-  prompt: ReturnType<typeof buildDailyLearningPacket>["packet"]["morning"]["cold_retrieval_items"][number] | undefined;
+  prompt:
+    | ReturnType<typeof buildDailyLearningPacket>["packet"]["morning"]["cold_retrieval_items"][number]
+    | undefined;
   frontier: ConceptNode[];
   answer: string;
   setAnswer: (value: string) => void;
@@ -485,7 +536,12 @@ function ForgeView({
           placeholder="Answer before review..."
           rows={6}
         />
-        <Slider label="Confidence" value={confidence} onChange={setConfidence} suffix={`${Math.round(confidence * 100)}%`} />
+        <Slider
+          label="Confidence"
+          value={confidence}
+          onChange={setConfidence}
+          suffix={`${Math.round(confidence * 100)}%`}
+        />
         <div className="action-row">
           <button className="command primary" onClick={submitAnswer}>
             <CheckCircle2 size={18} />
@@ -572,7 +628,11 @@ function CinemaView({
   );
 }
 
-function WalkView({ prompts }: { prompts: ReturnType<typeof buildDailyLearningPacket>["packet"]["walk_packets"][number]["prompts"] }) {
+function WalkView({
+  prompts
+}: {
+  prompts: ReturnType<typeof buildDailyLearningPacket>["packet"]["walk_packets"][number]["prompts"];
+}) {
   return (
     <div className="walk-layout">
       <section className="phone-down">
@@ -627,14 +687,19 @@ function LockInView({ packet }: { packet: ReturnType<typeof buildDailyLearningPa
       <section className="panel">
         <PanelTitle icon={ShieldCheck} title="Dusk Guard" meta="active" />
         <div className="guard-grid">
-          {["leaderboards", "graph browsing", "infinite video", "bright UI", "unneeded typing", "friend comparisons"].map(
-            (item) => (
-              <div className="guard-item" key={item}>
-                <ShieldCheck size={18} />
-                <span>{item}</span>
-              </div>
-            )
-          )}
+          {[
+            "leaderboards",
+            "graph browsing",
+            "infinite video",
+            "bright UI",
+            "unneeded typing",
+            "friend comparisons"
+          ].map((item) => (
+            <div className="guard-item" key={item}>
+              <ShieldCheck size={18} />
+              <span>{item}</span>
+            </div>
+          ))}
         </div>
       </section>
     </div>
@@ -726,9 +791,24 @@ function StatsView({
         </div>
       </section>
       <section className="metric-strip vertical">
-        <MetricTile icon={GitBranch} label="Prerequisite Debt" value={`${Math.round(snapshot.metrics.prerequisiteDebt * 100)}%`} tone="coral" />
-        <MetricTile icon={Trophy} label="Retention Half-Life" value={`${snapshot.metrics.retentionHalfLifeDays}d`} tone="teal" />
-        <MetricTile icon={BadgeCheck} label="False Confidence" value={`${Math.round(snapshot.metrics.falseConfidenceRate * 100)}%`} tone="amber" />
+        <MetricTile
+          icon={GitBranch}
+          label="Prerequisite Debt"
+          value={`${Math.round(snapshot.metrics.prerequisiteDebt * 100)}%`}
+          tone="coral"
+        />
+        <MetricTile
+          icon={Trophy}
+          label="Retention Half-Life"
+          value={`${snapshot.metrics.retentionHalfLifeDays}d`}
+          tone="teal"
+        />
+        <MetricTile
+          icon={BadgeCheck}
+          label="False Confidence"
+          value={`${Math.round(snapshot.metrics.falseConfidenceRate * 100)}%`}
+          tone="amber"
+        />
       </section>
     </div>
   );
@@ -739,7 +819,9 @@ function PacksView() {
   return (
     <div className="pack-grid">
       {packs.map((pack) => {
-        const concepts = demoMasterGraph.concepts.filter((concept) => concept.subdomain === pack || concept.domain === pack.toLowerCase());
+        const concepts = demoMasterGraph.concepts.filter(
+          (concept) => concept.subdomain === pack || concept.domain === pack.toLowerCase()
+        );
         return (
           <article className="item-card pack-card" key={pack}>
             <BookOpen size={24} />
@@ -763,7 +845,10 @@ function CourtView({ verdict }: { verdict: ReturnType<typeof arbitrateProposal> 
         <h2>{proposal.proposal_type.replaceAll("_", " ")}</h2>
         <p className="dense-copy">{proposal.rationale}</p>
         <div className="case-grid">
-          <MiniStat label="Bridge priority" value={`${Math.round(computeBridgingPriority(proposal) * 100)}%`} />
+          <MiniStat
+            label="Bridge priority"
+            value={`${Math.round(computeBridgingPriority(proposal) * 100)}%`}
+          />
           <MiniStat label="Risk" value={proposal.risk_level} />
           <MiniStat label="Sources" value={`${proposal.evidence_for.length}`} />
           <MiniStat label="Objects" value={`${proposal.affected_object_ids.length}`} />
@@ -872,7 +957,15 @@ function PanelTitle({ icon: Icon, title, meta }: { icon: typeof Home; title: str
   );
 }
 
-function IconButton({ title, icon: Icon, onClick }: { title: string; icon: typeof Home; onClick?: () => void }) {
+function IconButton({
+  title,
+  icon: Icon,
+  onClick
+}: {
+  title: string;
+  icon: typeof Home;
+  onClick?: () => void;
+}) {
   return (
     <button className="icon-button" title={title} aria-label={title} onClick={onClick}>
       <Icon size={18} />
@@ -926,7 +1019,14 @@ function Slider({
         {label}
         <strong>{suffix ?? `${Math.round(value * 100)}%`}</strong>
       </span>
-      <input type="range" min={0} max={1} step={0.01} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.01}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
     </label>
   );
 }

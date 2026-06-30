@@ -7,7 +7,9 @@
   "properties": {
     "id": { "type": "string" },
     "concept_id": { "type": "string" },
-    "cue_type": { "enum": ["spoken", "tone", "motif", "music_embedded", "binaural_context", "silence_marker"] },
+    "cue_type": {
+      "enum": ["spoken", "tone", "motif", "music_embedded", "binaural_context", "silence_marker"]
+    },
     "text": { "type": "string" },
     "duration_ms": { "type": "integer", "minimum": 1 },
     "recommended_volume_db": { "type": "number" },

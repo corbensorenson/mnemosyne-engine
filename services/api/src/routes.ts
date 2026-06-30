@@ -14,19 +14,49 @@ export const apiRoutes: ApiRoute[] = [
   { method: "GET", path: "/api/goals", service: "User Service" },
   { method: "POST", path: "/api/goals", service: "User Service", eventType: "graph_updated" },
   { method: "GET", path: "/api/daily-packet/today", service: "Scheduler Service" },
-  { method: "POST", path: "/api/daily-packet/generate", service: "Scheduler Service", eventType: "session_started" },
-  { method: "POST", path: "/api/sessions/:id/events", service: "Analytics Service", eventType: "session_started" },
-  { method: "POST", path: "/api/sessions/:id/voice-response", service: "Tutor Service", eventType: "assessment_answered" },
-  { method: "POST", path: "/api/assessments/:id/response", service: "Assessment Service", eventType: "assessment_answered" },
+  {
+    method: "POST",
+    path: "/api/daily-packet/generate",
+    service: "Scheduler Service",
+    eventType: "session_started"
+  },
+  {
+    method: "POST",
+    path: "/api/sessions/:id/events",
+    service: "Analytics Service",
+    eventType: "session_started"
+  },
+  {
+    method: "POST",
+    path: "/api/sessions/:id/voice-response",
+    service: "Tutor Service",
+    eventType: "assessment_answered"
+  },
+  {
+    method: "POST",
+    path: "/api/assessments/:id/response",
+    service: "Assessment Service",
+    eventType: "assessment_answered"
+  },
   { method: "GET", path: "/api/graph/master", service: "Master Graph Service" },
   { method: "GET", path: "/api/graph/user", service: "Personal Graph Service" },
   { method: "GET", path: "/api/videos/recommended", service: "VideoGraph Service" },
-  { method: "POST", path: "/api/watch-packets/generate", service: "VideoGraph Service", eventType: "video_watched" },
+  {
+    method: "POST",
+    path: "/api/watch-packets/generate",
+    service: "VideoGraph Service",
+    eventType: "video_watched"
+  },
   { method: "POST", path: "/api/flashread/generate", service: "FlashRead Service" },
   { method: "POST", path: "/api/sleep/packet/generate", service: "SleepCue Service", eventType: "cue_bound" },
   { method: "POST", path: "/api/sleep/audio/render", service: "Audio Render Service" },
   { method: "POST", path: "/api/wearables/sync", service: "Wearable Integration Service" },
-  { method: "POST", path: "/api/proposals", service: "Content Court Service", eventType: "proposal_submitted" },
+  {
+    method: "POST",
+    path: "/api/proposals",
+    service: "Content Court Service",
+    eventType: "proposal_submitted"
+  },
   { method: "POST", path: "/api/proposals/:id/ai-review", service: "AI Agent Orchestrator" },
   { method: "POST", path: "/api/proposals/:id/human-override", service: "Admin/Moderation Service" },
   { method: "GET", path: "/api/packs", service: "Master Graph Service" },

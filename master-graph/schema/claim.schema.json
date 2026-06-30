@@ -3,7 +3,15 @@
   "$id": "https://mnemosyne.engine/schema/claim.schema.json",
   "title": "Claim",
   "type": "object",
-  "required": ["id", "subject_id", "predicate_id", "object_value", "epistemic_status", "sources", "confidence_score"],
+  "required": [
+    "id",
+    "subject_id",
+    "predicate_id",
+    "object_value",
+    "epistemic_status",
+    "sources",
+    "confidence_score"
+  ],
   "properties": {
     "id": { "type": "string" },
     "subject_id": { "type": "string" },
@@ -12,7 +20,19 @@
     "qualifiers": { "type": "object" },
     "sources": { "type": "array", "items": { "$ref": "./source.schema.json" } },
     "epistemic_status": {
-      "enum": ["accepted", "preferred", "disputed", "minority_view", "speculative", "deprecated", "retracted", "superseded", "contextual", "pedagogical_simplification", "unknown"]
+      "enum": [
+        "accepted",
+        "preferred",
+        "disputed",
+        "minority_view",
+        "speculative",
+        "deprecated",
+        "retracted",
+        "superseded",
+        "contextual",
+        "pedagogical_simplification",
+        "unknown"
+      ]
     },
     "confidence_score": { "type": "number", "minimum": 0, "maximum": 1 },
     "controversy_score": { "type": "number", "minimum": 0, "maximum": 1 },

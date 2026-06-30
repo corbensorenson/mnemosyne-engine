@@ -155,14 +155,7 @@ export type AssessmentItem = z.infer<typeof assessmentItemSchema>;
 export const sleepCueTemplateSchema = z.object({
   id: z.string(),
   concept_id: z.string(),
-  cue_type: z.enum([
-    "spoken",
-    "tone",
-    "motif",
-    "music_embedded",
-    "binaural_context",
-    "silence_marker"
-  ]),
+  cue_type: z.enum(["spoken", "tone", "motif", "music_embedded", "binaural_context", "silence_marker"]),
   text: z.string().optional(),
   audio_asset_id: z.string().optional(),
   duration_ms: z.number().int().positive(),
@@ -198,14 +191,7 @@ export type FlashReadAsset = z.infer<typeof flashReadAssetSchema>;
 
 export const videoAssetSchema = z.object({
   id: z.string(),
-  source_platform: z.enum([
-    "youtube",
-    "vimeo",
-    "creator_upload",
-    "open_course",
-    "partner",
-    "native"
-  ]),
+  source_platform: z.enum(["youtube", "vimeo", "creator_upload", "open_course", "partner", "native"]),
   external_url: z.string().url().optional(),
   embed_url: z.string().url().optional(),
   embeddable: z.boolean(),
@@ -329,16 +315,7 @@ export const userConceptStateSchema = z.object({
   cue_gain_estimate: z.number().min(-1).max(1),
   best_cue_type: z.string().optional(),
   modality_response_profile: z.record(z.unknown()).default({}),
-  status: z.enum([
-    "unknown",
-    "previewed",
-    "learning",
-    "fragile",
-    "known",
-    "fluent",
-    "decaying",
-    "mastered"
-  ]),
+  status: z.enum(["unknown", "previewed", "learning", "fragile", "known", "fluent", "decaying", "mastered"]),
   updated_at: z.string()
 });
 export type UserConceptState = z.infer<typeof userConceptStateSchema>;
@@ -348,16 +325,7 @@ export const goalSchema = z.object({
   user_id: z.string(),
   title: z.string(),
   description: z.string(),
-  goal_type: z.enum([
-    "trip",
-    "exam",
-    "career",
-    "project",
-    "curiosity",
-    "skill",
-    "certification",
-    "custom"
-  ]),
+  goal_type: z.enum(["trip", "exam", "career", "project", "curiosity", "skill", "certification", "custom"]),
   target_concept_ids: z.array(z.string()),
   target_domain_ids: z.array(z.string()),
   priority: z.number().min(0).max(1),

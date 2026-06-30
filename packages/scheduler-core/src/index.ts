@@ -123,7 +123,8 @@ export function buildDailyLearningPacket(input: {
         .filter((failure) => failure !== "none")
         .slice(0, 6),
       sleep_cue_binding_items: frontier.flatMap((concept) => concept.sleep_cues).slice(0, 6),
-      screen_policy: input.constraints.eveningScreenPolicy ?? (input.readiness.dusk_mode ? "audio_only" : "minimal_visual")
+      screen_policy:
+        input.constraints.eveningScreenPolicy ?? (input.readiness.dusk_mode ? "audio_only" : "minimal_visual")
     },
     sleep: sleep.packet,
     graph_delta_target: {

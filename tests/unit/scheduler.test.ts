@@ -6,7 +6,7 @@ import {
   demoMasterGraph,
   demoUser,
   initialUserStates
-} from "../../apps/web/src/data";
+} from "@mnemosyne/demo-fixtures";
 
 describe("daily scheduler", () => {
   it("builds a full daily packet with controls for sleep cue measurement", () => {

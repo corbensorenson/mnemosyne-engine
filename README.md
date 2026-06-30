@@ -38,6 +38,7 @@ npm run verify
 ```
 
 The dev server runs the PWA at the URL printed by Vite, normally `http://localhost:5173`.
+`npm run verify` runs lint, typecheck, unit tests, production build, and dependency audit.
 
 ## Roadmap
 

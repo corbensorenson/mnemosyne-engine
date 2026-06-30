@@ -218,7 +218,8 @@ const conceptSpecs = [
     difficulty: 0.42,
     importance: 0.86,
     abstraction: 0.32,
-    definition: "A compact path for asking location, understanding left/right/straight, and repairing confusion.",
+    definition:
+      "A compact path for asking location, understanding left/right/straight, and repairing confusion.",
     cue: "a la derecha",
     prerequisites: ["spanish_greetings"]
   },
@@ -232,7 +233,8 @@ const conceptSpecs = [
     difficulty: 0.46,
     importance: 0.72,
     abstraction: 0.38,
-    definition: "Practical norms around greeting, seating, tipping, pace, and politeness in Mexican restaurants.",
+    definition:
+      "Practical norms around greeting, seating, tipping, pace, and politeness in Mexican restaurants.",
     cue: "saludar primero",
     prerequisites: ["spanish_restaurant"]
   },
@@ -289,7 +291,8 @@ const conceptSpecs = [
     difficulty: 0.48,
     importance: 0.9,
     abstraction: 0.62,
-    definition: "A system of linear equations represents constraints whose solutions can be geometric objects.",
+    definition:
+      "A system of linear equations represents constraints whose solutions can be geometric objects.",
     cue: "constraints intersection",
     successors: ["eigenvectors", "ai_vectors"]
   },
@@ -317,7 +320,8 @@ const conceptSpecs = [
     difficulty: 0.44,
     importance: 0.92,
     abstraction: 0.64,
-    definition: "Embeddings represent items as vectors whose geometry supports similarity and transformation.",
+    definition:
+      "Embeddings represent items as vectors whose geometry supports similarity and transformation.",
     cue: "geometry carries meaning",
     prerequisites: ["linear_systems"],
     successors: ["attention_qkv"]
@@ -347,7 +351,8 @@ const conceptSpecs = [
     difficulty: 0.76,
     importance: 0.9,
     abstraction: 0.86,
-    definition: "Attention, residual streams, normalization, and feed-forward layers composed into a trainable block.",
+    definition:
+      "Attention, residual streams, normalization, and feed-forward layers composed into a trainable block.",
     cue: "attention residual mlp",
     prerequisites: ["attention_qkv"]
   }
@@ -622,7 +627,11 @@ export const demoProposals: Proposal[] = [
     evidence_against: [],
     expected_learning_impact: "+7 percent transfer on Q/K/V oral board prompts",
     risk_level: "low",
-    community_votes: { "clear:novice": 4, "great_for_experts:builder": 2, "needs_expert_review:researcher": 1 },
+    community_votes: {
+      "clear:novice": 4,
+      "great_for_experts:builder": 2,
+      "needs_expert_review:researcher": 1
+    },
     expert_comments: [],
     status: "ai_reviewing",
     created_at: now,

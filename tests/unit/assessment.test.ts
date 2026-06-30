@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { scoreAssessmentResponse } from "@mnemosyne/assessment-core";
-import { generateAssessmentForConcept } from "@mnemosyne/assessment-core";
-import { demoMasterGraph, demoUser } from "../../apps/web/src/data";
+import { generateAssessmentForConcept, scoreAssessmentResponse } from "@mnemosyne/assessment-core";
+import { demoMasterGraph, demoUser } from "@mnemosyne/demo-fixtures";
 
 describe("assessment scoring", () => {
   it("flags high-confidence wrong answers as false confidence", () => {

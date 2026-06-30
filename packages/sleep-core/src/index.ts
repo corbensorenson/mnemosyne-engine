@@ -40,7 +40,11 @@ export function buildSleepCuePacket(input: {
   const totalCueSlots = input.readiness.sleep_quality < 0.45 ? 8 : 18;
   const reactivate = pickConcepts(input.knownIds, safeCues, Math.ceil(totalCueSlots * ratio.reactivate));
   const stabilize = pickConcepts(input.frontierIds, safeCues, Math.ceil(totalCueSlots * ratio.stabilize));
-  const prime = pickConcepts(input.horizonIds, safeCues, Math.max(1, Math.floor(totalCueSlots * ratio.prime)));
+  const prime = pickConcepts(
+    input.horizonIds,
+    safeCues,
+    Math.max(1, Math.floor(totalCueSlots * ratio.prime))
+  );
   const control = matchedControls(input.concepts, input.states, [...reactivate, ...stabilize, ...prime], 4);
 
   const selectedCues = [...reactivate, ...stabilize, ...prime, ...control]
@@ -117,11 +121,7 @@ export function isSleepSafeCue(cue: SleepCueTemplate): boolean {
   );
 }
 
-function pickConcepts(
-  conceptIds: string[],
-  cues: SleepCueTemplate[],
-  count: number
-): string[] {
+function pickConcepts(conceptIds: string[], cues: SleepCueTemplate[], count: number): string[] {
   const allowed = new Set(conceptIds);
   return sortByScore(
     cues.filter((cue) => allowed.has(cue.concept_id)),

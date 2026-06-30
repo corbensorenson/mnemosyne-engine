@@ -207,12 +207,13 @@ Goal: make the current repo reliable for continued development.
 
 Deliverables:
 
-- CI for install, typecheck, unit tests, build, lint, dependency audit.
-- Formatting and lint rules.
-- Test data fixtures separated from app code.
-- Storybook or component workbench for core UI states.
-- Issue templates and contribution labels.
-- Architecture decision records.
+- [x] CI for install, typecheck, unit tests, build, lint, dependency audit.
+- [x] Lint rules.
+- [x] Test data fixtures separated from app code.
+- [x] Formatting rules.
+- [ ] Storybook or component workbench for core UI states.
+- [ ] Issue templates and contribution labels.
+- [x] Architecture decision records.
 
 Exit criteria:
 

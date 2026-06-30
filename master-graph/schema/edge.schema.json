@@ -8,7 +8,18 @@
     "from_id": { "type": "string" },
     "to_id": { "type": "string" },
     "edge_type": {
-      "enum": ["prerequisite", "successor", "analogy", "contrast", "part_of", "causes", "enables", "commonly_confused_with", "example_of", "counterexample_of"]
+      "enum": [
+        "prerequisite",
+        "successor",
+        "analogy",
+        "contrast",
+        "part_of",
+        "causes",
+        "enables",
+        "commonly_confused_with",
+        "example_of",
+        "counterexample_of"
+      ]
     },
     "strength": { "type": "number", "minimum": 0, "maximum": 1 },
     "confidence": { "type": "number", "minimum": 0, "maximum": 1 },

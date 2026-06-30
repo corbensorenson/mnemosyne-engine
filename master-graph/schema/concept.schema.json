@@ -3,7 +3,17 @@
   "$id": "https://mnemosyne.engine/schema/concept.schema.json",
   "title": "ConceptNode",
   "type": "object",
-  "required": ["id", "slug", "title", "domain", "concept_type", "difficulty", "importance", "status", "version"],
+  "required": [
+    "id",
+    "slug",
+    "title",
+    "domain",
+    "concept_type",
+    "difficulty",
+    "importance",
+    "status",
+    "version"
+  ],
   "properties": {
     "id": { "type": "string" },
     "slug": { "type": "string" },
@@ -11,7 +21,19 @@
     "domain": { "type": "string" },
     "subdomain": { "type": "string" },
     "concept_type": {
-      "enum": ["fact", "association", "definition", "procedure", "pattern", "model", "argument", "judgment", "motor_adjacent", "language_phrase", "system"]
+      "enum": [
+        "fact",
+        "association",
+        "definition",
+        "procedure",
+        "pattern",
+        "model",
+        "argument",
+        "judgment",
+        "motor_adjacent",
+        "language_phrase",
+        "system"
+      ]
     },
     "claim_ids": { "type": "array", "items": { "type": "string" } },
     "difficulty": { "type": "number", "minimum": 0, "maximum": 1 },

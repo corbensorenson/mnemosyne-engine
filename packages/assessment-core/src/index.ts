@@ -1,9 +1,4 @@
-import type {
-  AssessmentItem,
-  AssessmentResponse,
-  ConceptNode,
-  UserConceptState
-} from "@mnemosyne/schema";
+import type { AssessmentItem, AssessmentResponse, ConceptNode, UserConceptState } from "@mnemosyne/schema";
 import { clamp, createId, nowIso } from "@mnemosyne/shared-utils";
 
 export type ScoringInput = {
@@ -114,7 +109,9 @@ export function applyAssessmentToUserState(
     answer_latency_ms: response.latency_ms,
     confidence_calibration: clamp(1 - Math.abs(confidence - correctness)),
     false_confidence_risk: clamp(state.false_confidence_risk + falseConfidenceRisk),
-    failure_modes: Array.from(new Set([...state.failure_modes, ...response.detected_failure_modes])).slice(-6),
+    failure_modes: Array.from(new Set([...state.failure_modes, ...response.detected_failure_modes])).slice(
+      -6
+    ),
     misconception_ids: Array.from(new Set([...state.misconception_ids, ...response.misconception_ids])),
     last_seen_at: response.created_at,
     last_correct_at: correctness >= 0.72 ? response.created_at : state.last_correct_at,
@@ -156,10 +153,7 @@ function feedbackFor(correctness: number, confidence: number, failures: string[]
   return "Not stable yet. Test before explanation, then repair with a worked example.";
 }
 
-function nextStatus(
-  state: UserConceptState,
-  correctness: number
-): UserConceptState["status"] {
+function nextStatus(state: UserConceptState, correctness: number): UserConceptState["status"] {
   const projected = clamp(state.mastery + (correctness - 0.5) * 0.16);
   if (projected >= 0.86 && state.transfer_score >= 0.7) return "mastered";
   if (projected >= 0.76) return "fluent";
@@ -170,7 +164,11 @@ function nextStatus(
 }
 
 function normalize(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function keywordize(value: string): string[] {

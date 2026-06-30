@@ -55,11 +55,7 @@ export function chunkFlashReadText(text: string, displayUnit: FlashReadDisplayUn
   return chunks;
 }
 
-export function effectiveWpm(
-  rawWpm: number,
-  comprehensionScore: number,
-  retentionScore: number
-): number {
+export function effectiveWpm(rawWpm: number, comprehensionScore: number, retentionScore: number): number {
   return Math.round(rawWpm * clamp(comprehensionScore) * clamp(retentionScore));
 }
 

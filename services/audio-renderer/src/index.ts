@@ -12,7 +12,10 @@ export type RenderManifest = {
   output_format: "m4a" | "mp3" | "wav";
 };
 
-export function buildRenderManifest(plan: AudioPlan, outputFormat: RenderManifest["output_format"] = "m4a"): RenderManifest {
+export function buildRenderManifest(
+  plan: AudioPlan,
+  outputFormat: RenderManifest["output_format"] = "m4a"
+): RenderManifest {
   return {
     audio_plan_id: plan.id,
     duration_seconds: plan.duration_seconds,

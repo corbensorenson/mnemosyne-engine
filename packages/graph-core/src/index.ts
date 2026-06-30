@@ -42,10 +42,7 @@ export type GraphSnapshot = {
   };
 };
 
-export function getState(
-  states: UserConceptState[],
-  conceptId: string
-): UserConceptState | undefined {
+export function getState(states: UserConceptState[], conceptId: string): UserConceptState | undefined {
   return states.find((state) => state.concept_id === conceptId);
 }
 
@@ -96,9 +93,8 @@ export function computeGoalGap(
     return concept ? !prerequisitesMet(concept, userGraph.states) : false;
   });
 
-  const priority = sortByScore(
-    unique([...blocked, ...weak, ...missing]),
-    (id) => priorityScore(id, masterGraph, goals, userGraph.states)
+  const priority = sortByScore(unique([...blocked, ...weak, ...missing]), (id) =>
+    priorityScore(id, masterGraph, goals, userGraph.states)
   );
 
   return {
@@ -131,11 +127,7 @@ export function estimatePrerequisiteDebt(
   return round(debt.reduce((sum, value) => sum + value, 0) / relevant.length, 3);
 }
 
-export function selectKnownDueForReview(
-  userGraph: UserKnowledgeGraph,
-  gap: GraphGap,
-  limit = 6
-): string[] {
+export function selectKnownDueForReview(userGraph: UserKnowledgeGraph, gap: GraphGap, limit = 6): string[] {
   return sortByScore(
     userGraph.states.filter((state) => state.mastery >= 0.55),
     (state) =>
@@ -186,10 +178,7 @@ export function selectHorizonConcepts(
   ).slice(0, limit);
 }
 
-export function buildGraphSnapshot(
-  masterGraph: MasterGraph,
-  userGraph: UserKnowledgeGraph
-): GraphSnapshot {
+export function buildGraphSnapshot(masterGraph: MasterGraph, userGraph: UserKnowledgeGraph): GraphSnapshot {
   const domainOffsets = new Map<string, number>();
   const nodes = masterGraph.concepts.map((concept, index) => {
     const domainIndex = domainOffsets.get(concept.domain) ?? domainOffsets.size;
@@ -204,7 +193,8 @@ export function buildGraphSnapshot(
       domain: concept.domain,
       window,
       mastery: state?.mastery ?? 0,
-      prerequisiteHealth: state?.prerequisite_health ?? (prerequisitesMet(concept, userGraph.states) ? 1 : 0.25),
+      prerequisiteHealth:
+        state?.prerequisite_health ?? (prerequisitesMet(concept, userGraph.states) ? 1 : 0.25),
       x: round(260 + Math.cos(angle) * ring, 1),
       y: round(220 + Math.sin(angle) * ring, 1)
     };
@@ -233,12 +223,7 @@ export function buildGraphSnapshot(
   };
 }
 
-export function graphPath(
-  edges: ConceptEdge[],
-  fromId: string,
-  toId: string,
-  maxDepth = 6
-): string[] {
+export function graphPath(edges: ConceptEdge[], fromId: string, toId: string, maxDepth = 6): string[] {
   const queue: Array<{ id: string; path: string[] }> = [{ id: fromId, path: [fromId] }];
   const visited = new Set<string>();
   while (queue.length > 0) {

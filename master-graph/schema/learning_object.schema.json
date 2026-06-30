@@ -7,7 +7,25 @@
   "properties": {
     "id": { "type": "string" },
     "object_type": {
-      "enum": ["claim", "definition", "explanation", "example", "counterexample", "quiz_item", "video", "short_clip", "audio_lesson", "flashread_chunk", "sleep_cue", "haptic_cue", "visual_diagram", "learning_path", "boss_fight", "badge", "memory_hook"]
+      "enum": [
+        "claim",
+        "definition",
+        "explanation",
+        "example",
+        "counterexample",
+        "quiz_item",
+        "video",
+        "short_clip",
+        "audio_lesson",
+        "flashread_chunk",
+        "sleep_cue",
+        "haptic_cue",
+        "visual_diagram",
+        "learning_path",
+        "boss_fight",
+        "badge",
+        "memory_hook"
+      ]
     },
     "title": { "type": "string" },
     "content_ref": { "type": "string" },
@@ -17,6 +35,18 @@
     "sleep_safety_score": { "type": "number", "minimum": 0, "maximum": 1 },
     "truth_score": { "type": "number", "minimum": 0, "maximum": 1 },
     "clarity_score": { "type": "number", "minimum": 0, "maximum": 1 },
-    "status": { "enum": ["submitted", "ai_triaged", "experimental", "active", "validated", "gold", "disputed", "deprecated", "rejected"] }
+    "status": {
+      "enum": [
+        "submitted",
+        "ai_triaged",
+        "experimental",
+        "active",
+        "validated",
+        "gold",
+        "disputed",
+        "deprecated",
+        "rejected"
+      ]
+    }
   }
 }
