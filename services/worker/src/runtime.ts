@@ -5,15 +5,17 @@ import { createSchedulerWorkerHandlers } from "@mnemosyne/scheduler-service";
 import { createLocalObjectStorage } from "@mnemosyne/storage-core";
 import {
   createWorkerHandlerRegistry,
+  recoverStaleWorkerLocks,
   runWorkerBatch,
   runWorkerLoop,
   runWorkerOnce,
   type WorkerBatchResult,
   type WorkerHandlerRegistry,
+  type WorkerRecoveryResult,
   type WorkerRunResult
 } from "@mnemosyne/worker-core";
 
-export type WorkerServiceMode = "once" | "batch" | "loop";
+export type WorkerServiceMode = "once" | "batch" | "loop" | "recover";
 
 export type WorkerServiceConfig = ApiRuntimeConfig & {
   workerId: string;
@@ -22,6 +24,8 @@ export type WorkerServiceConfig = ApiRuntimeConfig & {
   maxJobs: number;
   pollIntervalMs: number;
   maxIterations?: number;
+  staleAfterMinutes: number;
+  recoveryLimit: number;
   audioOutputFormat: RenderManifest["output_format"];
 };
 
@@ -33,7 +37,8 @@ export type WorkerServiceRuntime = {
   close: () => Promise<void>;
 };
 
-export type WorkerServiceRunResult = WorkerRunResult | WorkerBatchResult | WorkerRunResult[];
+export type WorkerServiceRunResult =
+  WorkerRunResult | WorkerBatchResult | WorkerRunResult[] | WorkerRecoveryResult;
 
 export function workerServiceConfigFromEnv(env: NodeJS.ProcessEnv = process.env): WorkerServiceConfig {
   return {
@@ -44,6 +49,8 @@ export function workerServiceConfigFromEnv(env: NodeJS.ProcessEnv = process.env)
     maxJobs: parsePositiveInteger(env.MNEMOSYNE_WORKER_MAX_JOBS, 10),
     pollIntervalMs: parsePositiveInteger(env.MNEMOSYNE_WORKER_POLL_MS, 1_000),
     maxIterations: parseOptionalPositiveInteger(env.MNEMOSYNE_WORKER_MAX_ITERATIONS),
+    staleAfterMinutes: parsePositiveInteger(env.MNEMOSYNE_WORKER_STALE_AFTER_MINUTES, 30),
+    recoveryLimit: parsePositiveInteger(env.MNEMOSYNE_WORKER_RECOVERY_LIMIT, 25),
     audioOutputFormat: parseAudioOutputFormat(env.MNEMOSYNE_AUDIO_OUTPUT_FORMAT)
   };
 }
@@ -104,9 +111,20 @@ export async function runWorkerServiceLoop(
   });
 }
 
+export async function runWorkerServiceRecovery(runtime: WorkerServiceRuntime): Promise<WorkerRecoveryResult> {
+  return recoverStaleWorkerLocks({
+    store: runtime.store,
+    workerId: runtime.config.workerId,
+    queues: runtime.config.queues,
+    staleAfterMinutes: runtime.config.staleAfterMinutes,
+    limit: runtime.config.recoveryLimit
+  });
+}
+
 export async function runWorkerService(runtime: WorkerServiceRuntime): Promise<WorkerServiceRunResult> {
   if (runtime.config.mode === "once") return runWorkerServiceOnce(runtime);
   if (runtime.config.mode === "batch") return runWorkerServiceBatch(runtime);
+  if (runtime.config.mode === "recover") return runWorkerServiceRecovery(runtime);
   return runWorkerServiceLoop(runtime);
 }
 
@@ -124,7 +142,7 @@ export async function runWorkerServiceFromEnv(
 }
 
 function parseWorkerMode(value: string | undefined): WorkerServiceMode {
-  if (value === "once" || value === "batch" || value === "loop") return value;
+  if (value === "once" || value === "batch" || value === "loop" || value === "recover") return value;
   return "loop";
 }
 

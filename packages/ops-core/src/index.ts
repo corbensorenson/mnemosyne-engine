@@ -294,6 +294,41 @@ export function failJob(job: JobRecord, error: string, at = nowIso()): JobRecord
   };
 }
 
+export function isStaleRunningJob(job: JobRecord, at = nowIso(), staleAfterMinutes = 30): boolean {
+  if (job.status !== "running") return false;
+  const lockedAt = Date.parse(job.locked_at ?? job.updated_at);
+  if (!Number.isFinite(lockedAt)) return false;
+  return lockedAt < Date.parse(at) - staleAfterMinutes * 60_000;
+}
+
+export function recoverStaleRunningJob(
+  job: JobRecord,
+  input: {
+    at?: string;
+    staleAfterMinutes?: number;
+    reason?: string;
+    runAfter?: string;
+  } = {}
+): JobRecord {
+  const at = input.at ?? nowIso();
+  const staleAfterMinutes = input.staleAfterMinutes ?? 30;
+  if (!isStaleRunningJob(job, at, staleAfterMinutes)) {
+    throw new Error(`Job is not stale-running: ${job.id}`);
+  }
+  const exhausted = job.attempts >= job.max_attempts;
+  return {
+    ...job,
+    status: exhausted ? "dead_lettered" : "failed",
+    locked_at: undefined,
+    locked_by: undefined,
+    run_after: exhausted ? job.run_after : (input.runAfter ?? at),
+    last_error:
+      input.reason ??
+      `Recovered stale worker lock held by ${job.locked_by ?? "unknown"} since ${job.locked_at ?? job.updated_at}`,
+    updated_at: at
+  };
+}
+
 export function cancelJob(job: JobRecord, reason: string, at = nowIso()): JobRecord {
   if (job.status === "completed") throw new Error(`Completed job cannot be cancelled: ${job.id}`);
   return {

@@ -32,6 +32,8 @@ The ops package is intentionally storage-agnostic. Redis workers, Postgres table
 
 `MnemosyneStore.claimNextRunnableJob` is the store-level lease contract. The memory adapter uses the same priority/run-after ordering as tests and local demos. The Postgres adapter claims jobs with a single row-locking `UPDATE ... FOR UPDATE SKIP LOCKED` query, filters to registered handler keys, increments attempts, sets `locked_at`/`locked_by`, and returns the running job. This keeps parallel worker processes from double-starting the same job while preserving the first-party `JobRecord` lifecycle.
 
+`recoverStaleWorkerLocks` is the maintenance recovery path for workers that die after claiming a job. It scans running jobs whose locks exceed the configured stale threshold, clears their locks, returns them to retryable `failed` state when attempts remain, dead-letters jobs that exhausted their final attempt, and emits `job_recovered` or `job_dead_lettered` audit events with the previous lock holder.
+
 The scheduler service registers `scheduler:generate_daily_packet`. The handler loads the user, goals, readiness, master graph, personal graph, and personalization profile from `MnemosyneStore`, saves the daily packet, sleep packet, and audio plan, then queues `audio_render:render_sleep_audio`.
 
 The audio renderer service registers `audio_render:render_sleep_audio`. The handler builds the deterministic render manifest, stores it as a first-party object when object storage is configured, updates the audio plan render status, and leaves failures for the worker runtime to retry or dead-letter.

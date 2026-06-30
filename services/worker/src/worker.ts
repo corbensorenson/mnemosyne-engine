@@ -1,9 +1,4 @@
-import {
-  createWorkerServiceRuntime,
-  runWorkerServiceBatch,
-  runWorkerServiceLoop,
-  runWorkerServiceOnce
-} from "./runtime";
+import { createWorkerServiceRuntime, runWorkerService, runWorkerServiceLoop } from "./runtime";
 
 const runtime = await createWorkerServiceRuntime();
 let stopping = false;
@@ -27,11 +22,9 @@ console.log(
 
 try {
   const result =
-    runtime.config.mode === "once"
-      ? await runWorkerServiceOnce(runtime)
-      : runtime.config.mode === "batch"
-        ? await runWorkerServiceBatch(runtime)
-        : await runWorkerServiceLoop(runtime, () => stopping);
+    runtime.config.mode === "loop"
+      ? await runWorkerServiceLoop(runtime, () => stopping)
+      : await runWorkerService(runtime);
   console.log(
     JSON.stringify({
       service: "mnemosyne-worker",

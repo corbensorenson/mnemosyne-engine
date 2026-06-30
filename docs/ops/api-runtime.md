@@ -43,15 +43,19 @@ Production deployments should run migrations as a release step before starting w
 
 Worker variables:
 
-- `MNEMOSYNE_WORKER_MODE`: `once`, `batch`, or `loop` (default `loop`)
+- `MNEMOSYNE_WORKER_MODE`: `once`, `batch`, `loop`, or `recover` (default `loop`)
 - `MNEMOSYNE_WORKER_ID`: stable worker id for locks and audit payloads
 - `MNEMOSYNE_WORKER_QUEUES`: comma-separated queue filter, for example `scheduler,audio_render`
 - `MNEMOSYNE_WORKER_MAX_JOBS`: maximum jobs in one batch run
 - `MNEMOSYNE_WORKER_POLL_MS`: loop sleep interval when no runnable job is available
 - `MNEMOSYNE_WORKER_MAX_ITERATIONS`: optional loop cap for smoke tests and one-off maintenance
+- `MNEMOSYNE_WORKER_STALE_AFTER_MINUTES`: stale running-lock threshold for recovery mode
+- `MNEMOSYNE_WORKER_RECOVERY_LIMIT`: maximum stale locks recovered in one maintenance run
 - `MNEMOSYNE_AUDIO_OUTPUT_FORMAT`: render-manifest format hint, `m4a`, `mp3`, or `wav`
 
 The first executable worker handles `scheduler:generate_daily_packet` and `audio_render:render_sleep_audio`. A scheduler job persists the daily packet, sleep packet, and audio plan, then queues the audio render job. The audio worker writes a deterministic render-manifest object through configured object storage and updates the audio plan to `ready`.
+
+Recovery mode runs `recoverStaleWorkerLocks`, clearing stale running locks back to retryable `failed` state when attempts remain and dead-lettering jobs that exhausted their final attempt. Each recovered job emits `job_recovered` or `job_dead_lettered` audit events with the previous lock holder.
 
 ## Local Compose
 

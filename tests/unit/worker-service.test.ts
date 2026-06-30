@@ -2,10 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { demoUser } from "@mnemosyne/demo-fixtures";
-import { createJob } from "@mnemosyne/ops-core";
+import { createJob, startJob } from "@mnemosyne/ops-core";
 import {
   createWorkerServiceRuntime,
   runWorkerServiceBatch,
+  runWorkerServiceRecovery,
   workerServiceConfigFromEnv
 } from "@mnemosyne/worker-service";
 import { describe, expect, it } from "vitest";
@@ -21,8 +22,12 @@ describe("worker-service", () => {
       MNEMOSYNE_WORKER_MODE: "batch",
       MNEMOSYNE_WORKER_QUEUES: "scheduler,audio_render",
       MNEMOSYNE_WORKER_MAX_JOBS: "2",
+      MNEMOSYNE_WORKER_STALE_AFTER_MINUTES: "45",
+      MNEMOSYNE_WORKER_RECOVERY_LIMIT: "10",
       MNEMOSYNE_AUDIO_OUTPUT_FORMAT: "wav"
     });
+    expect(config.staleAfterMinutes).toBe(45);
+    expect(config.recoveryLimit).toBe(10);
     const runtime = await createWorkerServiceRuntime(config);
 
     try {
@@ -64,6 +69,51 @@ describe("worker-service", () => {
       });
       expect(JSON.parse(Buffer.from(stored?.body ?? []).toString("utf8"))).toEqual(
         expect.objectContaining({ output_format: "wav" })
+      );
+    } finally {
+      await runtime.close();
+      await rm(objectStorageRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("runs stale-lock recovery mode from worker-service config", async () => {
+    const objectStorageRoot = await mkdtemp(join(tmpdir(), "mnemosyne-worker-recovery-"));
+    const config = workerServiceConfigFromEnv({
+      MNEMOSYNE_STORAGE: "memory",
+      MNEMOSYNE_SEED_DEMO: "true",
+      MNEMOSYNE_OBJECT_STORAGE_ROOT: objectStorageRoot,
+      MNEMOSYNE_WORKER_ID: "worker-recovery-test",
+      MNEMOSYNE_WORKER_MODE: "recover",
+      MNEMOSYNE_WORKER_QUEUES: "scheduler",
+      MNEMOSYNE_WORKER_STALE_AFTER_MINUTES: "30",
+      MNEMOSYNE_WORKER_RECOVERY_LIMIT: "5"
+    });
+    const runtime = await createWorkerServiceRuntime(config);
+
+    try {
+      const staleJob = await runtime.store.saveJob(
+        startJob(
+          createJob({
+            queue: "scheduler",
+            type: "generate_daily_packet",
+            payload: { user_id: demoUser.id },
+            maxAttempts: 2,
+            idempotencyKey: "worker-service-stale",
+            auditSubjectId: demoUser.id,
+            createdAt: "2026-06-29T09:00:00.000Z"
+          }),
+          "worker-gone",
+          "2026-06-29T09:01:00.000Z"
+        )
+      );
+
+      const result = await runWorkerServiceRecovery(runtime);
+      expect(result.status).toBe("recovered");
+      expect(result.recovered).toBe(1);
+      expect(result.dead_lettered).toBe(0);
+      expect((await runtime.store.getJob(staleJob.id))?.status).toBe("failed");
+      expect((await runtime.store.listAuditEvents(demoUser.id)).map((event) => event.action)).toContain(
+        "job_recovered"
       );
     } finally {
       await runtime.close();

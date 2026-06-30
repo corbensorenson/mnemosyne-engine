@@ -129,6 +129,7 @@ The system should preserve audit events even when downstream analytics or person
 - Scheduler and audio-render workers run `@mnemosyne/worker-core` handlers for `scheduler:generate_daily_packet` and `audio_render:render_sleep_audio`, including audit events, retries, and dead-letter handling.
 - Postgres job leasing uses `claimNextRunnableJob` row locks so parallel worker processes do not double-start runnable jobs.
 - `npm run worker:start` is deployed for worker processes with `MNEMOSYNE_WORKER_QUEUES`, `MNEMOSYNE_WORKER_ID`, and `MNEMOSYNE_OBJECT_STORAGE_ROOT` set per environment.
+- A scheduled worker recovery run uses `MNEMOSYNE_WORKER_MODE=recover` to clear stale running locks and audit `job_recovered` or `job_dead_lettered` outcomes.
 - `npm run docker:config` passes for the local deployment manifest.
 - `GET /healthz` returns liveness, and `GET /readyz` returns dependency-backed readiness with healthy store and object-storage components.
 - `GET /api/ops/monitoring?userId=<operator>&environment=<target>` reports `ready_for_release: true`, `status: nominal`, and green ops, security, and dependency gates.

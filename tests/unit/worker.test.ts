@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { createAudioRendererWorkerHandlers } from "@mnemosyne/audio-renderer-service";
 import { seedDemoStore } from "@mnemosyne/api";
 import { demoUser } from "@mnemosyne/demo-fixtures";
-import { createJob } from "@mnemosyne/ops-core";
+import { createJob, startJob } from "@mnemosyne/ops-core";
 import { createMemoryStore } from "@mnemosyne/persistence-core";
 import { createSchedulerWorkerHandlers } from "@mnemosyne/scheduler-service";
 import { createLocalObjectStorage } from "@mnemosyne/storage-core";
-import { createWorkerHandlerRegistry, runWorkerOnce } from "@mnemosyne/worker-core";
+import { createWorkerHandlerRegistry, recoverStaleWorkerLocks, runWorkerOnce } from "@mnemosyne/worker-core";
 import { describe, expect, it } from "vitest";
 
 describe("worker-core", () => {
@@ -164,6 +164,69 @@ describe("worker-core", () => {
     expect((await store.getJob(job.id))?.status).toBe("dead_lettered");
     expect((await store.listAuditEvents(demoUser.id)).map((event) => event.action)).toContain(
       "job_dead_lettered"
+    );
+  });
+
+  it("recovers stale worker locks for retry or dead-letter with audit events", async () => {
+    const store = createMemoryStore();
+    await seedDemoStore(store);
+    const retryable = await store.saveJob(
+      startJob(
+        createJob({
+          queue: "scheduler",
+          type: "generate_daily_packet",
+          payload: { user_id: demoUser.id },
+          maxAttempts: 2,
+          idempotencyKey: "stale_retryable",
+          auditSubjectId: demoUser.id,
+          createdAt: "2026-06-30T09:00:00.000Z"
+        }),
+        "worker-gone",
+        "2026-06-30T09:01:00.000Z"
+      )
+    );
+    const exhausted = await store.saveJob(
+      startJob(
+        createJob({
+          queue: "audio_render",
+          type: "render_sleep_audio",
+          payload: { audio_plan_id: "missing" },
+          maxAttempts: 1,
+          idempotencyKey: "stale_exhausted",
+          auditSubjectId: demoUser.id,
+          createdAt: "2026-06-30T09:02:00.000Z"
+        }),
+        "worker-gone",
+        "2026-06-30T09:03:00.000Z"
+      )
+    );
+
+    const result = await recoverStaleWorkerLocks({
+      store,
+      workerId: "worker-maintenance",
+      staleAfterMinutes: 30,
+      now: "2026-06-30T09:45:00.000Z"
+    });
+
+    expect(result.recovered).toBe(2);
+    expect(result.dead_lettered).toBe(1);
+    expect(await store.getJob(retryable.id)).toEqual(
+      expect.objectContaining({
+        status: "failed",
+        locked_at: undefined,
+        locked_by: undefined,
+        run_after: "2026-06-30T09:45:00.000Z"
+      })
+    );
+    expect(await store.getJob(exhausted.id)).toEqual(
+      expect.objectContaining({
+        status: "dead_lettered",
+        locked_at: undefined,
+        locked_by: undefined
+      })
+    );
+    expect((await store.listAuditEvents(demoUser.id)).map((event) => event.action)).toEqual(
+      expect.arrayContaining(["job_recovered", "job_dead_lettered"])
     );
   });
 });

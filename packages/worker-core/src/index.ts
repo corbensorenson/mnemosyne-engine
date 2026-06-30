@@ -1,4 +1,11 @@
-import { completeJob, failJob, type JobRecord, type QueueName } from "@mnemosyne/ops-core";
+import {
+  completeJob,
+  failJob,
+  isStaleRunningJob,
+  recoverStaleRunningJob,
+  type JobRecord,
+  type QueueName
+} from "@mnemosyne/ops-core";
 import type { MnemosyneStore } from "@mnemosyne/persistence-core";
 import { nowIso } from "@mnemosyne/shared-utils";
 import type { ObjectStorageAdapter } from "@mnemosyne/storage-core";
@@ -58,6 +65,27 @@ export type WorkerBatchResult = {
   completed: number;
   failed: number;
   dead_lettered: number;
+};
+
+export type WorkerRecoveryOptions = {
+  store: MnemosyneStore;
+  workerId: string;
+  queues?: QueueName[];
+  staleAfterMinutes?: number;
+  limit?: number;
+  now?: string;
+};
+
+export type WorkerRecoveryResult = {
+  status: "recovered";
+  worker_id: string;
+  checked_at: string;
+  stale_after_minutes: number;
+  scanned: number;
+  recovered: number;
+  dead_lettered: number;
+  jobs: JobRecord[];
+  audit_event_ids: string[];
 };
 
 export function createWorkerHandlerRegistry(definitions: WorkerHandlerDefinition[]): WorkerHandlerRegistry {
@@ -198,6 +226,58 @@ export async function runWorkerLoop(
   return results;
 }
 
+export async function recoverStaleWorkerLocks(options: WorkerRecoveryOptions): Promise<WorkerRecoveryResult> {
+  const checkedAt = options.now ?? nowIso();
+  const staleAfterMinutes = options.staleAfterMinutes ?? 30;
+  const limit = options.limit ?? 25;
+  const candidates = (await options.store.listJobs())
+    .filter((job) => queueAllowed(job, options.queues))
+    .filter((job) => isStaleRunningJob(job, checkedAt, staleAfterMinutes))
+    .sort((left, right) =>
+      (left.locked_at ?? left.updated_at).localeCompare(right.locked_at ?? right.updated_at)
+    );
+  const recoveredJobs: JobRecord[] = [];
+  const auditEventIds: string[] = [];
+  for (const stale of candidates.slice(0, limit)) {
+    const previousLock = {
+      locked_at: stale.locked_at,
+      locked_by: stale.locked_by
+    };
+    const recovered = await options.store.saveJob(
+      recoverStaleRunningJob(stale, {
+        at: checkedAt,
+        staleAfterMinutes,
+        reason: `Recovered stale worker lock after ${staleAfterMinutes} minutes.`
+      })
+    );
+    recoveredJobs.push(recovered);
+    const auditId = await appendJobAudit(
+      options.store,
+      recovered,
+      recovered.status === "dead_lettered" ? "job_dead_lettered" : "job_recovered",
+      options.workerId,
+      {
+        attempts: recovered.attempts,
+        previous_locked_at: previousLock.locked_at,
+        previous_locked_by: previousLock.locked_by,
+        recovery_reason: recovered.last_error
+      }
+    );
+    if (auditId) auditEventIds.push(auditId);
+  }
+  return {
+    status: "recovered",
+    worker_id: options.workerId,
+    checked_at: checkedAt,
+    stale_after_minutes: staleAfterMinutes,
+    scanned: candidates.length,
+    recovered: recoveredJobs.length,
+    dead_lettered: recoveredJobs.filter((job) => job.status === "dead_lettered").length,
+    jobs: recoveredJobs,
+    audit_event_ids: auditEventIds
+  };
+}
+
 export async function claimNextRunnableJob(
   options: Pick<WorkerRunOptions, "store" | "workerId" | "handlers" | "queues">,
   at = nowIso()
@@ -217,7 +297,7 @@ async function failRunningJob(store: MnemosyneStore, job: JobRecord, message: st
 async function appendJobAudit(
   store: MnemosyneStore,
   job: JobRecord,
-  action: "job_started" | "job_completed" | "job_failed" | "job_dead_lettered",
+  action: "job_started" | "job_completed" | "job_failed" | "job_dead_lettered" | "job_recovered",
   workerId: string,
   payload: Record<string, unknown>
 ): Promise<string | undefined> {
@@ -239,6 +319,10 @@ async function appendJobAudit(
 
 function terminalAuditAction(job: JobRecord): "job_failed" | "job_dead_lettered" {
   return job.status === "dead_lettered" ? "job_dead_lettered" : "job_failed";
+}
+
+function queueAllowed(job: JobRecord, queues?: QueueName[]): boolean {
+  return !queues || queues.length === 0 || queues.includes(job.queue);
 }
 
 function errorMessage(error: unknown): string {
