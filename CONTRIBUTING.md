@@ -13,3 +13,14 @@ Mnemosyne Engine accepts contributions across code, graph data, policies, rubric
 ## Content Governance
 
 Votes affect ranking, review priority, and escalation. Votes do not directly decide truth. Evidence, source quality, learning outcomes, AI audit, and human moderation all remain part of the decision record.
+
+## Issue Routing
+
+Use the GitHub issue forms so maintainers get the right context up front. Labels follow four prefixes:
+
+- `type:` for the kind of work.
+- `area:` for the system surface.
+- `status:` for triage and readiness.
+- `priority:` for urgency.
+
+Safety, privacy, sleep, health, voice, AI governance, and high-stakes content concerns should use the safety review form. Do not put secrets, raw health data, raw voice recordings, or exploit details in public issues.

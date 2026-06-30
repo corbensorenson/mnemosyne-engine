@@ -1,0 +1,72 @@
+- name: "type: bug"
+  color: "d73a4a"
+  description: Broken behavior or regression.
+- name: "type: feature"
+  color: "0e8a16"
+  description: New or expanded product capability.
+- name: "type: content"
+  color: "5319e7"
+  description: Graph, claim, source, video, cue, assessment, or pack proposal.
+- name: "type: safety"
+  color: "b60205"
+  description: Safety, privacy, security, or high-stakes governance review.
+- name: "type: docs"
+  color: "0075ca"
+  description: Documentation, roadmap, ADR, policy, or guide work.
+- name: "type: test"
+  color: "1d76db"
+  description: Test coverage, evals, fixtures, or quality gates.
+- name: "area: app-web"
+  color: "bfdadc"
+  description: PWA shell, UI states, offline behavior, or installability.
+- name: "area: api"
+  color: "bfd4f2"
+  description: API route handlers, validation, service boundaries, or envelopes.
+- name: "area: graph"
+  color: "c5def5"
+  description: Master graph, personal graph, packs, schemas, or pathing.
+- name: "area: scheduler"
+  color: "d4c5f9"
+  description: Daily packets, sessions, review timing, or readiness adaptation.
+- name: "area: assessment"
+  color: "fef2c0"
+  description: Assessment items, scoring, calibration, and failure modes.
+- name: "area: sleep"
+  color: "d4edda"
+  description: Sleep cue packets, audio plans, cue safety, and controls.
+- name: "area: video"
+  color: "f9d0c4"
+  description: VideoGraph ranking, watch packets, transcripts, and chapter maps.
+- name: "area: content-court"
+  color: "e4e669"
+  description: Proposals, votes, AI arbitration, moderation, and releases.
+- name: "area: creator-ingestion"
+  color: "fef2c0"
+  description: Creator uploads, link ingestion, source review, and submission triage.
+- name: "area: privacy-security"
+  color: "b60205"
+  description: Auth, privacy, consent, deletion, secrets, and safety boundaries.
+- name: "area: infrastructure"
+  color: "cfd3d7"
+  description: CI, deployments, Docker, migrations, observability, and operations.
+- name: "status: needs triage"
+  color: "fbca04"
+  description: Needs initial owner, scope, labels, and priority.
+- name: "status: needs evidence"
+  color: "fef2c0"
+  description: Needs sources, repro details, eval data, or observed outcomes.
+- name: "status: ready"
+  color: "0e8a16"
+  description: Scoped, accepted, and ready for implementation.
+- name: "status: blocked"
+  color: "d93f0b"
+  description: Blocked by missing dependency, decision, or external state.
+- name: "priority: high"
+  color: "b60205"
+  description: Important or time-sensitive issue.
+- name: "priority: medium"
+  color: "fbca04"
+  description: Normal priority.
+- name: "priority: low"
+  color: "c2e0c6"
+  description: Useful but not urgent.

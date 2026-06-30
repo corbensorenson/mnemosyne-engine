@@ -212,7 +212,7 @@ Deliverables:
 - [x] Test data fixtures separated from app code.
 - [x] Formatting rules.
 - [ ] Storybook or component workbench for core UI states.
-- [ ] Issue templates and contribution labels.
+- [x] Issue templates and contribution labels.
 - [x] Architecture decision records.
 
 Exit criteria:

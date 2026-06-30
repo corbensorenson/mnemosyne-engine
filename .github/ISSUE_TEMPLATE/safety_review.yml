@@ -1,0 +1,48 @@
+name: Safety, Privacy, or High-Stakes Review
+description: Request review for privacy, sleep safety, health data, voice data, AI governance, or high-stakes content.
+title: "[Safety]: "
+labels:
+  - "type: safety"
+  - "area: privacy-security"
+  - "priority: high"
+  - "status: needs triage"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include secrets, raw private health data, raw voice recordings, or exploit details in a public issue.
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - voice/privacy
+        - health or wearable data
+        - sleep cue safety
+        - AI governance
+        - graph/content governance
+        - high-stakes domain
+        - authentication/authorization
+        - data export/deletion
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: concern
+    attributes:
+      label: Concern
+      description: Describe the safety, privacy, or governance risk without sensitive details.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Potential impact
+      description: Who could be affected, and how severe could the issue be?
+    validations:
+      required: true
+  - type: textarea
+    id: suggested
+    attributes:
+      label: Suggested mitigation
+      description: Optional mitigation, policy, test, or UI label.

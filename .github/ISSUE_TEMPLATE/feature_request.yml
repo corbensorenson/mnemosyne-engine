@@ -1,0 +1,61 @@
+name: Feature Request
+description: Propose a learner, creator, moderator, or operator workflow.
+title: "[Feature]: "
+labels:
+  - "type: feature"
+  - "status: needs triage"
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What learner, creator, moderator, researcher, or operator need does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the workflow, API, UI, or graph behavior you want.
+    validations:
+      required: true
+  - type: dropdown
+    id: user_type
+    attributes:
+      label: Primary user
+      options:
+        - learner
+        - creator
+        - moderator
+        - researcher
+        - operator
+        - contributor
+    validations:
+      required: true
+  - type: dropdown
+    id: roadmap
+    attributes:
+      label: Roadmap area
+      options:
+        - onboarding
+        - daily packet
+        - voice tutor
+        - video graph
+        - sleep cueing
+        - content governance
+        - experiments
+        - social/creator
+        - privacy/security
+        - deployment
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What must be true before this is considered done?
+      placeholder: |
+        - ...
+        - ...
+    validations:
+      required: true

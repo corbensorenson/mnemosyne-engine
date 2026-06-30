@@ -1,0 +1,65 @@
+name: Content or Graph Proposal
+description: Propose a concept, video, assessment, sleep cue, source, or graph change.
+title: "[Content]: "
+labels:
+  - "type: content"
+  - "area: graph"
+  - "status: needs evidence"
+body:
+  - type: dropdown
+    id: proposal_type
+    attributes:
+      label: Proposal type
+      options:
+        - add concept
+        - modify definition
+        - add video
+        - add assessment
+        - add sleep cue
+        - change learning path
+        - flag misinformation
+        - flag outdated content
+        - other
+    validations:
+      required: true
+  - type: input
+    id: affected
+    attributes:
+      label: Affected object IDs
+      description: List existing concept, claim, video, cue, assessment, or pack IDs if known.
+  - type: textarea
+    id: change
+    attributes:
+      label: Proposed change
+      description: Include the exact addition or edit.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and sources
+      description: Include citations, source quality notes, transcript links, or observed learning outcomes.
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk level
+      options:
+        - low
+        - medium
+        - high
+        - critical
+    validations:
+      required: true
+  - type: checkboxes
+    id: governance
+    attributes:
+      label: Governance checks
+      options:
+        - label: I included sources or explicitly marked the proposal as unsourced/personal.
+          required: true
+        - label: I did not present popularity or preference as truth.
+          required: true
+        - label: I flagged high-stakes content for human or expert review.
+          required: true

@@ -1,0 +1,60 @@
+name: Bug Report
+description: Report broken behavior in the app, API, scheduler, graph, or tooling.
+title: "[Bug]: "
+labels:
+  - "type: bug"
+  - "status: needs triage"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping make Mnemosyne sturdier. Please include enough detail for someone else to reproduce the behavior.
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and why it seems wrong.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: List exact commands, UI actions, seed data, or API calls.
+      placeholder: |
+        1. Run `npm run dev`
+        2. Open ...
+        3. Submit ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - app/web
+        - api
+        - graph
+        - scheduler
+        - assessment
+        - sleep
+        - video
+        - content-court
+        - creator-ingestion
+        - infrastructure
+        - docs
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, screenshots, or failing tests
+      description: Paste concise logs or link to a failing check.
+      render: shell

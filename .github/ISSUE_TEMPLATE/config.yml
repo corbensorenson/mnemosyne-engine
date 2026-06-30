@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/corbensorenson/mnemosyne-engine/security/policy
+    about: Please report vulnerabilities privately through the security policy.
+  - name: Roadmap
+    url: https://github.com/corbensorenson/mnemosyne-engine/blob/main/ROADMAP.md
+    about: Check the project roadmap before opening broad planning issues.
