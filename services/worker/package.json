@@ -9,6 +9,7 @@
   "dependencies": {
     "@mnemosyne/api": "*",
     "@mnemosyne/audio-renderer-service": "*",
+    "@mnemosyne/content-court": "*",
     "@mnemosyne/notification-core": "*",
     "@mnemosyne/ops-core": "*",
     "@mnemosyne/outcome-core": "*",

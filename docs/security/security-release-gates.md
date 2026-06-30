@@ -34,6 +34,7 @@ Proposal creation and creator ingestion now classify submitted content before it
 - proposal risk is elevated to at least `high`
 - proposal status becomes `human_review_required`
 - required labels are attached to the proposal diff under `security_review`
+- `POST /api/proposals/:id/moderation/jobs` can queue first-party moderation triage for the proposal
 - learning events and audit events include high-stakes domains, risk score, required labels, and review requirements
 - canonical graph release remains blocked until review resolves the proposal
 

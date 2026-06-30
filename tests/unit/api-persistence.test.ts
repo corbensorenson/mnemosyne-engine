@@ -371,6 +371,18 @@ describe("persistence-backed API handlers", () => {
       })
     );
 
+    const moderationJob = unwrap(
+      await handlers.queueProposalModeration({
+        proposalId: submitted.proposal.id,
+        moderatorId: demoUser.id,
+        idempotencyKey: "high-stakes-moderation-test"
+      })
+    );
+    expect(moderationJob.job.queue).toBe("moderation");
+    expect(moderationJob.job.type).toBe("triage_proposal");
+    expect(moderationJob.triage.required_action).toBe("send_to_human_moderation");
+    expect(moderationJob.triage.next_status).toBe("human_review_required");
+
     const audits = await store.listAuditEvents(demoUser.id);
     expect(audits).toEqual(
       expect.arrayContaining([
@@ -384,6 +396,14 @@ describe("persistence-backed API handlers", () => {
           payload: expect.objectContaining({
             high_stakes_detected: true,
             requires_expert_review: true
+          })
+        }),
+        expect.objectContaining({
+          action: "proposal_moderation_queued",
+          object_id: moderationJob.job.id,
+          payload: expect.objectContaining({
+            proposal_id: submitted.proposal.id,
+            required_action: "send_to_human_moderation"
           })
         })
       ])

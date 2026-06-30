@@ -53,13 +53,13 @@ Worker variables:
 - `MNEMOSYNE_WORKER_RECOVERY_LIMIT`: maximum stale locks recovered in one maintenance run
 - `MNEMOSYNE_AUDIO_OUTPUT_FORMAT`: render-manifest format hint, `m4a`, `mp3`, or `wav`
 
-The first executable worker handles `scheduler:generate_daily_packet`, `audio_render:render_sleep_audio`, `notification:deliver_learning_reminder`, `analytics:refresh_outcome_dashboard`, and `export:build_privacy_export`. A scheduler job persists the daily packet, sleep packet, and audio plan, then queues the audio render job. The audio worker writes a deterministic render-manifest object through configured object storage and updates the audio plan to `ready`. The notification worker records first-party reminder outbox events without claiming third-party push delivery. The analytics worker refreshes outcome dashboards from persisted assessment responses, learning events, and graph state. The export worker builds the user data export bundle and writes a JSON artifact into the first-party `export` bucket.
+The first executable worker handles `scheduler:generate_daily_packet`, `audio_render:render_sleep_audio`, `notification:deliver_learning_reminder`, `moderation:triage_proposal`, `analytics:refresh_outcome_dashboard`, and `export:build_privacy_export`. A scheduler job persists the daily packet, sleep packet, and audio plan, then queues the audio render job. The audio worker writes a deterministic render-manifest object through configured object storage and updates the audio plan to `ready`. The notification worker records first-party reminder outbox events without claiming third-party push delivery. The moderation worker triages proposals from stored risk, evidence, high-stakes, counterevidence, change-size, and dispute signals without a third-party moderation API. The analytics worker refreshes outcome dashboards from persisted assessment responses, learning events, and graph state. The export worker builds the user data export bundle and writes a JSON artifact into the first-party `export` bucket.
 
 Recovery mode runs `recoverStaleWorkerLocks`, clearing stale running locks back to retryable `failed` state when attempts remain and dead-lettering jobs that exhausted their final attempt. Each recovered job emits `job_recovered` or `job_dead_lettered` audit events with the previous lock holder.
 
 ## Local Compose
 
-`npm run docker:config` validates the local Compose model. `npm run docker:up` starts Postgres, Redis, MinIO, the API, scheduler, audio-render, notification, analytics, and export workers. The API listens on `http://127.0.0.1:8787` and uses Postgres with migrations enabled. API and workers share the `object-storage` volume at `/var/lib/mnemosyne/objects`.
+`npm run docker:config` validates the local Compose model. `npm run docker:up` starts Postgres, Redis, MinIO, the API, scheduler, audio-render, notification, moderation, analytics, and export workers. The API listens on `http://127.0.0.1:8787` and uses Postgres with migrations enabled. API and workers share the `object-storage` volume at `/var/lib/mnemosyne/objects`.
 
 Smoke checks:
 

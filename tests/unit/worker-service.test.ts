@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createProposal as createCourtProposal } from "@mnemosyne/content-court";
 import { demoUser } from "@mnemosyne/demo-fixtures";
 import { buildNotificationPlan } from "@mnemosyne/notification-core";
 import { createJob, startJob } from "@mnemosyne/ops-core";
@@ -293,6 +294,84 @@ describe("worker-service", () => {
       );
       expect((await runtime.store.listAuditEvents(demoUser.id)).map((event) => event.action)).toEqual(
         expect.arrayContaining(["notification_outbox_recorded", "job_completed"])
+      );
+    } finally {
+      await runtime.close();
+      await rm(objectStorageRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("triages proposal moderation jobs through the moderation worker", async () => {
+    const objectStorageRoot = await mkdtemp(join(tmpdir(), "mnemosyne-worker-moderation-"));
+    const config = workerServiceConfigFromEnv({
+      MNEMOSYNE_STORAGE: "memory",
+      MNEMOSYNE_SEED_DEMO: "true",
+      MNEMOSYNE_OBJECT_STORAGE_ROOT: objectStorageRoot,
+      MNEMOSYNE_WORKER_ID: "worker-moderation-test",
+      MNEMOSYNE_WORKER_MODE: "batch",
+      MNEMOSYNE_WORKER_QUEUES: "moderation",
+      MNEMOSYNE_WORKER_MAX_JOBS: "1"
+    });
+    const runtime = await createWorkerServiceRuntime(config);
+
+    try {
+      const proposal = await runtime.store.saveProposal(
+        createCourtProposal({
+          proposerId: demoUser.id,
+          proposalType: "add_claim",
+          affectedObjectIds: ["claim_sleep_medical_worker"],
+          diff: {
+            add_claim: {
+              subject_id: "sleep",
+              object_value: "medical diagnosis and dosage advice"
+            },
+            security_review: {
+              high_stakes_detected: true,
+              requires_expert_review: true
+            }
+          },
+          rationale: "High-stakes creator claims need human moderation before graph release.",
+          riskLevel: "low"
+        })
+      );
+      expect(proposal.status).toBe("open");
+
+      const moderationJob = await runtime.store.saveJob(
+        createJob({
+          queue: "moderation",
+          type: "triage_proposal",
+          payload: { proposal_id: proposal.id, moderator_id: demoUser.id },
+          priority: "high",
+          idempotencyKey: "worker-service-moderation",
+          auditSubjectId: demoUser.id,
+          createdAt: "2026-06-29T12:00:00.000Z"
+        })
+      );
+
+      const result = await runWorkerServiceBatch(runtime);
+      expect(result.completed).toBe(1);
+      expect(result.failed).toBe(0);
+      expect((await runtime.store.getJob(moderationJob.id))?.result).toEqual(
+        expect.objectContaining({
+          proposal_id: proposal.id,
+          required_action: "send_to_human_moderation",
+          status_before: "open",
+          status_after: "human_review_required"
+        })
+      );
+      const updated = await runtime.store.getProposal(proposal.id);
+      expect(updated?.status).toBe("human_review_required");
+      expect(updated?.expert_comments).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            author_id: demoUser.id,
+            comment_type: "moderation_triage",
+            required_action: "send_to_human_moderation"
+          })
+        ])
+      );
+      expect((await runtime.store.listAuditEvents(demoUser.id)).map((event) => event.action)).toEqual(
+        expect.arrayContaining(["proposal_moderation_triaged", "job_completed"])
       );
     } finally {
       await runtime.close();

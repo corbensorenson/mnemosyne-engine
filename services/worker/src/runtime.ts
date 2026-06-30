@@ -1,5 +1,6 @@
 import { createAudioRendererWorkerHandlers, type RenderManifest } from "@mnemosyne/audio-renderer-service";
 import { configFromEnv, createConfiguredStore, seedDemoStore, type ApiRuntimeConfig } from "@mnemosyne/api";
+import { triageProposalForModeration, type ModerationTriage } from "@mnemosyne/content-court";
 import type { NotificationPlanItem } from "@mnemosyne/notification-core";
 import { queueNames, type QueueName } from "@mnemosyne/ops-core";
 import { buildOutcomeDashboard } from "@mnemosyne/outcome-core";
@@ -69,7 +70,8 @@ export async function createWorkerServiceRuntime(
     ...createAudioRendererWorkerHandlers(config.audioOutputFormat),
     ...createNotificationWorkerHandlers(),
     ...createOutcomeAnalyticsWorkerHandlers(),
-    ...createPrivacyExportWorkerHandlers()
+    ...createPrivacyExportWorkerHandlers(),
+    ...createModerationWorkerHandlers()
   ]);
   return {
     config,
@@ -202,6 +204,67 @@ export function createPrivacyExportWorkerHandlers(): WorkerHandlerDefinition[] {
   ];
 }
 
+export function createModerationWorkerHandlers(): WorkerHandlerDefinition[] {
+  return [
+    {
+      queue: "moderation",
+      type: "triage_proposal",
+      async handle(context) {
+        const proposalId = payloadString(context.job.payload, "proposal_id");
+        const moderatorId = payloadString(context.job.payload, "moderator_id");
+        const proposal = await context.store.getProposal(proposalId);
+        if (!proposal) throw new Error(`proposal not found: ${proposalId}`);
+
+        const triage = triageProposalForModeration(proposal);
+        const updated = await context.store.saveProposal({
+          ...proposal,
+          status: triage.next_status,
+          expert_comments: [
+            ...proposal.expert_comments,
+            {
+              author_id: moderatorId,
+              comment_type: "moderation_triage",
+              text: moderationTriageComment(triage),
+              triage_id: triage.id,
+              required_action: triage.required_action,
+              created_at: triage.generated_at
+            }
+          ],
+          updated_at: triage.generated_at
+        });
+        const audit = await context.store.appendAuditEvent({
+          actor_id: moderatorId,
+          action: "proposal_moderation_triaged",
+          object_type: "proposal",
+          object_id: proposal.id,
+          payload: {
+            job_id: context.job.id,
+            worker_id: context.workerId,
+            triage_id: triage.id,
+            required_action: triage.required_action,
+            status_before: proposal.status,
+            status_after: updated.status,
+            reasons: triage.reasons,
+            policy_checks: triage.policy_checks,
+            source_quality: triage.source_quality,
+            opposition_quality: triage.opposition_quality,
+            bridging_priority: triage.bridging_priority
+          }
+        });
+        return {
+          proposal_id: proposal.id,
+          moderation_triage_id: triage.id,
+          required_action: triage.required_action,
+          status_before: proposal.status,
+          status_after: updated.status,
+          audit_event_id: audit.id,
+          reasons: triage.reasons
+        };
+      }
+    }
+  ];
+}
+
 export function createOutcomeAnalyticsWorkerHandlers(): WorkerHandlerDefinition[] {
   return [
     {
@@ -323,10 +386,14 @@ function parseAudioOutputFormat(value: string | undefined): RenderManifest["outp
   return "m4a";
 }
 
+function moderationTriageComment(triage: ModerationTriage): string {
+  return `Moderation triage: ${triage.required_action}. ${triage.reasons.join(" ")}`;
+}
+
 function payloadString(payload: Record<string, unknown>, key: string): string {
   const value = payload[key];
   if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`privacy export job payload requires ${key}`);
+    throw new Error(`job payload requires ${key}`);
   }
   return value;
 }

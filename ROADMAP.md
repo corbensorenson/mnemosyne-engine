@@ -398,15 +398,16 @@ Deliverables:
 - Case file pages for claims, concepts, cues, assessments, videos, and definitions.
 - Proposal diff UI.
 - Voting and comment flows.
-- AI arbiter job runner.
+- Local arbiter job runner.
 - Human moderation override.
 - Release notes generator.
 
 Current implementation progress:
 
 - PWA Content Court case file shows proposal rationale, affected objects, source/risk metrics, before/after diff, vote controls, comments, arbiter review, moderation accept, release action, and generated release notes.
-- First-party proposal lifecycle supports vote, comment, AI review, human override, and release endpoints; accepted definition changes can update the master graph, mark the proposal merged, and emit a graph-release audit artifact with graph version and release notes.
+- First-party proposal lifecycle supports vote, comment, local arbiter review, human override, and release endpoints; accepted definition changes can update the master graph, mark the proposal merged, and emit a graph-release audit artifact with graph version and release notes.
 - Proposal creation and creator ingestion now classify high-stakes domains, elevate risk to human review, attach required safety labels to proposal diffs, and audit review requirements before content can affect canonical graph state.
+- First-party moderation triage now exposes `POST /api/proposals/:id/moderation/jobs` and a `moderation:triage_proposal` worker that classifies proposal risk from local policy checks, updates governance status, adds triage comments, and audits every decision without relying on a hosted moderation API.
 
 Exit criteria:
 
@@ -506,15 +507,16 @@ Current implementation progress:
 - Privacy exports now support asynchronous `export:build_privacy_export` jobs that write readable JSON artifacts to first-party object storage with manifests and audit events.
 - PWA Admin surface includes Privacy Ops cards for export, voice deletion, health deletion, and account deletion alongside the service map and audit log.
 - Notification scheduling now uses first-party `@mnemosyne/notification-core` plans and `notification:deliver_learning_reminder` workers for Morning Forge, Evening Lock-In, phone-down, and SleepCue recall outbox reminders.
+- Content Court moderation now uses first-party queue jobs and `moderation:triage_proposal` workers for high-stakes labels, evidence gaps, counterevidence, dispute signals, and large graph-change review.
 - Security foundation now includes `@mnemosyne/auth-core` for RBAC, object-level authorization, consent-aware analytics access, CSRF verification, session expiry, and API audit trails for auth decisions.
 - Outcome analytics now exposes `GET /api/outcomes/dashboard`, `POST /api/outcomes/refresh`, and queued `analytics:refresh_outcome_dashboard` worker jobs with quality gates for immediate recall, 24h recall, 7d recall, 30d recall, transfer, latency, calibration, screen load, and SleepCue controls.
 - Persistence core now exposes a driver-agnostic Postgres `MnemosyneStore` backed by the `mnemosyne_records` JSONB migration, preserving export and deletion semantics while normalized projections continue to mature.
 - First-party ops core now models queue names, job lifecycle, idempotency, retries, dead letters, object manifests, encryption/integrity gates, and an ops health dashboard; API routes persist and audit jobs and object manifests.
 - First-party storage core now writes object bytes to local durable storage, validates SHA-256 and size integrity, records sidecar manifests, blocks unsafe keys, and exposes `POST /api/objects/store` through the API runtime.
 - First-party worker core now leases runnable jobs from persistent queues, dispatches registered handlers, records audit events, applies retry/dead-letter transitions, generates daily packets from scheduler jobs, queues sleep audio renders, and stores audio render manifests through object storage.
-- First-party worker service now provides an executable `npm run worker:start` process with env-based memory/Postgres bootstrap, object storage, queue filters, batch/loop modes, scheduler/audio/notification/analytics/export handlers, graceful shutdown, and smoke-tested artifact persistence.
+- First-party worker service now provides an executable `npm run worker:start` process with env-based memory/Postgres bootstrap, object storage, queue filters, batch/loop modes, scheduler/audio/notification/moderation/analytics/export handlers, graceful shutdown, and smoke-tested artifact persistence.
 - Worker recovery mode now clears stale running locks through first-party job transitions, returns retryable work to the queue, dead-letters exhausted stale jobs, and audits each recovery with the previous lock holder.
-- Local deployment automation now includes a first-party Dockerfile and Compose stack for Postgres, Redis, MinIO, API, scheduler worker, audio worker, notification worker, analytics worker, export worker, health checks, migrations, demo seeding, and a shared durable object-storage volume.
+- Local deployment automation now includes a first-party Dockerfile and Compose stack for Postgres, Redis, MinIO, API, scheduler worker, audio worker, notification worker, moderation worker, analytics worker, export worker, health checks, migrations, demo seeding, and a shared durable object-storage volume.
 - Postgres persistence now exposes an atomic runnable-job claim path using row locks and `SKIP LOCKED`, so parallel workers lease only handled, runnable jobs without double-starting the same record.
 - First-party ops monitoring now exposes `GET /api/ops/monitoring`, combining ops health gates, dependency readiness, queue thresholds, object storage integrity, and security release gates into deterministic alerts and service-level status.
 - First-party security core now exposes `GET /api/security/release-gate` with CSP/header policy, rate-limit profiles, high-stakes labels, CSRF expectations, and audit-safety checks.

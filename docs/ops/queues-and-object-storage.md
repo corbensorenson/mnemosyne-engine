@@ -40,6 +40,8 @@ The audio renderer service registers `audio_render:render_sleep_audio`. The hand
 
 The notification worker registers `notification:deliver_learning_reminder`. The handler records first-party outbox audit events for in-app, web-push-ready, or native-companion-ready reminders without relying on a hosted notification API.
 
+The moderation worker registers `moderation:triage_proposal`. The handler loads stored Content Court proposals, runs first-party moderation triage from risk, evidence, high-stakes labels, counterevidence, change size, and dispute signals, updates proposal status through existing governance states, adds a moderator-readable triage comment, and audits the result.
+
 The analytics worker registers `analytics:refresh_outcome_dashboard`. The handler builds outcome dashboards from persisted assessment responses, learning events, and graph state, saves the dashboard, and audits the rollup quality gates.
 
 The privacy export worker registers `export:build_privacy_export`. The handler loads the user export bundle from `MnemosyneStore`, writes the bundle as JSON through configured object storage, persists the `export` object manifest, and audits the stored artifact.
@@ -56,6 +58,7 @@ The API service now exposes:
 - `POST /api/jobs/:id/fail`
 - `POST /api/notifications/schedule`
 - `POST /api/outcomes/refresh/jobs`
+- `POST /api/proposals/:id/moderation/jobs`
 - `POST /api/privacy/export/jobs`
 - `POST /api/objects`
 - `POST /api/objects/store`
@@ -96,4 +99,4 @@ The next production step is to map this contract onto:
 - normalized Postgres projections for canonical job and object-manifest records
 - optional Redis streams or sorted sets for runnable queue indexes when scale requires an external index
 - managed object storage for audio, transcripts, imports, generated assets, evidence files, backups, and privacy exports, using the same manifest and integrity behavior as the local adapter
-- worker binaries for analytics rollups, notifications, moderation, ingestion, export, and AI jobs following the same `@mnemosyne/worker-core` handler contract
+- worker binaries for ingestion and local AI jobs following the same `@mnemosyne/worker-core` handler contract

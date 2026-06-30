@@ -239,6 +239,17 @@ export const notificationScheduleRequestSchema = z
   })
   .strict();
 
+export const proposalModerationJobRequestSchema = z
+  .object({
+    proposalId: z.string().min(1),
+    moderatorId: z.string().min(1),
+    priority: jobPrioritySchema.optional(),
+    runAfter: z.string().optional(),
+    idempotencyKey: z.string().min(3).optional(),
+    maxAttempts: z.number().int().positive().max(25).default(3)
+  })
+  .strict();
+
 const objectBucketSchema = z.enum([
   "audio",
   "transcript",

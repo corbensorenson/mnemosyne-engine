@@ -24,6 +24,7 @@ describe("deployment config", () => {
     expect(compose).toContain("worker-export:");
     expect(compose).toContain("worker-analytics:");
     expect(compose).toContain("worker-notification:");
+    expect(compose).toContain("worker-moderation:");
     expect(compose).toContain("MNEMOSYNE_STORAGE: postgres");
     expect(compose).toContain('MNEMOSYNE_RUN_MIGRATIONS: "true"');
     expect(compose).toContain("MNEMOSYNE_WORKER_QUEUES: scheduler");
@@ -31,6 +32,7 @@ describe("deployment config", () => {
     expect(compose).toContain("MNEMOSYNE_WORKER_QUEUES: export");
     expect(compose).toContain("MNEMOSYNE_WORKER_QUEUES: analytics");
     expect(compose).toContain("MNEMOSYNE_WORKER_QUEUES: notification");
+    expect(compose).toContain("MNEMOSYNE_WORKER_QUEUES: moderation");
     expect(compose).toContain("object-storage:/var/lib/mnemosyne/objects");
     expect(compose).toContain("condition: service_healthy");
   });

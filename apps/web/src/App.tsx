@@ -3736,7 +3736,7 @@ function CourtView({ verdict: initialVerdict }: { verdict: ReturnType<typeof arb
         <div className="object-list court-event-log">
           <ObjectLine label="Votes" value={`${Object.keys(proposal.community_votes).length}`} />
           <ObjectLine label="Comments" value={`${proposal.expert_comments.length}`} />
-          <ObjectLine label="AI review" value={proposal.ai_review ? "recorded" : "pending"} />
+          <ObjectLine label="Arbiter review" value={proposal.ai_review ? "recorded" : "pending"} />
           <ObjectLine label="Audit" value={release?.auditAction ?? "proposal case open"} />
         </div>
         {commentPreviews.length > 0 && (

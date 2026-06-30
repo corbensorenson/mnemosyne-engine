@@ -26,11 +26,11 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/tutor-core`: first-party rubric semantics, tutor modes, and safety gates for feedback.
 - `packages/social-core`: outcome-safe badges, challenges, privacy-aware dashboards, and contributor reputation.
 - `packages/wearables-core`: optional wearable connection, token envelope, sleep normalization, readiness, and native-edge planning primitives.
-- `packages/content-court`: proposal, voting, AI arbitration, and moderation primitives.
+- `packages/content-court`: proposal, voting, local arbitration, and first-party moderation triage primitives.
 - `packages/audio-core`: deterministic audio timeline assembly for sparse sleep cue playback.
 - `master-graph`: open master graph layout, seed packs, schemas, policies, and release notes.
-- `services`: API, scheduler, audio-renderer, and worker services wired to the same shared models, including a first-party HTTP adapter with security headers, CSRF checks, rate limits, privacy export/deletion handlers, queued notifications, queued analytics rollups, queued export artifacts, and executable queue workers.
-- `infra/docker`: local production-like Compose stack for Postgres, Redis, MinIO, API, scheduler, audio, notification, analytics, export workers, and shared object storage.
+- `services`: API, scheduler, audio-renderer, and worker services wired to the same shared models, including a first-party HTTP adapter with security headers, CSRF checks, rate limits, privacy export/deletion handlers, queued notifications, queued analytics rollups, queued moderation triage, queued export artifacts, and executable queue workers.
+- `infra/docker`: local production-like Compose stack for Postgres, Redis, MinIO, API, scheduler, audio, notification, analytics, moderation, export workers, and shared object storage.
 
 ## Product Principles
 

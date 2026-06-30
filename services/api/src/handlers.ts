@@ -25,6 +25,8 @@ import {
   castVote,
   computeBridgingPriority,
   createProposal as createCourtProposal,
+  triageProposalForModeration,
+  type ModerationTriage,
   type VoteType
 } from "@mnemosyne/content-court";
 import {
@@ -187,6 +189,7 @@ import {
   privacyExportRequestSchema,
   proposalCreateRequestSchema,
   proposalCommentRequestSchema,
+  proposalModerationJobRequestSchema,
   proposalReleaseRequestSchema,
   proposalReviewRequestSchema,
   proposalVoteRequestSchema,
@@ -539,6 +542,20 @@ type OutcomeDashboardJobRequest = {
   runAfter?: string;
   idempotencyKey?: string;
   maxAttempts: number;
+};
+
+type ProposalModerationJobRequest = {
+  proposalId: string;
+  moderatorId: string;
+  priority?: JobPriority;
+  runAfter?: string;
+  idempotencyKey?: string;
+  maxAttempts: number;
+};
+
+type ProposalModerationJobResponse = {
+  job: JobRecord;
+  triage: ModerationTriage;
 };
 
 type JobCreateRequest = {
@@ -2858,6 +2875,56 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
         }
       });
       return envelope({ proposal: updated, verdict }, audit.id);
+    },
+
+    async queueProposalModeration(input: unknown): Promise<HandlerEnvelope<ProposalModerationJobResponse>> {
+      const request = validateRequest(
+        proposalModerationJobRequestSchema,
+        input
+      ) as ProposalModerationJobRequest;
+      await requireUser(store, request.moderatorId);
+      const proposal = await store.getProposal(request.proposalId);
+      if (!proposal) return notFound<ProposalModerationJobResponse>("proposal_not_found");
+
+      const queuedAt = nowIso();
+      const triage = triageProposalForModeration(proposal, queuedAt);
+      const job = await store.saveJob(
+        createOpsJob({
+          queue: "moderation",
+          type: "triage_proposal",
+          payload: {
+            proposal_id: proposal.id,
+            moderator_id: request.moderatorId,
+            requested_at: queuedAt,
+            queued_triage: triage
+          },
+          priority: request.priority ?? triage.priority,
+          runAfter: request.runAfter,
+          idempotencyKey: request.idempotencyKey ?? `proposal_moderation:${proposal.id}:${queuedAt}`,
+          maxAttempts: request.maxAttempts,
+          auditSubjectId: request.moderatorId,
+          createdAt: queuedAt
+        })
+      );
+      const audit = await store.appendAuditEvent({
+        actor_id: request.moderatorId,
+        action: "proposal_moderation_queued",
+        object_type: "service_job",
+        object_id: job.id,
+        payload: {
+          proposal_id: proposal.id,
+          triage_id: triage.id,
+          required_action: triage.required_action,
+          next_status: triage.next_status,
+          reasons: triage.reasons,
+          queue: job.queue,
+          type: job.type,
+          priority: job.priority,
+          run_after: job.run_after,
+          idempotency_key: job.idempotency_key
+        }
+      });
+      return envelope({ job, triage }, audit.id);
     },
 
     async voteOnProposal(input: unknown): Promise<HandlerEnvelope<Proposal>> {

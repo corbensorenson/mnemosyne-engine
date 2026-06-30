@@ -18,6 +18,38 @@ export type VoteType =
   | "better_video_exists"
   | "needs_expert_review";
 
+export type ModerationTriageAction =
+  | "review_ready"
+  | "request_more_evidence"
+  | "send_to_human_moderation"
+  | "mark_as_disputed"
+  | "freeze_release";
+
+export type ModerationTriage = {
+  id: string;
+  proposal_id: string;
+  generated_at: string;
+  policy_version: string;
+  risk_level: Proposal["risk_level"];
+  required_action: ModerationTriageAction;
+  next_status: Proposal["status"];
+  priority: "low" | "normal" | "high" | "critical";
+  reasons: string[];
+  policy_checks: {
+    high_stakes_labeled: boolean;
+    source_gap: boolean;
+    low_source_quality: boolean;
+    counterevidence_outweighs_support: boolean;
+    high_risk: boolean;
+    critical_risk: boolean;
+    large_change: boolean;
+    dispute_signals: boolean;
+  };
+  source_quality: number;
+  opposition_quality: number;
+  bridging_priority: number;
+};
+
 export function createProposal(input: {
   proposerId: string | "ai_agent";
   proposalType: Proposal["proposal_type"];
@@ -137,6 +169,54 @@ export function arbitrateProposal(proposal: Proposal): ArbiterVerdict {
   };
 }
 
+export function triageProposalForModeration(proposal: Proposal, generatedAt = nowIso()): ModerationTriage {
+  const sourceQuality = sourceQualityScore(proposal.evidence_for);
+  const oppositionQuality = sourceQualityScore(proposal.evidence_against);
+  const bridgingPriority = computeBridgingPriority(proposal);
+  const policyChecks = {
+    high_stakes_labeled: hasHighStakesLabel(proposal.diff),
+    source_gap: proposal.evidence_for.length === 0 && requiresEvidence(proposal.proposal_type),
+    low_source_quality: proposal.evidence_for.length > 0 && sourceQuality < 0.55,
+    counterevidence_outweighs_support:
+      proposal.evidence_against.length > 0 && oppositionQuality > sourceQuality + 0.15,
+    high_risk: proposal.risk_level === "high" || proposal.risk_level === "critical",
+    critical_risk: proposal.risk_level === "critical",
+    large_change: proposal.affected_object_ids.length > 5 || serializedLength(proposal.diff) > 4_000,
+    dispute_signals: hasDisputeSignals(proposal)
+  };
+  const reasons: string[] = [];
+
+  if (policyChecks.critical_risk) reasons.push("critical proposal risk requires release freeze");
+  if (policyChecks.high_stakes_labeled) reasons.push("high-stakes labels require domain review");
+  if (policyChecks.high_risk) reasons.push("high proposal risk requires human moderation");
+  if (policyChecks.large_change) reasons.push("large graph change requires moderator review");
+  if (policyChecks.source_gap) reasons.push("proposal lacks required supporting evidence");
+  if (policyChecks.low_source_quality) reasons.push("supporting evidence quality is below merge threshold");
+  if (policyChecks.counterevidence_outweighs_support) {
+    reasons.push("opposing evidence outweighs supporting evidence");
+  }
+  if (policyChecks.dispute_signals) reasons.push("community signals indicate dispute or expert review need");
+
+  const requiredAction = moderationActionFor(policyChecks);
+  const nextStatus = moderationStatusFor(requiredAction, proposal.status);
+
+  return {
+    id: createId("moderation_triage", `${proposal.id}:${generatedAt}`),
+    proposal_id: proposal.id,
+    generated_at: generatedAt,
+    policy_version: "mnemosyne-content-court-moderation-v0.1",
+    risk_level: proposal.risk_level,
+    required_action: requiredAction,
+    next_status: nextStatus,
+    priority: moderationPriorityFor(requiredAction, proposal.risk_level),
+    reasons: reasons.length ? reasons : ["proposal is ready for standard human acceptance or release review"],
+    policy_checks: policyChecks,
+    source_quality: sourceQuality,
+    opposition_quality: oppositionQuality,
+    bridging_priority: bridgingPriority
+  };
+}
+
 function requiresEvidence(proposalType: Proposal["proposal_type"]): boolean {
   return !["change_badge", "add_assessment", "rank_video"].includes(proposalType);
 }
@@ -144,4 +224,64 @@ function requiresEvidence(proposalType: Proposal["proposal_type"]): boolean {
 function sourceQualityScore(sources: SourceRef[]): number {
   if (sources.length === 0) return 0;
   return sources.reduce((sum, source) => sum + source.quality_score, 0) / sources.length;
+}
+
+function moderationActionFor(checks: ModerationTriage["policy_checks"]): ModerationTriageAction {
+  if (checks.critical_risk) return "freeze_release";
+  if (checks.high_stakes_labeled || checks.high_risk || checks.large_change) {
+    return "send_to_human_moderation";
+  }
+  if (checks.counterevidence_outweighs_support || checks.dispute_signals) return "mark_as_disputed";
+  if (checks.source_gap || checks.low_source_quality) return "request_more_evidence";
+  return "review_ready";
+}
+
+function moderationStatusFor(
+  action: ModerationTriageAction,
+  currentStatus: Proposal["status"]
+): Proposal["status"] {
+  if (["accepted", "accepted_with_modifications", "merged", "rejected", "reverted"].includes(currentStatus)) {
+    return currentStatus;
+  }
+  if (action === "freeze_release" || action === "send_to_human_moderation") {
+    return "human_review_required";
+  }
+  if (action === "mark_as_disputed") return "disputed";
+  if (action === "request_more_evidence") return "needs_evidence";
+  return currentStatus === "ai_reviewing" ? "open" : currentStatus;
+}
+
+function moderationPriorityFor(
+  action: ModerationTriageAction,
+  riskLevel: Proposal["risk_level"]
+): ModerationTriage["priority"] {
+  if (action === "freeze_release" || riskLevel === "critical") return "critical";
+  if (action === "send_to_human_moderation" || riskLevel === "high") return "high";
+  if (action === "mark_as_disputed" || action === "request_more_evidence") return "normal";
+  return "low";
+}
+
+function hasHighStakesLabel(diff: Record<string, unknown>): boolean {
+  const review = diff.security_review;
+  return isRecord(review) && review.high_stakes_detected === true;
+}
+
+function hasDisputeSignals(proposal: Proposal): boolean {
+  return Object.keys(proposal.community_votes).some((key) =>
+    ["wrong:", "outdated:", "misleading:", "wrong_prerequisite:", "needs_expert_review:"].some((prefix) =>
+      key.startsWith(prefix)
+    )
+  );
+}
+
+function serializedLength(value: unknown): number {
+  try {
+    return JSON.stringify(value).length;
+  } catch {
+    return String(value).length;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
