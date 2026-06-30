@@ -512,7 +512,7 @@ Current implementation progress:
 - System backups now support asynchronous `export:build_system_backup` jobs that write store-wide JSON artifacts to the first-party `backup` bucket with manifests, counts, and audit events for restore drills.
 - Restore drills now support asynchronous `export:run_system_backup_restore_drill` jobs that read backup objects back through first-party storage, verify integrity/schema/counts/graph/sleep/audit/privacy bundle continuity, and audit completed or failed drill reports.
 - Incident response now supports `POST /api/ops/incidents/reports`, producing first-party `mnemosyne-incident-response-v0.1` artifacts from monitoring alerts with severity, blockers, recommended actions, object manifests, and audit events.
-- PWA Admin surface includes Privacy Ops cards for export, voice deletion, health deletion, and account deletion alongside the service map and audit log.
+- PWA Admin surface includes incident command metrics, local incident artifact staging, Privacy Ops cards for export, voice deletion, health deletion, and account deletion alongside the service map and audit log.
 - Creator ingestion now uses first-party `ingestion:process_creator_submission` jobs for queued creator drafts, preserving the same validation, high-stakes labels, proposal generation, and audit trail as synchronous submissions.
 - Notification scheduling now uses first-party `@mnemosyne/notification-core` plans and `notification:deliver_learning_reminder` workers for Morning Forge, Evening Lock-In, phone-down, and SleepCue recall outbox reminders.
 - Local arbiter review now uses first-party `local_ai:review_proposal` jobs for Content Court verdicts, preserving model/version logging and graph governance without a provider API dependency.

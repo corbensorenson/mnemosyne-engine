@@ -16,6 +16,7 @@ import {
   GitBranch,
   Headphones,
   Home,
+  LifeBuoy,
   Link2,
   Moon,
   Network,
@@ -57,6 +58,18 @@ import {
   type PacedReadSessionPlan
 } from "@mnemosyne/paced-reader-core";
 import { buildGraphSnapshot } from "@mnemosyne/graph-core";
+import {
+  buildIncidentResponseReport,
+  buildOpsHealthDashboard,
+  buildOpsMonitoringDashboard,
+  createJob as createOpsJob,
+  createObjectManifest,
+  failJob as failOpsJob,
+  startJob as startOpsJob,
+  type IncidentResponseReport,
+  type ObjectManifest,
+  type OpsMonitoringDashboard
+} from "@mnemosyne/ops-core";
 import { buildDailyLearningPacket } from "@mnemosyne/scheduler-core";
 import type {
   AssessmentItem,
@@ -70,7 +83,7 @@ import type {
   VideoAsset,
   WatchPacket
 } from "@mnemosyne/schema";
-import { clamp, createId, humanMinutes, nowIso, round, unique } from "@mnemosyne/shared-utils";
+import { clamp, createId, humanMinutes, nowIso, round, stableHash, unique } from "@mnemosyne/shared-utils";
 import { buildSleepCuePacket } from "@mnemosyne/sleep-core";
 import {
   buildSocialDashboard,
@@ -1500,7 +1513,12 @@ export default function App() {
       />
     ),
     workbench: <WorkbenchView />,
-    admin: <AdminView eventLog={eventLog} />
+    admin: (
+      <AdminView
+        eventLog={eventLog}
+        onAuditEvent={(event) => setEventLog((current) => [event, ...current].slice(0, 8))}
+      />
+    )
   }[activeTab];
 
   return (
@@ -3897,8 +3915,79 @@ function LabView({
   );
 }
 
-function AdminView({ eventLog }: { eventLog: string[] }) {
+type LocalIncidentArtifact = {
+  manifest: ObjectManifest;
+  sizeBytes: number;
+  route: string;
+};
+
+function buildLocalOpsMonitoring(): OpsMonitoringDashboard {
+  const deadLetter = failOpsJob(
+    startOpsJob(
+      createOpsJob({
+        queue: "audio_render",
+        type: "render_sleep_audio",
+        payload: { audio_plan_id: "sleep_audio_release_gate" },
+        maxAttempts: 1,
+        idempotencyKey: "release_audio_render",
+        auditSubjectId: demoUser.id,
+        createdAt: "2026-06-30T12:00:00.000Z"
+      }),
+      "worker-audio",
+      "2026-06-30T12:01:00.000Z"
+    ),
+    "codec output missing integrity proof",
+    "2026-06-30T12:02:00.000Z"
+  );
+  const backupObject = createObjectManifest({
+    bucket: "backup",
+    key: "backups/system/release-drill.json",
+    contentType: "application/json",
+    sizeBytes: 12_288,
+    sha256: "a".repeat(64),
+    ownerId: demoUser.id,
+    retentionPolicy: "backup",
+    createdAt: "2026-06-30T11:50:00.000Z"
+  });
+  return buildOpsMonitoringDashboard({
+    opsHealth: buildOpsHealthDashboard({
+      jobs: [deadLetter],
+      objects: [backupObject],
+      generatedAt: "2026-06-30T12:15:00.000Z"
+    }),
+    securityGate: {
+      passed: true,
+      csp_present: true,
+      csrf_required_for_mutation: true,
+      rate_limits_present: true,
+      high_stakes_labeled: true,
+      expert_review_required_when_high_stakes: true,
+      audit_safe: true
+    },
+    dependencyReadiness: {
+      service: "mnemosyne-api",
+      status: "ready",
+      environment: "production",
+      checked_at: "2026-06-30T12:15:00.000Z",
+      components: {
+        store: { status: "ok", checked_at: "2026-06-30T12:15:00.000Z" },
+        object_storage: { status: "ok", checked_at: "2026-06-30T12:15:00.000Z" }
+      }
+    }
+  });
+}
+
+function AdminView({
+  eventLog,
+  onAuditEvent
+}: {
+  eventLog: string[];
+  onAuditEvent: (event: string) => void;
+}) {
   const [privacyStatus, setPrivacyStatus] = useState("export ready");
+  const [incidentStatus, setIncidentStatus] = useState("release drill blocked");
+  const [incidentReport, setIncidentReport] = useState<IncidentResponseReport | null>(null);
+  const [incidentArtifact, setIncidentArtifact] = useState<LocalIncidentArtifact | null>(null);
   const services = [
     "Auth",
     "Graph",
@@ -3911,35 +4000,94 @@ function AdminView({ eventLog }: { eventLog: string[] }) {
     "Wearables",
     "Privacy",
     "Content Court",
-    "AI Orchestrator",
+    "Local Arbiter",
     "Analytics"
   ];
   const privacyOps = [
     {
       title: "Data Export",
       endpoint: "GET /api/privacy/export",
-      action: () => setPrivacyStatus("export bundle prepared"),
+      action: () => {
+        setPrivacyStatus("export bundle prepared");
+        onAuditEvent("privacy_export_staged");
+      },
       icon: Database
     },
     {
       title: "Voice Delete",
       endpoint: "DELETE voice scope",
-      action: () => setPrivacyStatus("voice payloads scrubbed"),
+      action: () => {
+        setPrivacyStatus("voice payloads scrubbed");
+        onAuditEvent("voice_delete_staged");
+      },
       icon: AudioLines
     },
     {
       title: "Health Delete",
       endpoint: "DELETE health scope",
-      action: () => setPrivacyStatus("health tokens and sleep imports queued"),
+      action: () => {
+        setPrivacyStatus("health tokens and sleep imports queued");
+        onAuditEvent("health_delete_staged");
+      },
       icon: Activity
     },
     {
       title: "Account Delete",
       endpoint: "DELETE account scope",
-      action: () => setPrivacyStatus("account deletion requires confirmation"),
+      action: () => {
+        setPrivacyStatus("account deletion requires confirmation");
+        onAuditEvent("account_delete_confirmation_required");
+      },
       icon: ShieldCheck
     }
   ];
+  const monitoring = useMemo(() => buildLocalOpsMonitoring(), []);
+  const primaryAlerts = monitoring.alerts.slice(0, 4);
+  const activeReport =
+    incidentReport ??
+    buildIncidentResponseReport({
+      monitoring,
+      operatorId: demoUser.id,
+      environment: "production",
+      title: "Production release incident preview",
+      generatedAt: "2026-06-30T12:30:00.000Z"
+    });
+  async function stageIncidentReport() {
+    setIncidentStatus("building report artifact");
+    const report = buildIncidentResponseReport({
+      monitoring,
+      operatorId: demoUser.id,
+      environment: "production",
+      title: "Production release incident drill"
+    });
+    const body = JSON.stringify(report, null, 2);
+    const sha256 = await sha256Hex(body);
+    const manifest = createObjectManifest({
+      bucket: "evidence",
+      key: `incidents/production/${safePathSegment(report.id)}.json`,
+      contentType: "application/json",
+      sizeBytes: new TextEncoder().encode(body).byteLength,
+      sha256,
+      ownerId: demoUser.id,
+      retentionPolicy: report.severity === "none" ? "product" : "legal_hold",
+      metadata: {
+        report_id: report.id,
+        schema_version: report.schema_version,
+        severity: report.severity,
+        status: report.status,
+        ready_for_release: report.ready_for_release
+      },
+      createdAt: report.generated_at
+    });
+    setIncidentReport(report);
+    setIncidentArtifact({
+      manifest,
+      sizeBytes: manifest.size_bytes,
+      route: "POST /api/ops/incidents/reports"
+    });
+    setIncidentStatus(`${report.severity.toUpperCase()} report staged`);
+    onAuditEvent("ops_incident_report_stored");
+  }
   return (
     <div className="page-grid admin-grid">
       <section className="panel">
@@ -3952,6 +4100,36 @@ function AdminView({ eventLog }: { eventLog: string[] }) {
             </div>
           ))}
         </div>
+      </section>
+      <section className="panel incident-panel">
+        <PanelTitle icon={LifeBuoy} title="Incident Command" meta={incidentStatus} />
+        <div className="incident-summary">
+          <ObjectLine label="Severity" value={activeReport.severity.toUpperCase()} />
+          <ObjectLine label="Alerts" value={`${activeReport.alert_counts.total}`} />
+          <ObjectLine label="Release" value={activeReport.ready_for_release ? "ready" : "blocked"} />
+        </div>
+        <div className="incident-actions">
+          <button className="command primary" onClick={() => void stageIncidentReport()}>
+            <ClipboardCheck size={18} />
+            Stage report
+          </button>
+          <span className="tag">{activeReport.status}</span>
+          <span className="tag">{activeReport.recommended_actions.length} actions</span>
+        </div>
+        <div className="object-list incident-alerts">
+          {primaryAlerts.map((alert) => (
+            <ObjectLine key={alert.id} label={alert.severity} value={alert.title} />
+          ))}
+        </div>
+        {incidentArtifact && (
+          <div className="incident-artifact">
+            <ObjectLine label="Route" value={incidentArtifact.route} />
+            <ObjectLine label="Object" value={incidentArtifact.manifest.key} />
+            <ObjectLine label="Size" value={`${incidentArtifact.sizeBytes} bytes`} />
+            <ObjectLine label="Retention" value={incidentArtifact.manifest.retention_policy} />
+            <ObjectLine label="SHA-256" value={incidentArtifact.manifest.sha256.slice(0, 16)} />
+          </div>
+        )}
       </section>
       <section className="panel privacy-ops-panel">
         <PanelTitle icon={ShieldCheck} title="Privacy Ops" meta={privacyStatus} />
@@ -3982,6 +4160,18 @@ function AdminView({ eventLog }: { eventLog: string[] }) {
       </section>
     </div>
   );
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  if (globalThis.crypto?.subtle) {
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  return stableHash(value).toString(16).padStart(64, "0").slice(0, 64);
+}
+
+function safePathSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
 function WorkbenchView() {

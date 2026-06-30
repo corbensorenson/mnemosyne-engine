@@ -2001,6 +2001,39 @@ input[type="range"] {
   font-size: 1rem;
 }
 
+.incident-panel {
+  grid-column: span 2;
+}
+
+.incident-summary,
+.incident-actions,
+.incident-artifact {
+  display: grid;
+  gap: 8px;
+}
+
+.incident-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.incident-actions {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  margin: 12px 0;
+}
+
+.incident-alerts {
+  margin-top: 4px;
+}
+
+.incident-artifact {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(247, 244, 237, 0.72);
+}
+
 .workbench-grid > .metric-strip {
   grid-column: 1 / -1;
 }
@@ -2116,6 +2149,10 @@ input[type="range"] {
   .service-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .incident-panel {
+    grid-column: auto;
+  }
 }
 
 @media (max-width: 680px) {
@@ -2189,6 +2226,8 @@ input[type="range"] {
   .choice-grid,
   .preference-grid,
   .state-grid,
+  .incident-summary,
+  .incident-actions,
   .paced-read-unit-control {
     grid-template-columns: 1fr;
   }

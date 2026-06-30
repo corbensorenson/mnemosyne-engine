@@ -14,6 +14,8 @@ curl -X POST http://127.0.0.1:8787/api/ops/incidents/reports \
 
 The API builds a system-wide monitoring snapshot, classifies severity, writes a `mnemosyne-incident-response-v0.1` JSON artifact to the `evidence` bucket, persists the object manifest, and audits `ops_incident_report_stored`.
 
+The PWA Admin surface includes an Incident Command panel that previews the same first-party incident report contract, stages a local report artifact with a browser-computed SHA-256 manifest preview, and records the action in the local audit log.
+
 Severity mapping:
 
 - `sev1`: security or dependency critical alerts, or three or more critical alerts.
