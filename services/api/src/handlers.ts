@@ -68,6 +68,20 @@ import {
   type SocialEvidence
 } from "@mnemosyne/social-core";
 import {
+  buildOuraAuthorizationRequest,
+  buildWearableCapabilityDashboard,
+  createWearableConnection,
+  normalizeWearableSleepSession,
+  providerRevokeEndpoint,
+  readinessFromWearableSleep,
+  revokeWearableConnection,
+  type NormalizedWearableSleepSession,
+  type RawWearableSleepSession,
+  type WearableCapabilityDashboard,
+  type WearableConnection,
+  type WearableProvider
+} from "@mnemosyne/wearables-core";
+import {
   assignExperiments,
   buildPersonalizationProfile,
   createDefaultExperimentSuite,
@@ -108,6 +122,8 @@ import {
   videoRecommendationRequestSchema,
   walkModeCompleteRequestSchema,
   watchPacketRequestSchema,
+  wearableOuraConnectRequestSchema,
+  wearableRevokeRequestSchema,
   wearableSyncRequestSchema
 } from "./validation";
 
@@ -261,6 +277,40 @@ type SleepRecallCompleteRequest = {
   screenMinutes: number;
   voiceUsed: boolean;
   completedAt?: string;
+};
+
+type WearableSyncRequest = {
+  userId: string;
+  provider: WearableProvider;
+  connectionId?: string;
+  sleepSession?: RawWearableSleepSession;
+};
+
+type WearableConnectRequest = {
+  userId: string;
+  clientId: string;
+  redirectUri: string;
+  scopes: string[];
+  accessToken?: string;
+  refreshToken?: string;
+  encryptionSecret?: string;
+};
+
+type WearableRevokeRequest = {
+  userId: string;
+  connectionId: string;
+};
+
+type WearableConnectResponse = {
+  connection: WearableConnection;
+  dashboard: WearableCapabilityDashboard;
+};
+
+type WearableSyncResponse = {
+  provider: WearableProvider;
+  normalized_sleep?: NormalizedWearableSleepSession;
+  readiness: ReadinessProfile;
+  dashboard: WearableCapabilityDashboard;
 };
 
 type FlashReadGenerateRequest = {
@@ -1743,31 +1793,113 @@ export function createApiHandlers(store: MnemosyneStore) {
       );
     },
 
-    async syncWearableSleep(input: unknown) {
-      const request = validateRequest(wearableSyncRequestSchema, input);
+    async getWearableStatus(userId: string): Promise<HandlerEnvelope<WearableCapabilityDashboard>> {
+      await requireUser(store, userId);
+      return envelope(await wearableDashboardFor(store, userId));
+    },
+
+    async connectOuraWearable(input: unknown): Promise<HandlerEnvelope<WearableConnectResponse>> {
+      const request = validateRequest(wearableOuraConnectRequestSchema, input) as WearableConnectRequest;
       await requireUser(store, request.userId);
+      const authorization = buildOuraAuthorizationRequest({
+        userId: request.userId,
+        clientId: request.clientId,
+        redirectUri: request.redirectUri,
+        scopes: request.scopes
+      });
+      const connection = await createWearableConnection({
+        userId: request.userId,
+        provider: "oura",
+        scopes: request.scopes,
+        accessToken: request.accessToken,
+        refreshToken: request.refreshToken,
+        authorization,
+        encryptionSecret: request.encryptionSecret
+      });
+      const saved = await store.saveWearableConnection(connection);
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: saved.status === "connected" ? "oura_wearable_connected" : "oura_authorization_started",
+        object_type: "wearable_connection",
+        object_id: saved.id,
+        payload: {
+          provider: saved.provider,
+          status: saved.status,
+          scopes: saved.scopes,
+          token_encrypted: Boolean(saved.token_envelope),
+          authorization_url: saved.authorization_url
+        }
+      });
+      return envelope(
+        { connection: saved, dashboard: await wearableDashboardFor(store, request.userId) },
+        audit.id
+      );
+    },
+
+    async revokeWearable(input: unknown): Promise<HandlerEnvelope<WearableConnectResponse>> {
+      const request = validateRequest(wearableRevokeRequestSchema, input) as WearableRevokeRequest;
+      await requireUser(store, request.userId);
+      const connection = await store.getWearableConnection(request.connectionId);
+      if (!connection || connection.user_id !== request.userId) {
+        return notFound<WearableConnectResponse>("wearable_connection_not_found");
+      }
+      const revoked = await store.saveWearableConnection(revokeWearableConnection(connection));
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "wearable_connection_revoked",
+        object_type: "wearable_connection",
+        object_id: revoked.id,
+        payload: {
+          provider: revoked.provider,
+          provider_revoke_endpoint: providerRevokeEndpoint(revoked.provider),
+          local_tokens_deleted: !revoked.token_envelope && !revoked.refresh_token_envelope
+        }
+      });
+      return envelope(
+        { connection: revoked, dashboard: await wearableDashboardFor(store, request.userId) },
+        audit.id
+      );
+    },
+
+    async syncWearableSleep(input: unknown): Promise<HandlerEnvelope<WearableSyncResponse>> {
+      const request = validateRequest(wearableSyncRequestSchema, input) as WearableSyncRequest;
+      await requireUser(store, request.userId);
+      if (request.connectionId) {
+        const connection = await store.getWearableConnection(request.connectionId);
+        if (!connection || connection.user_id !== request.userId || connection.status !== "connected") {
+          return notFound<WearableSyncResponse>("wearable_connection_not_found");
+        }
+      }
       const existingReadiness = (await store.getReadiness(request.userId)) ?? defaultReadinessFallback();
-      const readiness =
-        request.sleepSession?.sleep_quality || request.sleepSession?.fatigue
-          ? await store.saveReadiness(request.userId, {
-              ...existingReadiness,
-              sleep_quality: request.sleepSession.sleep_quality ?? existingReadiness.sleep_quality,
-              fatigue: request.sleepSession.fatigue ?? existingReadiness.fatigue,
-              notes: `Synced from ${request.provider}`
+      const normalized = request.sleepSession
+        ? await store.saveWearableSleepSession(
+            normalizeWearableSleepSession({
+              userId: request.userId,
+              provider: request.provider,
+              raw: request.sleepSession
             })
-          : existingReadiness;
+          )
+        : undefined;
+      const readiness = normalized
+        ? await store.saveReadiness(request.userId, readinessFromWearableSleep(normalized, existingReadiness))
+        : existingReadiness;
+      const dashboard = await wearableDashboardFor(store, request.userId, readiness);
       const audit = await store.appendAuditEvent({
         actor_id: request.userId,
         action: "wearable_sleep_synced",
         object_type: "wearable_sleep_session",
+        object_id: normalized?.id,
         payload: {
           provider: request.provider,
-          has_sleep_session: Boolean(request.sleepSession),
-          stages: request.sleepSession?.stages?.length ?? 0
+          connection_id: request.connectionId,
+          normalized: Boolean(normalized),
+          stages: normalized?.stages.length ?? 0,
+          sleep_quality: normalized?.sleep_quality,
+          fatigue: normalized?.fatigue
         }
       });
       return envelope(
-        { provider: request.provider, readiness, capabilities: deviceCapabilities() },
+        { provider: request.provider, normalized_sleep: normalized, readiness, dashboard },
         audit.id
       );
     },
@@ -2208,6 +2340,26 @@ async function refreshAwardedBadges(
     if (!existing.has(badge.badge_id)) await store.saveAwardedBadge(badge);
   }
   return earned;
+}
+
+async function wearableDashboardFor(
+  store: MnemosyneStore,
+  userId: string,
+  readinessOverride?: ReadinessProfile
+): Promise<WearableCapabilityDashboard> {
+  const [connections, sessions, readiness] = await Promise.all([
+    store.listWearableConnections(userId),
+    store.listWearableSleepSessions(userId),
+    readinessOverride ? Promise.resolve(readinessOverride) : store.getReadiness(userId)
+  ]);
+  const latestSleep = sessions.sort((left, right) => right.created_at.localeCompare(left.created_at))[0];
+  return buildWearableCapabilityDashboard({
+    userId,
+    device: deviceCapabilities(connections),
+    connections,
+    latestSleep,
+    readiness: readiness ?? undefined
+  });
 }
 
 function applyResponseToStates(
@@ -3147,7 +3299,10 @@ async function buildPlanningContext(
   };
 }
 
-function deviceCapabilities(): DeviceCapabilityProfile {
+function deviceCapabilities(connections: WearableConnection[] = []): DeviceCapabilityProfile {
+  const ouraConnected = connections.some(
+    (connection) => connection.provider === "oura" && connection.status === "connected"
+  );
   return {
     platform: "desktop",
     pwa_installed: false,
@@ -3157,7 +3312,7 @@ function deviceCapabilities(): DeviceCapabilityProfile {
     notifications_permission: "prompt",
     healthkit_available: false,
     health_connect_available: false,
-    oura_connected: false,
+    oura_connected: ouraConnected,
     bluetooth_supported: false,
     offline_cache_supported: true
   };

@@ -21,6 +21,7 @@
     "@mnemosyne/shared-utils": "*",
     "@mnemosyne/sleep-core": "*",
     "@mnemosyne/technique-lab": "*",
+    "@mnemosyne/wearables-core": "*",
     "@mnemosyne/video-core": "*",
     "@vitejs/plugin-react": "^6.0.3",
     "lucide-react": "^0.468.0",

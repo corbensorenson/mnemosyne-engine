@@ -105,6 +105,9 @@ export const apiRoutes: ApiRoute[] = [
     eventType: "graph_updated"
   },
   { method: "POST", path: "/api/wearables/sync", service: "Wearable Integration Service" },
+  { method: "GET", path: "/api/wearables/status", service: "Wearable Integration Service" },
+  { method: "POST", path: "/api/wearables/oura/connect", service: "Wearable Integration Service" },
+  { method: "POST", path: "/api/wearables/:id/revoke", service: "Wearable Integration Service" },
   {
     method: "POST",
     path: "/api/experiments/assign",

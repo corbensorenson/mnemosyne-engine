@@ -20,6 +20,7 @@ import type {
   VideoAsset
 } from "@mnemosyne/schema";
 import { createId, nowIso, todayIsoDate } from "@mnemosyne/shared-utils";
+import type { NormalizedWearableSleepSession, WearableConnection } from "@mnemosyne/wearables-core";
 
 export type AuditEvent = {
   id: string;
@@ -223,6 +224,11 @@ export interface MnemosyneStore {
   saveSocialChallenge(challenge: SocialChallengeRecord): Promise<SocialChallengeRecord>;
   listAwardedBadges(userId: string): Promise<AwardedBadgeRecord[]>;
   saveAwardedBadge(badge: AwardedBadgeRecord): Promise<AwardedBadgeRecord>;
+  listWearableConnections(userId: string): Promise<WearableConnection[]>;
+  getWearableConnection(connectionId: string): Promise<WearableConnection | undefined>;
+  saveWearableConnection(connection: WearableConnection): Promise<WearableConnection>;
+  saveWearableSleepSession(session: NormalizedWearableSleepSession): Promise<NormalizedWearableSleepSession>;
+  listWearableSleepSessions(userId: string): Promise<NormalizedWearableSleepSession[]>;
 }
 
 export class InMemoryMnemosyneStore implements MnemosyneStore {
@@ -253,6 +259,8 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
   private personalizationProfiles = new Map<string, PersonalizationProfileRecord>();
   private socialChallenges = new Map<string, SocialChallengeRecord>();
   private awardedBadges = new Map<string, AwardedBadgeRecord>();
+  private wearableConnections = new Map<string, WearableConnection>();
+  private wearableSleepSessions = new Map<string, NormalizedWearableSleepSession>();
 
   constructor(seed?: MnemosyneSeedData) {
     if (!seed) return;
@@ -488,6 +496,30 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
   async saveAwardedBadge(badge: AwardedBadgeRecord): Promise<AwardedBadgeRecord> {
     this.awardedBadges.set(`${badge.user_id}:${badge.badge_id}`, badge);
     return badge;
+  }
+
+  async listWearableConnections(userId: string): Promise<WearableConnection[]> {
+    return [...this.wearableConnections.values()].filter((connection) => connection.user_id === userId);
+  }
+
+  async getWearableConnection(connectionId: string): Promise<WearableConnection | undefined> {
+    return this.wearableConnections.get(connectionId);
+  }
+
+  async saveWearableConnection(connection: WearableConnection): Promise<WearableConnection> {
+    this.wearableConnections.set(connection.id, connection);
+    return connection;
+  }
+
+  async saveWearableSleepSession(
+    session: NormalizedWearableSleepSession
+  ): Promise<NormalizedWearableSleepSession> {
+    this.wearableSleepSessions.set(session.id, session);
+    return session;
+  }
+
+  async listWearableSleepSessions(userId: string): Promise<NormalizedWearableSleepSession[]> {
+    return [...this.wearableSleepSessions.values()].filter((session) => session.user_id === userId);
   }
 }
 

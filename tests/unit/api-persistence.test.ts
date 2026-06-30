@@ -715,6 +715,88 @@ describe("persistence-backed API handlers", () => {
     );
   });
 
+  it("connects, normalizes, and revokes Oura wearable sleep data", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+
+    const connected = unwrap(
+      await handlers.connectOuraWearable({
+        userId: demoUser.id,
+        clientId: "oura_client_demo",
+        redirectUri: "https://mnemosyne.local/oauth/oura/callback",
+        scopes: ["daily"],
+        accessToken: "oura_access_demo_token",
+        refreshToken: "oura_refresh_demo_token",
+        encryptionSecret: "test_secret_12345"
+      })
+    );
+    expect(connected.connection.status).toBe("connected");
+    expect(connected.connection.authorization_url).toContain("cloud.ouraring.com/oauth/authorize");
+    expect(connected.connection.token_envelope?.ciphertext).toBeDefined();
+    expect(JSON.stringify(connected.connection)).not.toContain("oura_access_demo_token");
+    expect(JSON.stringify(connected.connection)).not.toContain("oura_refresh_demo_token");
+    expect(connected.dashboard.provider_status.oura).toBe("connected");
+
+    const synced = unwrap(
+      await handlers.syncWearableSleep({
+        userId: demoUser.id,
+        provider: "oura",
+        connectionId: connected.connection.id,
+        sleepSession: {
+          external_id: "sleep_oura_test",
+          sleep_score: 0.82,
+          readiness_score: 0.79,
+          efficiency: 0.91,
+          started_at: "2026-06-29T04:00:00.000Z",
+          ended_at: "2026-06-29T12:00:00.000Z",
+          stages: [
+            { stage: "awake", duration_minutes: 20 },
+            { stage: "light", duration_minutes: 240 },
+            { stage: "deep", duration_minutes: 80 },
+            { stage: "rapid-eye-movement", duration_minutes: 90 }
+          ]
+        }
+      })
+    );
+    expect(synced.normalized_sleep?.stage_minutes.deep).toBe(80);
+    expect(synced.normalized_sleep?.stage_minutes.rem).toBe(90);
+    expect(synced.readiness.sleep_quality).toBe(0.82);
+    expect(synced.readiness.fatigue).toBeLessThan(0.4);
+
+    const sessions = await store.listWearableSleepSessions(demoUser.id);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.source_summary).toEqual(expect.arrayContaining(["80m deep", "90m REM"]));
+
+    const revoked = unwrap(
+      await handlers.revokeWearable({
+        userId: demoUser.id,
+        connectionId: connected.connection.id
+      })
+    );
+    expect(revoked.connection.status).toBe("revoked");
+    expect(revoked.connection.token_envelope).toBeUndefined();
+    expect(revoked.connection.refresh_token_envelope).toBeUndefined();
+    expect(revoked.dashboard.provider_status.oura).toBe("revoked");
+
+    const audits = await store.listAuditEvents(demoUser.id);
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "oura_wearable_connected",
+          object_id: connected.connection.id
+        }),
+        expect.objectContaining({
+          action: "wearable_sleep_synced",
+          object_id: synced.normalized_sleep?.id
+        }),
+        expect.objectContaining({
+          action: "wearable_connection_revoked",
+          object_id: connected.connection.id
+        })
+      ])
+    );
+  });
+
   it("assigns matched experiments and personalizes scheduling from observed outcomes", async () => {
     const store = await createSeededStore();
     const handlers = createApiHandlers(store);

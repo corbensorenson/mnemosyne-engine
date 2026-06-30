@@ -16,6 +16,7 @@ import {
   GitBranch,
   Headphones,
   Home,
+  Link2,
   Moon,
   Network,
   Pause,
@@ -26,9 +27,11 @@ import {
   Search,
   ShieldCheck,
   SkipForward,
+  Smartphone,
   Sparkles,
   SunMedium,
   Trophy,
+  Unplug,
   Video,
   Volume2,
   Wand2
@@ -76,6 +79,17 @@ import {
   type SocialDashboard
 } from "@mnemosyne/social-core";
 import {
+  buildOuraAuthorizationRequest,
+  buildWearableCapabilityDashboard,
+  normalizeWearableSleepSession,
+  readinessFromWearableSleep,
+  revokeWearableConnection,
+  type WearableCapabilityDashboard,
+  type NormalizedWearableSleepSession,
+  type WearableConnection,
+  type WearableConnectionStatus
+} from "@mnemosyne/wearables-core";
+import {
   assignExperiments,
   buildPersonalizationProfile,
   createDefaultExperimentSuite,
@@ -112,6 +126,7 @@ type TabId =
   | "sleep"
   | "stats"
   | "social"
+  | "wearables"
   | "packs"
   | "court"
   | "lab"
@@ -130,6 +145,7 @@ const tabs: Array<{ id: TabId; label: string; icon: typeof Home }> = [
   { id: "sleep", label: "Sleep", icon: Moon },
   { id: "stats", label: "Stats", icon: BarChart3 },
   { id: "social", label: "Social", icon: Trophy },
+  { id: "wearables", label: "Wear", icon: Activity },
   { id: "packs", label: "Packs", icon: BookOpen },
   { id: "court", label: "Court", icon: Gavel },
   { id: "lab", label: "Lab", icon: FlaskConical },
@@ -245,6 +261,9 @@ export default function App() {
   const [flashStrain, setFlashStrain] = useState(0.24);
   const [flashResult, setFlashResult] = useState<FlashEngineResult | null>(null);
   const [flashCacheStatus, setFlashCacheStatus] = useState("pending");
+  const [wearableConnectionStatus, setWearableConnectionStatus] =
+    useState<WearableConnectionStatus>("authorization_required");
+  const [wearableSleep, setWearableSleep] = useState<NormalizedWearableSleepSession | null>(null);
   const [eventLog, setEventLog] = useState<string[]>([
     "daily packet generated",
     "sleep controls assigned",
@@ -333,6 +352,83 @@ export default function App() {
         challenges: socialChallenges
       }),
     [socialChallenges, socialEvidence]
+  );
+  const ouraAuthorization = useMemo(
+    () =>
+      buildOuraAuthorizationRequest({
+        userId: demoUser.id,
+        clientId: "demo_oura_client",
+        redirectUri: "https://mnemosyne.local/oauth/oura/callback",
+        scopes: ["daily"]
+      }),
+    []
+  );
+  const wearableConnection = useMemo<WearableConnection>(() => {
+    const base: WearableConnection = {
+      id: createId("wearable_connection", `${demoUser.id}:oura`),
+      user_id: demoUser.id,
+      provider: "oura",
+      status: wearableConnectionStatus,
+      scopes: ouraAuthorization.scopes,
+      authorization_url: ouraAuthorization.authorization_url,
+      state: ouraAuthorization.state,
+      created_at: "2026-06-29T08:00:00.000Z",
+      updated_at:
+        wearableConnectionStatus === "connected" ? "2026-06-29T08:05:00.000Z" : "2026-06-29T08:00:00.000Z"
+    };
+    return wearableConnectionStatus === "revoked"
+      ? revokeWearableConnection(base, "2026-06-29T08:12:00.000Z")
+      : base;
+  }, [ouraAuthorization, wearableConnectionStatus]);
+  const sampleWearableSleep = useMemo(
+    () =>
+      normalizeWearableSleepSession({
+        userId: demoUser.id,
+        provider: "oura",
+        raw: {
+          external_id: "demo_oura_sleep_2026_06_29",
+          sleep_score: 0.82,
+          readiness_score: 0.78,
+          efficiency: 0.91,
+          started_at: "2026-06-29T03:46:00.000Z",
+          ended_at: "2026-06-29T11:54:00.000Z",
+          stages: [
+            { stage: "awake", duration_minutes: 22 },
+            { stage: "light", duration_minutes: 242 },
+            { stage: "deep", duration_minutes: 74 },
+            { stage: "rem", duration_minutes: 92 }
+          ]
+        },
+        createdAt: "2026-06-29T12:05:00.000Z"
+      }),
+    []
+  );
+  const wearableReadiness = useMemo(
+    () => (wearableSleep ? readinessFromWearableSleep(wearableSleep, readiness) : readiness),
+    [readiness, wearableSleep]
+  );
+  const wearableDashboard = useMemo<WearableCapabilityDashboard>(
+    () =>
+      buildWearableCapabilityDashboard({
+        userId: demoUser.id,
+        device: {
+          platform: "desktop",
+          pwa_installed: false,
+          web_push_supported: true,
+          background_audio_supported: true,
+          microphone_supported: true,
+          notifications_permission: "prompt",
+          healthkit_available: false,
+          health_connect_available: false,
+          oura_connected: wearableConnection.status === "connected",
+          bluetooth_supported: false,
+          offline_cache_supported: true
+        },
+        connections: [wearableConnection],
+        latestSleep: wearableSleep ?? undefined,
+        readiness: wearableReadiness
+      }),
+    [wearableConnection, wearableReadiness, wearableSleep]
   );
   const experimentAssignments = useMemo(
     () =>
@@ -1163,6 +1259,32 @@ export default function App() {
     setActiveTab("today");
   }
 
+  function connectOuraDemo() {
+    setWearableConnectionStatus("connected");
+    setEventLog((current) =>
+      ["oura authorization linked", "tokens remain server-side encrypted", ...current].slice(0, 6)
+    );
+  }
+
+  function syncWearableDemoSleep() {
+    setWearableConnectionStatus((status) => (status === "revoked" ? "connected" : status));
+    setWearableSleep(sampleWearableSleep);
+    setReadiness((current) => readinessFromWearableSleep(sampleWearableSleep, current));
+    setEventLog((current) =>
+      [
+        `wearable sleep synced: ${Math.round(sampleWearableSleep.sleep_quality * 100)}% quality`,
+        `${Math.round(sampleWearableSleep.stage_minutes.deep)}m deep / ${Math.round(sampleWearableSleep.stage_minutes.rem)}m REM`,
+        ...current
+      ].slice(0, 6)
+    );
+  }
+
+  function revokeOuraDemo() {
+    setWearableConnectionStatus("revoked");
+    setWearableSleep(null);
+    setEventLog((current) => ["oura connection revoked", "wearable tokens cleared", ...current].slice(0, 6));
+  }
+
   const page = {
     onboarding: <OnboardingView onComplete={launchFromOnboarding} />,
     today: (
@@ -1349,6 +1471,15 @@ export default function App() {
       />
     ),
     social: <SocialView dashboard={socialDashboard} />,
+    wearables: (
+      <WearablesView
+        dashboard={wearableDashboard}
+        authorizationUrl={ouraAuthorization.authorization_url}
+        onConnect={connectOuraDemo}
+        onSync={syncWearableDemoSleep}
+        onRevoke={revokeOuraDemo}
+      />
+    ),
     packs: <PacksView />,
     court: <CourtView verdict={verdict} />,
     lab: (
@@ -3209,6 +3340,204 @@ function SocialView({ dashboard }: { dashboard: SocialDashboard }) {
       </section>
     </div>
   );
+}
+
+function WearablesView({
+  dashboard,
+  authorizationUrl,
+  onConnect,
+  onSync,
+  onRevoke
+}: {
+  dashboard: WearableCapabilityDashboard;
+  authorizationUrl: string;
+  onConnect: () => void;
+  onSync: () => void;
+  onRevoke: () => void;
+}) {
+  const sleep = dashboard.latest_sleep;
+  const connection = dashboard.connections.find((candidate) => candidate.provider === "oura");
+  const providerRows = Object.entries(dashboard.provider_status) as Array<
+    [keyof WearableCapabilityDashboard["provider_status"], WearableConnectionStatus]
+  >;
+  const sleepWindow =
+    sleep?.started_at && sleep.ended_at
+      ? `${new Date(sleep.started_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} - ${new Date(
+          sleep.ended_at
+        ).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+      : "pending";
+
+  return (
+    <div className="page-grid wearables-grid">
+      <section className="metric-strip wearable-strip">
+        <MetricTile
+          icon={Activity}
+          label="Oura"
+          value={statusLabel(dashboard.provider_status.oura)}
+          tone={wearableToneFor(dashboard.provider_status.oura)}
+        />
+        <MetricTile
+          icon={Moon}
+          label="Sleep Quality"
+          value={sleep ? `${Math.round(sleep.sleep_quality * 100)}%` : "pending"}
+          tone="teal"
+        />
+        <MetricTile
+          icon={CircleGauge}
+          label="Fatigue"
+          value={sleep ? `${Math.round(sleep.fatigue * 100)}%` : "pending"}
+          tone="amber"
+        />
+        <MetricTile
+          icon={Smartphone}
+          label="Native Edge"
+          value={statusLabel(dashboard.native_edge_plan.background_audio)}
+          tone="indigo"
+        />
+      </section>
+
+      <section className="panel wearable-status-panel">
+        <PanelTitle icon={Activity} title="Wearable Status" meta={connection?.status ?? "fallback"} />
+        <div className="provider-grid">
+          {providerRows.map(([provider, status]) => (
+            <article className={`provider-card status-${status}`} key={provider}>
+              <header>
+                <span>{provider.replaceAll("_", " ")}</span>
+                <strong>{statusLabel(status)}</strong>
+              </header>
+              <i aria-hidden="true" />
+            </article>
+          ))}
+        </div>
+        <div className="object-list wearable-ledger">
+          <ObjectLine label="OAuth" value={hostLabel(authorizationUrl)} />
+          <ObjectLine label="Scope" value={connection?.scopes.join(", ") ?? "daily"} />
+          <ObjectLine
+            label="Fallback"
+            value={dashboard.fallback_available ? "manual sleep log" : "unavailable"}
+          />
+          <ObjectLine label="Generated" value={new Date(dashboard.generated_at).toLocaleTimeString()} />
+        </div>
+        <div className="action-row wearable-actions">
+          <button className="command primary" onClick={onConnect}>
+            <Link2 size={18} />
+            Connect Oura
+          </button>
+          <button className="command" onClick={onSync}>
+            <RefreshCcw size={18} />
+            Sync Night
+          </button>
+          <button className="command" onClick={onRevoke}>
+            <Unplug size={18} />
+            Revoke
+          </button>
+        </div>
+      </section>
+
+      <section className="panel wearable-sleep-panel">
+        <PanelTitle icon={Moon} title="Sleep Import" meta={sleep?.external_id ?? "not synced"} />
+        {sleep ? (
+          <>
+            <div className="case-grid">
+              <MiniStat label="Window" value={sleepWindow} />
+              <MiniStat label="Delta" value={`${Math.round(sleep.readiness_delta * 100)} pts`} />
+              <MiniStat label="Deep" value={`${Math.round(sleep.stage_minutes.deep)} min`} />
+              <MiniStat label="REM" value={`${Math.round(sleep.stage_minutes.rem)} min`} />
+            </div>
+            <div className="wearable-stage-grid">
+              {(["awake", "light", "deep", "rem"] as const).map((stage) => (
+                <article className={`stage-card stage-${stage}`} key={stage}>
+                  <span>{stage}</span>
+                  <strong>{Math.round(sleep.stage_minutes[stage])}m</strong>
+                </article>
+              ))}
+            </div>
+            <Progress label="Readiness sleep" value={dashboard.readiness_adjustment?.sleep_quality ?? 0} />
+            <Progress label="Fatigue load" value={dashboard.readiness_adjustment?.fatigue ?? 0} />
+          </>
+        ) : (
+          <div className="wearable-empty">
+            <Moon size={24} />
+            <strong>No synced sleep session</strong>
+            <span>Manual logging remains available.</span>
+          </div>
+        )}
+      </section>
+
+      <section className="panel native-edge-panel">
+        <PanelTitle icon={Smartphone} title="Native Edge" meta={dashboard.native_edge_plan.platform} />
+        <div className="native-edge-grid">
+          <NativeEdgeCard label="HealthKit" value={dashboard.native_edge_plan.healthkit} />
+          <NativeEdgeCard label="Health Connect" value={dashboard.native_edge_plan.health_connect} />
+          <NativeEdgeCard label="Audio" value={dashboard.native_edge_plan.background_audio} />
+          <NativeEdgeCard label="Notifications" value={dashboard.native_edge_plan.local_notifications} />
+          <NativeEdgeCard label="Watch Haptics" value={dashboard.native_edge_plan.watch_haptics} />
+          <NativeEdgeCard
+            label="Offline Cache"
+            value={dashboard.device.offline_cache_supported ? "available" : "unavailable"}
+          />
+        </div>
+        <div className="tag-row">
+          {dashboard.native_edge_plan.notes.map((note) => (
+            <span className="tag" key={note}>
+              {note}
+            </span>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel token-panel">
+        <PanelTitle
+          icon={ShieldCheck}
+          title="Token Control"
+          meta={connection?.revoked_at ? "revoked" : "armed"}
+        />
+        <div className="token-vault">
+          <ShieldCheck size={24} />
+          <div>
+            <strong>{connection?.token_envelope ? "AES-GCM envelope" : "No browser token"}</strong>
+            <span>
+              {connection?.refresh_token_envelope ? "refresh envelope present" : "refresh token withheld"}
+            </span>
+          </div>
+        </div>
+        <div className="object-list">
+          <ObjectLine label="Connection" value={connection?.id ?? "manual fallback"} />
+          <ObjectLine label="Status" value={statusLabel(connection?.status ?? "fallback")} />
+          <ObjectLine label="Revoked" value={connection?.revoked_at ? "yes" : "no"} />
+          <ObjectLine label="Readiness" value={dashboard.readiness_adjustment?.notes ?? "baseline"} />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function NativeEdgeCard({ label, value }: { label: string; value: string }) {
+  return (
+    <article className="native-card">
+      <span>{label}</span>
+      <strong>{statusLabel(value)}</strong>
+    </article>
+  );
+}
+
+function statusLabel(value: string): string {
+  return value.replaceAll("_", " ");
+}
+
+function hostLabel(value: string): string {
+  try {
+    return new URL(value).host;
+  } catch {
+    return "local";
+  }
+}
+
+function wearableToneFor(status: WearableConnectionStatus): "teal" | "amber" | "coral" | "indigo" {
+  if (status === "connected") return "teal";
+  if (status === "revoked") return "coral";
+  if (status === "authorization_required") return "amber";
+  return "indigo";
 }
 
 function PacksView() {

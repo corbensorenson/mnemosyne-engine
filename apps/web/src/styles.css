@@ -624,6 +624,7 @@ input[type="range"] {
 .sleep-grid,
 .stats-grid,
 .social-grid,
+.wearables-grid,
 .court-grid,
 .admin-grid,
 .workbench-grid {
@@ -1797,6 +1798,171 @@ input[type="range"] {
   background: var(--panel);
 }
 
+.wearable-status-panel,
+.wearable-sleep-panel,
+.native-edge-panel,
+.token-panel {
+  align-content: start;
+}
+
+.wearable-ledger,
+.wearable-actions {
+  margin-top: 14px;
+}
+
+.provider-grid,
+.wearable-stage-grid,
+.native-edge-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.provider-card,
+.stage-card,
+.native-card,
+.token-vault,
+.wearable-empty {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.provider-card {
+  min-height: 88px;
+  padding: 12px;
+  display: grid;
+  align-content: space-between;
+  gap: 10px;
+}
+
+.provider-card header {
+  display: grid;
+  gap: 4px;
+}
+
+.provider-card span,
+.stage-card span,
+.native-card span,
+.token-vault span,
+.wearable-empty span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.provider-card i {
+  display: block;
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--panel-strong);
+}
+
+.provider-card.status-connected {
+  border-color: var(--teal);
+  background: var(--teal-soft);
+}
+
+.provider-card.status-authorization_required {
+  border-color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.provider-card.status-revoked {
+  border-color: var(--coral);
+  background: var(--coral-soft);
+}
+
+.provider-card.status-fallback {
+  border-color: var(--indigo);
+  background: var(--indigo-soft);
+}
+
+.provider-card.status-connected i {
+  background: var(--teal);
+}
+
+.provider-card.status-authorization_required i {
+  background: var(--amber);
+}
+
+.provider-card.status-revoked i {
+  background: var(--coral);
+}
+
+.provider-card.status-fallback i {
+  background: var(--indigo);
+}
+
+.stage-card,
+.native-card {
+  min-height: 82px;
+  padding: 12px;
+  display: grid;
+  align-content: space-between;
+  gap: 8px;
+}
+
+.stage-card strong,
+.native-card strong {
+  font-size: 1.1rem;
+  overflow-wrap: anywhere;
+}
+
+.stage-awake {
+  background: var(--coral-soft);
+}
+
+.stage-light {
+  background: var(--amber-soft);
+}
+
+.stage-deep {
+  background: var(--indigo-soft);
+}
+
+.stage-rem {
+  background: var(--teal-soft);
+}
+
+.wearable-empty {
+  min-height: 210px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  color: var(--muted);
+  background: rgba(247, 244, 237, 0.55);
+}
+
+.wearable-empty strong {
+  color: var(--ink);
+}
+
+.native-card {
+  background: rgba(247, 244, 237, 0.55);
+}
+
+.token-vault {
+  min-height: 88px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 14px;
+  background: var(--indigo-soft);
+  border-color: var(--indigo);
+}
+
+.token-vault div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
 .pack-card,
 .technique-card {
   min-height: 190px;
@@ -1911,6 +2077,7 @@ input[type="range"] {
   .sleep-grid,
   .stats-grid,
   .social-grid,
+  .wearables-grid,
   .court-grid,
   .lab-dashboard,
   .admin-grid,
@@ -1984,6 +2151,9 @@ input[type="range"] {
   .challenge-list,
   .service-grid,
   .guard-grid,
+  .provider-grid,
+  .wearable-stage-grid,
+  .native-edge-grid,
   .checklist-grid,
   .compact-guard,
   .sleep-ratio,

@@ -341,15 +341,39 @@ export const wearableSyncRequestSchema = z
   .object({
     userId: userIdSchema,
     provider: z.enum(["oura", "healthkit", "health_connect", "manual"]),
+    connectionId: z.string().min(1).optional(),
     sleepSession: z
       .object({
+        external_id: z.string().min(1).optional(),
         sleep_quality: z.number().min(0).max(1).optional(),
         fatigue: z.number().min(0).max(1).optional(),
+        readiness_score: z.number().min(0).max(1).optional(),
+        sleep_score: z.number().min(0).max(1).optional(),
+        efficiency: z.number().min(0).max(1).optional(),
         started_at: z.string().optional(),
         ended_at: z.string().optional(),
         stages: z.array(z.record(z.unknown())).default([])
       })
       .optional()
+  })
+  .strict();
+
+export const wearableOuraConnectRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    clientId: z.string().min(1),
+    redirectUri: z.string().url(),
+    scopes: z.array(z.string().min(1)).default(["daily"]),
+    accessToken: z.string().min(8).optional(),
+    refreshToken: z.string().min(8).optional(),
+    encryptionSecret: z.string().min(12).optional()
+  })
+  .strict();
+
+export const wearableRevokeRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    connectionId: z.string().min(1)
   })
   .strict();
 

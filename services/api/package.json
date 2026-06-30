@@ -16,6 +16,7 @@
     "@mnemosyne/sleep-core": "*",
     "@mnemosyne/social-core": "*",
     "@mnemosyne/technique-lab": "*",
+    "@mnemosyne/wearables-core": "*",
     "@mnemosyne/video-core": "*",
     "zod": "^3.23.8"
   },
