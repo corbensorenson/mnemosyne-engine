@@ -27,6 +27,7 @@ The export bundle includes:
 - experiment assignments and personalization profile
 - social challenge participation and badges
 - wearable connection records and normalized sleep sessions
+- saved outcome dashboards
 
 Export schema version: `mnemosyne-export-v0.1`
 

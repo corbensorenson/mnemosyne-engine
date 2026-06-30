@@ -120,6 +120,8 @@ export const apiRoutes: ApiRoute[] = [
     eventType: "graph_updated"
   },
   { method: "GET", path: "/api/personalization/profile", service: "Technique Lab Service" },
+  { method: "GET", path: "/api/outcomes/dashboard", service: "Outcome Analytics Service" },
+  { method: "POST", path: "/api/outcomes/refresh", service: "Outcome Analytics Service" },
   {
     method: "POST",
     path: "/api/proposals",

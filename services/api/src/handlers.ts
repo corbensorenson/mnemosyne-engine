@@ -48,6 +48,7 @@ import type {
   UserDataDeletionSummary,
   UserDataExportBundle
 } from "@mnemosyne/persistence-core";
+import { buildOutcomeDashboard, type OutcomeDashboard } from "@mnemosyne/outcome-core";
 import type {
   AssessmentItem,
   AssessmentResponse,
@@ -127,6 +128,7 @@ import {
   generateDailyPacketRequestSchema,
   humanOverrideRequestSchema,
   morningForgeCompleteRequestSchema,
+  outcomeDashboardRequestSchema,
   privacyDeletionRequestSchema,
   privacyExportRequestSchema,
   proposalCreateRequestSchema,
@@ -419,6 +421,11 @@ type PrivacyDeletionRequest = {
   userId: string;
   scope: DataDeletionScope;
   confirmation: "DELETE";
+};
+
+type OutcomeDashboardRequest = {
+  userId: string;
+  generatedAt?: string;
 };
 
 type CompleteOnboardingRequest = {
@@ -754,6 +761,34 @@ export function createApiHandlers(store: MnemosyneStore) {
       await requireUser(store, request.userId);
       const summary = await store.deleteUserData(request.userId, request.scope);
       return envelope(summary, summary.retained_audit_event_ids.at(-1));
+    },
+
+    async refreshOutcomeDashboard(input: unknown): Promise<HandlerEnvelope<OutcomeDashboard>> {
+      const request = validateRequest(outcomeDashboardRequestSchema, input) as OutcomeDashboardRequest;
+      await requireUser(store, request.userId);
+      const dashboard = await store.saveOutcomeDashboard(
+        await buildOutcomeDashboardFor(store, request.userId, request.generatedAt)
+      );
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "outcome_dashboard_refreshed",
+        object_type: "outcome_dashboard",
+        object_id: dashboard.generated_at,
+        payload: {
+          quality_gates: dashboard.quality_gates,
+          learning_velocity: dashboard.learning_velocity,
+          retention_risk: dashboard.retention_risk
+        }
+      });
+      return envelope(dashboard, audit.id);
+    },
+
+    async getOutcomeDashboard(userId: string): Promise<HandlerEnvelope<OutcomeDashboard>> {
+      await requireUser(store, userId);
+      const existing = await store.getLatestOutcomeDashboard(userId);
+      if (existing) return envelope(existing);
+      const dashboard = await store.saveOutcomeDashboard(await buildOutcomeDashboardFor(store, userId));
+      return envelope(dashboard);
     },
 
     async completeOnboarding(input: unknown): Promise<HandlerEnvelope<OnboardingResponse>> {
@@ -2514,8 +2549,28 @@ function exportBundleCounts(bundle: UserDataExportBundle): Record<string, number
     social_challenges: bundle.social_challenges.length,
     awarded_badges: bundle.awarded_badges.length,
     wearable_connections: bundle.wearable_connections.length,
-    wearable_sleep_sessions: bundle.wearable_sleep_sessions.length
+    wearable_sleep_sessions: bundle.wearable_sleep_sessions.length,
+    outcome_dashboards: bundle.outcome_dashboards.length
   };
+}
+
+async function buildOutcomeDashboardFor(
+  store: MnemosyneStore,
+  userId: string,
+  generatedAt?: string
+): Promise<OutcomeDashboard> {
+  const [responses, events, graph] = await Promise.all([
+    store.listAssessmentResponses(userId),
+    store.listLearningEvents(userId),
+    store.getUserGraph(userId)
+  ]);
+  return buildOutcomeDashboard({
+    userId,
+    responses,
+    events,
+    states: graph.states,
+    generatedAt
+  });
 }
 
 async function wearableDashboardFor(

@@ -19,6 +19,7 @@ import type {
   UserKnowledgeGraph,
   VideoAsset
 } from "@mnemosyne/schema";
+import type { OutcomeDashboard } from "@mnemosyne/outcome-core";
 import { createId, nowIso, stableHash, todayIsoDate } from "@mnemosyne/shared-utils";
 import type { NormalizedWearableSleepSession, WearableConnection } from "@mnemosyne/wearables-core";
 
@@ -192,6 +193,7 @@ export type UserDataExportBundle = {
   awarded_badges: AwardedBadgeRecord[];
   wearable_connections: WearableConnection[];
   wearable_sleep_sessions: NormalizedWearableSleepSession[];
+  outcome_dashboards: OutcomeDashboard[];
 };
 
 export type UserDataDeletionSummary = {
@@ -263,6 +265,8 @@ export interface MnemosyneStore {
   saveWearableConnection(connection: WearableConnection): Promise<WearableConnection>;
   saveWearableSleepSession(session: NormalizedWearableSleepSession): Promise<NormalizedWearableSleepSession>;
   listWearableSleepSessions(userId: string): Promise<NormalizedWearableSleepSession[]>;
+  saveOutcomeDashboard(dashboard: OutcomeDashboard): Promise<OutcomeDashboard>;
+  getLatestOutcomeDashboard(userId: string): Promise<OutcomeDashboard | undefined>;
   exportUserData(userId: string): Promise<UserDataExportBundle>;
   deleteUserData(userId: string, scope: DataDeletionScope): Promise<UserDataDeletionSummary>;
 }
@@ -297,6 +301,7 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
   private awardedBadges = new Map<string, AwardedBadgeRecord>();
   private wearableConnections = new Map<string, WearableConnection>();
   private wearableSleepSessions = new Map<string, NormalizedWearableSleepSession>();
+  private outcomeDashboards = new Map<string, OutcomeDashboard[]>();
 
   constructor(seed?: MnemosyneSeedData) {
     if (!seed) return;
@@ -558,6 +563,18 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
     return [...this.wearableSleepSessions.values()].filter((session) => session.user_id === userId);
   }
 
+  async saveOutcomeDashboard(dashboard: OutcomeDashboard): Promise<OutcomeDashboard> {
+    const dashboards = this.outcomeDashboards.get(dashboard.user_id) ?? [];
+    this.outcomeDashboards.set(dashboard.user_id, [...dashboards, dashboard]);
+    return dashboard;
+  }
+
+  async getLatestOutcomeDashboard(userId: string): Promise<OutcomeDashboard | undefined> {
+    return (this.outcomeDashboards.get(userId) ?? []).sort((left, right) =>
+      right.generated_at.localeCompare(left.generated_at)
+    )[0];
+  }
+
   async exportUserData(userId: string): Promise<UserDataExportBundle> {
     const dailyPackets = [...this.dailyPackets.values()].filter((packet) => packet.user_id === userId);
     const sleepCuePackets = [...this.sleepCuePackets.values()].filter((packet) => packet.user_id === userId);
@@ -588,7 +605,8 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
       social_challenges: await this.listSocialChallenges(userId),
       awarded_badges: await this.listAwardedBadges(userId),
       wearable_connections: await this.listWearableConnections(userId),
-      wearable_sleep_sessions: await this.listWearableSleepSessions(userId)
+      wearable_sleep_sessions: await this.listWearableSleepSessions(userId),
+      outcome_dashboards: this.outcomeDashboards.get(userId) ?? []
     };
   }
 
@@ -701,6 +719,10 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
       count(
         "personalization_profiles",
         deleteMapEntries(this.personalizationProfiles, (_profile, key) => key === userId)
+      );
+      count(
+        "outcome_dashboards",
+        deleteMapEntries(this.outcomeDashboards, (_dashboards, key) => key === userId)
       );
       count(
         "awarded_badges",

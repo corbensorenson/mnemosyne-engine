@@ -1,13 +1,11 @@
 {
-  "name": "@mnemosyne/persistence-core",
+  "name": "@mnemosyne/outcome-core",
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
   "dependencies": {
-    "@mnemosyne/outcome-core": "*",
     "@mnemosyne/schema": "*",
-    "@mnemosyne/shared-utils": "*",
-    "@mnemosyne/wearables-core": "*"
+    "@mnemosyne/shared-utils": "*"
   },
   "exports": {
     ".": {

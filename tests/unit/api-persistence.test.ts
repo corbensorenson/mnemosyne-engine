@@ -2,6 +2,7 @@ import { generateAssessmentForConcept } from "@mnemosyne/assessment-core";
 import { demoMasterGraph, demoUser } from "@mnemosyne/demo-fixtures";
 import { createMemoryStore } from "@mnemosyne/persistence-core";
 import { createApiHandlers, seedDemoStore } from "@mnemosyne/api";
+import type { AssessmentResponse } from "@mnemosyne/schema";
 import { describe, expect, it } from "vitest";
 
 type Envelope<T> = { ok: true; data: T; audit_event_id?: string } | { ok: false; error?: unknown };
@@ -131,6 +132,73 @@ describe("persistence-backed API handlers", () => {
         expect.objectContaining({
           action: "authorization_checked",
           payload: expect.objectContaining({ allowed: false, action: "read" })
+        })
+      ])
+    );
+  });
+
+  it("refreshes persistent outcome dashboards across immediate and delayed windows", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+    const generatedAt = "2026-06-30T12:00:00.000Z";
+
+    for (const response of [
+      outcomeResponse("outcome_immediate", "attention_qkv", "2026-06-30T10:30:00.000Z", 0.82, 0.76),
+      outcomeResponse("outcome_24h", "ai_vectors", "2026-06-29T12:00:00.000Z", 0.74, 0.68),
+      outcomeResponse("outcome_7d", "transformer_blocks", "2026-06-23T12:00:00.000Z", 0.69, 0.61),
+      outcomeResponse("outcome_30d", "attention_qkv", "2026-05-31T12:00:00.000Z", 0.64, 0.57)
+    ]) {
+      await store.saveAssessmentResponse(response);
+    }
+    await store.appendLearningEvent({
+      user_id: demoUser.id,
+      event_type: "graph_updated",
+      created_at: "2026-06-30T10:40:00.000Z",
+      payload: {
+        action: "morning_forge_completed",
+        concept_id: "attention_qkv",
+        screen_minutes: 4
+      }
+    });
+    await store.appendLearningEvent({
+      user_id: demoUser.id,
+      event_type: "graph_updated",
+      created_at: "2026-06-29T12:10:00.000Z",
+      payload: {
+        action: "sleep_cue_recall_completed",
+        controls_revealed: true,
+        cue_gain_delta: 0.16,
+        concept_ids: ["ai_vectors"]
+      }
+    });
+
+    const dashboard = unwrap(
+      await handlers.refreshOutcomeDashboard({
+        userId: demoUser.id,
+        generatedAt
+      })
+    );
+    expect(dashboard.windows.immediate.response_count).toBe(1);
+    expect(dashboard.windows["24h"].response_count).toBe(1);
+    expect(dashboard.windows["7d"].response_count).toBe(1);
+    expect(dashboard.windows["30d"].response_count).toBe(1);
+    expect(dashboard.quality_gates.recall_30d_measured).toBe(true);
+    expect(dashboard.quality_gates.sleep_effect_measured_with_controls).toBe(true);
+    expect(dashboard.windows.immediate.screen_minutes).toBe(4);
+
+    const latest = unwrap(await handlers.getOutcomeDashboard(demoUser.id));
+    expect(latest.generated_at).toBe(generatedAt);
+    const exported = unwrap(await handlers.exportUserData({ userId: demoUser.id }));
+    expect(exported.outcome_dashboards).toHaveLength(1);
+
+    const audits = await store.listAuditEvents(demoUser.id);
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "outcome_dashboard_refreshed",
+          payload: expect.objectContaining({
+            quality_gates: expect.objectContaining({ recall_30d_measured: true })
+          })
         })
       ])
     );
@@ -1328,4 +1396,30 @@ describe("persistence-backed API handlers", () => {
 function unwrap<T>(envelope: Envelope<T>): T {
   if (!envelope.ok) throw new Error("Expected successful API envelope");
   return envelope.data;
+}
+
+function outcomeResponse(
+  id: string,
+  conceptId: string,
+  createdAt: string,
+  correctness: number,
+  confidence: number
+): AssessmentResponse {
+  return {
+    id,
+    user_id: demoUser.id,
+    assessment_item_id: `item_${id}`,
+    raw_response: "durable answer",
+    correctness_score: correctness,
+    semantic_score: correctness,
+    latency_ms: 28_000,
+    confidence_reported: confidence,
+    hint_count: 0,
+    retries: 0,
+    detected_failure_modes: [],
+    misconception_ids: [],
+    model_feedback: "outcome scored",
+    graph_updates: [{ concept_id: conceptId }],
+    created_at: createdAt
+  };
 }

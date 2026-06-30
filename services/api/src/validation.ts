@@ -188,6 +188,13 @@ export const privacyDeletionRequestSchema = z
   })
   .strict();
 
+export const outcomeDashboardRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    generatedAt: z.string().optional()
+  })
+  .strict();
+
 export const completeOnboardingRequestSchema = z
   .object({
     userId: z.string().min(1).optional(),

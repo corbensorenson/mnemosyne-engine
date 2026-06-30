@@ -422,6 +422,7 @@ Current implementation progress:
 - First-party Technique Lab experiment engine seeds three technique experiments plus a sparse SleepCue protocol, assigns deterministic within-user matched treatment/control units, rolls up correctness, latency, calibration, screen efficiency, and cue-gain outcomes, and emits scheduler adjustment recommendations.
 - API Technique Lab flow persists experiments, matched assignments, personalization profiles, and audits assignment decisions; daily packet generation now consumes saved response profiles to adjust Morning screen budget, GraphFeed watch budgets, evening screen policy, and conservative sleep mode.
 - PWA Lab surface shows the personalization profile, modality response scores, sleep cue gain, effect-vs-control rollups, matched assignment ledger, and the scheduler changes generated from observed local outcomes.
+- First-party Outcome core now builds immediate, 24h, 7d, and 30d outcome dashboards from assessment responses, learning events, and graph state; API refresh persists dashboards, audits quality gates, and includes dashboards in user exports.
 
 Exit criteria:
 
@@ -497,6 +498,7 @@ Current implementation progress:
 - Persistence layer can produce export bundles across user profile, goals, graph state, packets, sessions, events, experiments, social state, and wearable data, while account deletion removes user-owned records and anonymizes retained audit entries.
 - PWA Admin surface includes Privacy Ops cards for export, voice deletion, health deletion, and account deletion alongside the service map and audit log.
 - Security foundation now includes `@mnemosyne/auth-core` for RBAC, object-level authorization, consent-aware analytics access, CSRF verification, session expiry, and API audit trails for auth decisions.
+- Outcome analytics now exposes `GET /api/outcomes/dashboard` and `POST /api/outcomes/refresh` with quality gates for immediate recall, 24h recall, 7d recall, 30d recall, transfer, latency, calibration, screen load, and SleepCue controls.
 - Production release runbook covers deployment environments, required services and secrets, monitoring, backup/restore, accessibility, load/reliability, and release checklist.
 - Privacy documentation covers export bundle contents, deletion scopes, audit rules, product requirements, and test coverage.
 
