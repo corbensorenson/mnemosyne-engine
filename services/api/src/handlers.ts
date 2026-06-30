@@ -170,6 +170,12 @@ import {
   type TutorReleaseGate,
   type TutorTurnPlan
 } from "@mnemosyne/tutor-core";
+import {
+  auditEntryFromWalkModeVoiceCommand,
+  parseWalkModeVoiceCommand,
+  summarizeWalkModeVoiceCommands,
+  type WalkModeVoiceCommandAuditEntry
+} from "@mnemosyne/voice-core";
 import { buildWatchPackets, rankVideosForUser } from "@mnemosyne/video-core";
 import {
   assessmentSubmitRequestSchema,
@@ -444,6 +450,7 @@ type WalkModeCompleteRequest = {
   skippedPromptIds: string[];
   confusingPromptIds: string[];
   commandLog: string[];
+  commandIntents: WalkModeVoiceCommandAuditEntry[];
   screenLocked: boolean;
   voiceUsed: boolean;
   transcriptRetention: "deleted" | "transcript_only" | "retained";
@@ -926,6 +933,10 @@ type WalkModeCompletionResponse = {
     text_used: boolean;
     screen_locked: boolean;
     commands_processed: number;
+    wake_safe_commands: number;
+    blocked_commands: number;
+    unknown_commands: number;
+    command_safety_flags: string[];
     transcript_retention: WalkModeCompleteRequest["transcriptRetention"];
     compatible_assessment_events: boolean;
   };
@@ -2379,7 +2390,9 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
         }
       }
       const updatedStates = updatedGraph.states.filter((state) => touchedConceptIds.has(state.concept_id));
-      const summary = walkModeSummary(responses, request);
+      const commandIntents = walkCommandAuditEntriesFor(request);
+      const commandSummary = summarizeWalkModeVoiceCommands(commandIntents);
+      const summary = walkModeSummary(responses, request, commandSummary);
       const completionEvent = await store.appendLearningEvent({
         user_id: request.userId,
         event_type: "walk_recall_completed",
@@ -2389,6 +2402,8 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
           walk_packet_id: walkPacket.id,
           updated_concept_ids: [...touchedConceptIds],
           command_log: request.commandLog,
+          command_intents: commandIntents,
+          command_summary: commandSummary,
           skipped_prompt_ids: request.skippedPromptIds,
           confusing_prompt_ids: request.confusingPromptIds,
           ...summary
@@ -2413,6 +2428,7 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
           walk_packet_id: walkPacket.id,
           response_ids: responses.map((response) => response.id),
           repair_recommendations: repairRecommendations,
+          command_summary: commandSummary,
           ...summary
         }
       });
@@ -4074,7 +4090,8 @@ function morningForgeSummary(
 
 function walkModeSummary(
   responses: AssessmentResponse[],
-  request: WalkModeCompleteRequest
+  request: WalkModeCompleteRequest,
+  commandSummary: ReturnType<typeof summarizeWalkModeVoiceCommands>
 ): WalkModeCompletionResponse["summary"] {
   return {
     answered: responses.length,
@@ -4085,10 +4102,25 @@ function walkModeSummary(
     voice_used: request.voiceUsed || request.responses.some((response) => response.entryMode === "voice"),
     text_used: request.responses.some((response) => response.entryMode === "text"),
     screen_locked: request.screenLocked,
-    commands_processed: request.commandLog.length,
+    commands_processed: commandSummary.total,
+    wake_safe_commands: commandSummary.wake_safe,
+    blocked_commands: commandSummary.blocked,
+    unknown_commands: commandSummary.unknown,
+    command_safety_flags: commandSummary.safety_flags,
     transcript_retention: request.transcriptRetention,
     compatible_assessment_events: true
   };
+}
+
+function walkCommandAuditEntriesFor(request: WalkModeCompleteRequest): WalkModeVoiceCommandAuditEntry[] {
+  if (request.commandIntents.length > 0) return request.commandIntents;
+  return request.commandLog.map((command) =>
+    auditEntryFromWalkModeVoiceCommand(
+      parseWalkModeVoiceCommand(command, {
+        hasActivePrompt: true
+      })
+    )
+  );
 }
 
 function eveningLockInSummary(

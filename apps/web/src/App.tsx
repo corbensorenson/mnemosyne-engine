@@ -129,6 +129,15 @@ import {
   type WearableConnectionStatus
 } from "@mnemosyne/wearables-core";
 import {
+  auditEntryFromWalkModeVoiceCommand,
+  commandLogFromVoiceCommand,
+  defaultWalkModeVoiceCommands,
+  parseWalkModeVoiceCommand,
+  summarizeWalkModeVoiceCommands,
+  type WalkModeVoiceCommand,
+  type WalkModeVoiceCommandAuditEntry
+} from "@mnemosyne/voice-core";
+import {
   assignExperiments,
   buildPersonalizationProfile,
   createDefaultExperimentSuite,
@@ -329,6 +338,8 @@ export default function App() {
   const [walkLastResponse, setWalkLastResponse] = useState<AssessmentResponse | null>(null);
   const [walkRepairTips, setWalkRepairTips] = useState<string[]>([]);
   const [walkCommandLog, setWalkCommandLog] = useState<string[]>([]);
+  const [walkCommandInput, setWalkCommandInput] = useState("");
+  const [walkCommandIntents, setWalkCommandIntents] = useState<WalkModeVoiceCommand[]>([]);
   const [walkSkippedIds, setWalkSkippedIds] = useState<string[]>([]);
   const [walkConfusingIds, setWalkConfusingIds] = useState<string[]>([]);
   const [walkCacheStatus, setWalkCacheStatus] = useState("pending");
@@ -384,6 +395,10 @@ export default function App() {
 
   const userGraph = useMemo(() => ({ userId: activeUser.id, states }), [activeUser.id, states]);
   const offlineQueueSummary = useMemo(() => summarizeOfflineQueue(offlineQueue), [offlineQueue]);
+  const walkCommandSummary = useMemo(
+    () => summarizeWalkModeVoiceCommands(walkCommandIntents),
+    [walkCommandIntents]
+  );
   const baselineConstraints = useMemo(() => personalizeSessionConstraints(readiness), [readiness]);
   const baseLocalScheduled = useMemo(
     () =>
@@ -1203,9 +1218,7 @@ export default function App() {
   }
 
   function startWalkListening() {
-    setWalkPhase("listening");
-    setWalkStartedAt(Date.now());
-    setWalkCommandLog((current) => ["listen", ...current].slice(0, 24));
+    runWalkCommand("listen");
   }
 
   function updateWalkAnswer(value: string) {
@@ -1270,42 +1283,78 @@ export default function App() {
   }
 
   function runWalkCommand(command: string) {
-    setWalkCommandLog((current) => [command, ...current].slice(0, 24));
+    const parsed = parseWalkModeVoiceCommand(command, {
+      phase: walkPhase,
+      hasActivePrompt: Boolean(activeWalkPrompt)
+    });
+    setWalkCommandLog((current) => [commandLogFromVoiceCommand(parsed), ...current].slice(0, 24));
+    setWalkCommandIntents((current) => [parsed, ...current].slice(0, 24));
+    setWalkCommandInput("");
+    if (!parsed.wake_safe) {
+      setWalkRepairTips([
+        parsed.safety_flags.includes("unrecognized_command")
+          ? "Command not recognized. Use a listed WalkMode command."
+          : "Command blocked for the current phase or prompt state."
+      ]);
+      setEventLog((current) =>
+        [`walk command blocked: ${parsed.safety_flags.join(", ") || "unsafe"}`, ...current].slice(0, 6)
+      );
+      return;
+    }
     const prompt = activeWalkPrompt;
-    if (command === "repeat that") {
+    if (parsed.intent === "listen") {
+      setWalkPhase("listening");
+      setWalkStartedAt(Date.now());
+    } else if (parsed.intent === "repeat_prompt") {
       setWalkPhase("prompt");
-    } else if (command === "give hint") {
+    } else if (parsed.intent === "request_hint") {
       setWalkHintCount((count) => count + 1);
       setWalkAnswer(
         (current) => current || "I need the mechanism, a concrete example, and a boundary condition."
       );
-    } else if (command === "skip" && prompt) {
+    } else if (parsed.intent === "skip_prompt" && prompt) {
       setWalkSkippedIds((current) => unique([...current, prompt.id]));
       advanceWalkPrompt();
-    } else if (command === "mark confusing" && prompt) {
+    } else if (parsed.intent === "mark_confusing" && prompt) {
       setWalkConfusingIds((current) => unique([...current, prompt.id]));
       setWalkRepairTips(["Marked for repair. Keep walking and revisit this concept later."]);
       setWalkPhase("feedback");
-    } else if (command === "end session") {
-      completeWalkSession();
-    } else if (command === "screen off") {
+    } else if (parsed.intent === "end_session") {
+      completeWalkSession(parsed);
+    } else if (parsed.intent === "screen_off") {
       setWalkPhase("listening");
-    } else if (command === "harder") {
+    } else if (parsed.intent === "raise_difficulty") {
       setWalkConfidence((value) => clamp(value + 0.08));
-    } else if (command === "slower") {
+    } else if (parsed.intent === "lower_difficulty") {
       setWalkConfidence((value) => clamp(value - 0.08));
-    } else if (command === "explain why") {
+    } else if (parsed.intent === "explain_why") {
       setWalkAnswer((current) => current || "Because the mechanism links the cause, example, and limit.");
+    } else if (parsed.intent === "score_answer") {
+      scoreWalkAnswer();
+    } else if (parsed.intent === "next_prompt") {
+      advanceWalkPrompt();
+    } else if (parsed.intent === "delete_transcript") {
+      deleteWalkTranscript();
     }
   }
 
-  function completeWalkSession() {
+  function completeWalkSession(finalCommand?: WalkModeVoiceCommand) {
     const completedAt = new Date().toISOString();
     const transcriptRetention = walkTranscriptDeleted ? "deleted" : "transcript_only";
     const syncedWalkResponses =
       transcriptRetention === "deleted"
         ? walkSyncResponses.map(({ transcript: _transcript, ...response }) => response)
         : walkSyncResponses;
+    const commandIntentsForCompletion = finalCommand
+      ? [finalCommand, ...walkCommandIntents].slice(0, 24)
+      : walkCommandIntents;
+    const commandLogForCompletion = finalCommand
+      ? [commandLogFromVoiceCommand(finalCommand), ...walkCommandLog].slice(0, 24)
+      : walkCommandLog;
+    const syncedCommandIntents: WalkModeVoiceCommandAuditEntry[] = commandIntentsForCompletion.map(
+      auditEntryFromWalkModeVoiceCommand
+    );
+    const commandSummary = summarizeWalkModeVoiceCommands(syncedCommandIntents);
     try {
       window.localStorage.setItem(
         "mnemosyne.walkMode.v1",
@@ -1316,8 +1365,9 @@ export default function App() {
           prompts_answered: walkResponses.length,
           skipped_prompt_ids: walkSkippedIds,
           confusing_prompt_ids: walkConfusingIds,
-          commands: walkCommandLog,
-          voice_used: walkAnswerMode === "voice" || walkCommandLog.length > 0,
+          commands: commandLogForCompletion,
+          command_summary: commandSummary,
+          voice_used: walkAnswerMode === "voice" || commandLogForCompletion.length > 0,
           text_used: walkResponses.some((response) => response.raw_response),
           screen_locked: true,
           transcript_retention: transcriptRetention,
@@ -1338,9 +1388,10 @@ export default function App() {
           responses: syncedWalkResponses,
           skippedPromptIds: walkSkippedIds,
           confusingPromptIds: walkConfusingIds,
-          commandLog: walkCommandLog,
+          commandLog: commandLogForCompletion,
+          commandIntents: syncedCommandIntents,
           screenLocked: true,
-          voiceUsed: walkAnswerMode === "voice" || walkCommandLog.length > 0,
+          voiceUsed: walkAnswerMode === "voice" || commandLogForCompletion.length > 0,
           transcriptRetention,
           completedAt
         },
@@ -1365,7 +1416,6 @@ export default function App() {
     setWalkAnswer("");
     setWalkTranscriptDeleted(true);
     setWalkSyncResponses((current) => current.map(({ transcript: _transcript, ...response }) => response));
-    setWalkCommandLog((current) => ["delete transcript", ...current].slice(0, 24));
     setWalkCacheStatus("pending");
   }
 
@@ -2017,10 +2067,12 @@ export default function App() {
         nextPrompt={advanceWalkPrompt}
         runCommand={runWalkCommand}
         completeSession={completeWalkSession}
-        deleteTranscript={deleteWalkTranscript}
         lastResponse={walkLastResponse}
         repairTips={walkRepairTips}
         commandLog={walkCommandLog}
+        commandInput={walkCommandInput}
+        setCommandInput={setWalkCommandInput}
+        commandSummary={walkCommandSummary}
         skippedIds={walkSkippedIds}
         confusingIds={walkConfusingIds}
         cacheStatus={walkCacheStatus}
@@ -3421,10 +3473,12 @@ function WalkView({
   nextPrompt,
   runCommand,
   completeSession,
-  deleteTranscript,
   lastResponse,
   repairTips,
   commandLog,
+  commandInput,
+  setCommandInput,
+  commandSummary,
   skippedIds,
   confusingIds,
   cacheStatus,
@@ -3449,10 +3503,12 @@ function WalkView({
   nextPrompt: () => void;
   runCommand: (command: string) => void;
   completeSession: () => void;
-  deleteTranscript: () => void;
   lastResponse: AssessmentResponse | null;
   repairTips: string[];
   commandLog: string[];
+  commandInput: string;
+  setCommandInput: (value: string) => void;
+  commandSummary: ReturnType<typeof summarizeWalkModeVoiceCommands>;
   skippedIds: string[];
   confusingIds: string[];
   cacheStatus: string;
@@ -3461,16 +3517,7 @@ function WalkView({
   setTranscriptDeleted: (value: boolean) => void;
   answeredCount: number;
 }) {
-  const commands = packet?.voice_commands ?? [
-    "repeat that",
-    "slower",
-    "harder",
-    "give hint",
-    "skip",
-    "mark confusing",
-    "screen off",
-    "end session"
-  ];
+  const commands = packet?.voice_commands ?? [...defaultWalkModeVoiceCommands];
   return (
     <div className="walk-layout">
       <section className="phone-down">
@@ -3542,6 +3589,20 @@ function WalkView({
             Complete
           </button>
         </div>
+        <div className="walk-command-entry">
+          <label className="form-field">
+            <span>Command transcript</span>
+            <input
+              value={commandInput}
+              onChange={(event) => setCommandInput(event.target.value)}
+              placeholder="say that again, give hint, erase transcript..."
+            />
+          </label>
+          <button className="command" onClick={() => runCommand(commandInput)}>
+            <Radio size={18} />
+            Run
+          </button>
+        </div>
         {lastResponse && (
           <div className="feedback-band walk-feedback">
             <strong>{Math.round(lastResponse.correctness_score * 100)}%</strong>
@@ -3571,13 +3632,16 @@ function WalkView({
             />
             <span>Delete voice transcript after scoring</span>
           </label>
-          <button className="command" onClick={deleteTranscript}>
+          <button className="command" onClick={() => runCommand("delete transcript")}>
             <ShieldCheck size={18} />
             Delete Now
           </button>
         </div>
         <div className="object-list walk-session-log">
           <ObjectLine label="Commands" value={commandLog.slice(0, 4).join(", ")} />
+          <ObjectLine label="Wake-safe" value={`${commandSummary.wake_safe}/${commandSummary.total}`} />
+          <ObjectLine label="Blocked" value={`${commandSummary.blocked}`} />
+          <ObjectLine label="Unknown" value={`${commandSummary.unknown}`} />
           <ObjectLine label="Skipped" value={`${skippedIds.length}`} />
           <ObjectLine label="Confusing" value={`${confusingIds.length}`} />
           <ObjectLine

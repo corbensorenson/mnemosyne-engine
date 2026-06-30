@@ -9,6 +9,7 @@
     "@mnemosyne/schema": "*",
     "@mnemosyne/shared-utils": "*",
     "@mnemosyne/sleep-core": "*",
+    "@mnemosyne/voice-core": "*",
     "@mnemosyne/video-core": "*"
   },
   "exports": {

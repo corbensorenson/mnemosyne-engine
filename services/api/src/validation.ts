@@ -13,6 +13,7 @@ import {
   type Proposal
 } from "@mnemosyne/schema";
 import { offlineActionTypes } from "@mnemosyne/offline-core";
+import { walkModeVoiceCommandIntents } from "@mnemosyne/voice-core";
 import { z } from "zod";
 
 const userIdSchema = z.string().min(1);
@@ -644,6 +645,20 @@ export const walkModeCompleteRequestSchema = z
     skippedPromptIds: z.array(z.string().min(1)).default([]),
     confusingPromptIds: z.array(z.string().min(1)).default([]),
     commandLog: z.array(z.string().min(1)).max(64).default([]),
+    commandIntents: z
+      .array(
+        z
+          .object({
+            intent: z.enum(walkModeVoiceCommandIntents),
+            canonical_command: z.string().min(1),
+            confidence: z.number().min(0).max(1),
+            wake_safe: z.boolean(),
+            safety_flags: z.array(z.string().min(1)).default([])
+          })
+          .strict()
+      )
+      .max(64)
+      .default([]),
     screenLocked: z.boolean().default(true),
     voiceUsed: z.boolean().default(false),
     transcriptRetention: z.enum(["deleted", "transcript_only", "retained"]).default("deleted"),

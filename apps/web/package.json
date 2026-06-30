@@ -25,6 +25,8 @@
     "@mnemosyne/shared-utils": "*",
     "@mnemosyne/sleep-core": "*",
     "@mnemosyne/technique-lab": "*",
+    "@mnemosyne/tutor-core": "*",
+    "@mnemosyne/voice-core": "*",
     "@mnemosyne/wearables-core": "*",
     "@mnemosyne/video-core": "*",
     "@vitejs/plugin-react": "^6.0.3",

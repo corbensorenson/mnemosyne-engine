@@ -9,6 +9,11 @@ import { createMemoryStore } from "@mnemosyne/persistence-core";
 import { createApiHandlers, seedDemoStore } from "@mnemosyne/api";
 import type { AssessmentResponse } from "@mnemosyne/schema";
 import { createLocalObjectStorage } from "@mnemosyne/storage-core";
+import {
+  auditEntryFromWalkModeVoiceCommand,
+  commandLogFromVoiceCommand,
+  parseWalkModeVoiceCommand
+} from "@mnemosyne/voice-core";
 import { describe, expect, it } from "vitest";
 
 type Envelope<T> = { ok: true; data: T; audit_event_id?: string } | { ok: false; error?: unknown };
@@ -861,6 +866,13 @@ describe("persistence-backed API handlers", () => {
         sessionType: "walk_mode"
       })
     );
+    const commandIntents = [
+      parseWalkModeVoiceCommand("listen", { phase: "prompt", hasActivePrompt: true }),
+      parseWalkModeVoiceCommand("say that again", { phase: "listening", hasActivePrompt: true }),
+      parseWalkModeVoiceCommand("give hint", { phase: "listening", hasActivePrompt: true }),
+      parseWalkModeVoiceCommand("mark confusing", { phase: "listening", hasActivePrompt: true }),
+      parseWalkModeVoiceCommand("launch rockets", { phase: "listening", hasActivePrompt: true })
+    ];
 
     const completed = unwrap(
       await handlers.completeWalkMode({
@@ -872,7 +884,8 @@ describe("persistence-backed API handlers", () => {
         screenLocked: true,
         voiceUsed: true,
         transcriptRetention: "deleted",
-        commandLog: ["listen", "repeat that", "give hint", "mark confusing"],
+        commandLog: commandIntents.map(commandLogFromVoiceCommand),
+        commandIntents: commandIntents.map(auditEntryFromWalkModeVoiceCommand),
         skippedPromptIds: [],
         confusingPromptIds: [prompts[1]?.id].filter((id): id is string => Boolean(id)),
         responses: prompts.map((item, index) => ({
@@ -892,6 +905,11 @@ describe("persistence-backed API handlers", () => {
     expect(completed.summary.voice_used).toBe(true);
     expect(completed.summary.text_used).toBe(true);
     expect(completed.summary.screen_locked).toBe(true);
+    expect(completed.summary.commands_processed).toBe(commandIntents.length);
+    expect(completed.summary.wake_safe_commands).toBe(4);
+    expect(completed.summary.blocked_commands).toBe(1);
+    expect(completed.summary.unknown_commands).toBe(1);
+    expect(completed.summary.command_safety_flags).toContain("unrecognized_command");
     expect(completed.summary.transcript_retention).toBe("deleted");
     expect(completed.summary.compatible_assessment_events).toBe(true);
     expect(completed.updated_states.length).toBeGreaterThan(0);
@@ -904,6 +922,7 @@ describe("persistence-backed API handlers", () => {
           payload: expect.objectContaining({
             walk_packet_id: walkPacket.id,
             compatible_assessment_events: true,
+            command_summary: expect.objectContaining({ blocked: 1, unknown: 1 }),
             transcript_retention: "deleted"
           })
         }),
@@ -919,6 +938,17 @@ describe("persistence-backed API handlers", () => {
           event_type: "assessment_answered",
           payload: expect.objectContaining({
             entry_mode: "text"
+          })
+        })
+      ])
+    );
+    const audits = await store.listAuditEvents(demoUser.id);
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "walk_mode_completed",
+          payload: expect.objectContaining({
+            command_summary: expect.objectContaining({ wake_safe: 4, blocked: 1 })
           })
         })
       ])

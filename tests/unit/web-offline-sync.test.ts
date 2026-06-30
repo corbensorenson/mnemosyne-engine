@@ -161,6 +161,22 @@ describe("web offline sync transport", () => {
         skippedPromptIds: ["walk_skip"],
         confusingPromptIds: ["walk_confusing"],
         commandLog: ["listen", "give hint"],
+        commandIntents: [
+          {
+            intent: "listen",
+            canonical_command: "listen",
+            confidence: 1,
+            wake_safe: true,
+            safety_flags: []
+          },
+          {
+            intent: "request_hint",
+            canonical_command: "give hint",
+            confidence: 1,
+            wake_safe: true,
+            safety_flags: []
+          }
+        ],
         screenLocked: true,
         voiceUsed: true,
         transcriptRetention: "deleted",

@@ -18,6 +18,7 @@ import type {
 import { createId, nowIso, todayIsoDate, unique } from "@mnemosyne/shared-utils";
 import { buildSleepCuePacket } from "@mnemosyne/sleep-core";
 import { buildWatchPackets, rankVideosForUser } from "@mnemosyne/video-core";
+import { defaultWalkModeVoiceCommands } from "@mnemosyne/voice-core";
 
 export type SessionConstraints = {
   morningScreenBudget: number;
@@ -152,17 +153,7 @@ function buildWalkPackets(input: {
       user_id: input.userId,
       target_concept_ids: input.targetConceptIds,
       prompts: input.prompts,
-      voice_commands: [
-        "repeat that",
-        "slower",
-        "harder",
-        "give hint",
-        "skip",
-        "mark confusing",
-        "explain why",
-        "screen off",
-        "end session"
-      ],
+      voice_commands: [...defaultWalkModeVoiceCommands],
       screen_policy: "screen_locked",
       created_at: nowIso()
     }

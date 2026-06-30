@@ -28,6 +28,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/paced-reader-core`: graph-aware chunking and effective WPM calculations.
 - `packages/technique-lab`: evidence registry and experiment templates for learning techniques.
 - `packages/tutor-core`: first-party rubric semantics, tutor modes, and safety gates for feedback.
+- `packages/voice-core`: first-party WalkMode command parsing, wake-safety checks, and compact command audit summaries.
 - `packages/social-core`: outcome-safe badges, challenges, privacy-aware dashboards, and contributor reputation.
 - `packages/wearables-core`: optional wearable connection, token envelope, sleep normalization, readiness, and native-edge planning primitives.
 - `packages/content-court`: proposal, voting, local arbitration, and first-party moderation triage primitives.
