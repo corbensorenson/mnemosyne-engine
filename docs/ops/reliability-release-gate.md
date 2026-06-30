@@ -13,6 +13,7 @@ The core evaluator lives in `@mnemosyne/reliability-core`. It can evaluate real 
 - API liveness and readiness.
 - Onboarding to first daily packet.
 - Morning Forge completion and graph replay.
+- First-party Tutor turn scoring and release-gated graph replay.
 - WalkMode completion through voice or text fallback.
 - Evening Lock-In to SleepCue packet handoff.
 - Sleep audio render manifest generation and queue drain.

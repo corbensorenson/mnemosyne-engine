@@ -54,6 +54,7 @@ export function defaultPwaAccessibilitySurfaces(): AccessibilitySurfaceCheck[] {
     surface("today", "Today", "/?tab=today", ["daily packet refresh", "session launch"]),
     surface("graph", "Graph", "/?tab=graph", ["node selection", "path inspection"]),
     surface("forge", "Morning Forge", "/?tab=forge", ["answer entry", "voice/text mode", "confidence"]),
+    surface("tutor", "Tutor", "/?tab=tutor", ["mode selection", "answer entry", "release-gate feedback"]),
     surface("cinema", "GraphFeed", "/?tab=cinema", ["bounded video choice", "post-watch recall"]),
     surface("paced_read", "Paced Read", "/?tab=pacedRead", [
       "WPM control",

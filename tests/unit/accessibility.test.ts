@@ -15,10 +15,19 @@ describe("accessibility-core", () => {
     expect(gate.schema_version).toBe("mnemosyne-accessibility-release-gate-v0.1");
     expect(gate.passed).toBe(true);
     expect(gate.score).toBe(1);
-    expect(gate.surface_count).toBeGreaterThanOrEqual(17);
+    expect(gate.surface_count).toBeGreaterThanOrEqual(18);
     expect(gate.summaries.map((summary) => summary.criterion)).toEqual([...accessibilityCriteria]);
     expect(gate.surfaces.map((surface) => surface.surface_id)).toEqual(
-      expect.arrayContaining(["onboarding", "forge", "paced_read", "walk", "sleep", "court", "admin"])
+      expect.arrayContaining([
+        "onboarding",
+        "forge",
+        "tutor",
+        "paced_read",
+        "walk",
+        "sleep",
+        "court",
+        "admin"
+      ])
     );
   });
 

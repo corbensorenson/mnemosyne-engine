@@ -15,12 +15,13 @@ describe("reliability-core", () => {
     expect(gate.schema_version).toBe("mnemosyne-reliability-release-gate-v0.1");
     expect(gate.passed).toBe(true);
     expect(gate.score).toBe(1);
-    expect(gate.scenario_count).toBeGreaterThanOrEqual(12);
+    expect(gate.scenario_count).toBeGreaterThanOrEqual(13);
     expect(gate.failing_scenario_ids).toEqual([]);
     expect(gate.required_scenarios.map((scenario) => scenario.id)).toEqual(
       expect.arrayContaining([
         "onboarding_to_daily_packet",
         "morning_forge_complete",
+        "tutor_turn",
         "walk_mode_complete",
         "sleep_audio_render",
         "privacy_export_delete",

@@ -4801,6 +4801,7 @@ function AdminView({
     "Graph",
     "Scheduler",
     "Assessment",
+    "Tutor",
     "Technique Lab",
     "VideoGraph",
     "Audio Renderer",

@@ -24,6 +24,6 @@ The current gate covers:
 
 ## Surface Inventory
 
-The default PWA inventory includes Onboarding, Today, Graph, Morning Forge, GraphFeed, Paced Read, WalkMode, Evening Lock-In, Sleep, Stats, Social, Wearables, Packs, Content Court, Technique Lab, Workbench, and Admin.
+The default PWA inventory includes Onboarding, Today, Graph, Morning Forge, Tutor, GraphFeed, Paced Read, WalkMode, Evening Lock-In, Sleep, Stats, Social, Wearables, Packs, Content Court, Technique Lab, Workbench, and Admin.
 
 The gate returns per-surface checks, criterion summaries, failing surface ids, and remediation text. A release candidate should not promote while `passed` is false.

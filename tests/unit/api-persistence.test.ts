@@ -493,8 +493,9 @@ describe("persistence-backed API handlers", () => {
     );
     expect(accessibility.passed).toBe(true);
     expect(accessibility.score).toBe(1);
-    expect(accessibility.surface_count).toBeGreaterThanOrEqual(17);
+    expect(accessibility.surface_count).toBeGreaterThanOrEqual(18);
     expect(accessibility.surfaces.map((surface) => surface.surface_id)).toContain("admin");
+    expect(accessibility.surfaces.map((surface) => surface.surface_id)).toContain("tutor");
 
     const reliability = unwrap(
       await handlers.getReliabilityReleaseGate({
@@ -506,6 +507,7 @@ describe("persistence-backed API handlers", () => {
     expect(reliability.passed).toBe(true);
     expect(reliability.score).toBe(1);
     expect(reliability.required_scenarios.map((scenario) => scenario.id)).toContain("worker_queue_drain");
+    expect(reliability.required_scenarios.map((scenario) => scenario.id)).toContain("tutor_turn");
 
     const submitted = unwrap(
       await handlers.createProposal({
