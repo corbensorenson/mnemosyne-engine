@@ -1,0 +1,12 @@
+{
+  "id": "pack_python_basics",
+  "slug": "python-basics",
+  "title": "Python Basics",
+  "description": "Variables, functions, debugging loops, and transfer-focused practice.",
+  "domain": "coding",
+  "author_ids": ["system"],
+  "license": "CC-BY-4.0-compatible",
+  "source_ids": ["src_learning_science"],
+  "quality_tier": "tested",
+  "graph_version": "0.1.0"
+}

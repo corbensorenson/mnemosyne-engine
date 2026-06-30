@@ -1,0 +1,26 @@
+{
+  "name": "mnemosyne-engine",
+  "version": "0.1.0",
+  "description": "A graph-governed, voice-first, sleep-augmented learning operating system.",
+  "license": "MIT",
+  "type": "module",
+  "private": false,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @mnemosyne/web",
+    "build": "npm run build -w @mnemosyne/web",
+    "preview": "npm run preview -w @mnemosyne/web",
+    "typecheck": "npm run typecheck -w @mnemosyne/web",
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.12",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

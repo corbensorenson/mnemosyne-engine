@@ -1,0 +1,17 @@
+{
+  "name": "Mnemosyne Engine",
+  "short_name": "Mnemosyne",
+  "description": "Graph-governed, voice-first learning with bounded video and sleep-safe cue reactivation.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f4ed",
+  "theme_color": "#10201c",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

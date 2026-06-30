@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mnemosyne.engine/schema/knowledge_pack.schema.json",
+  "title": "KnowledgePack",
+  "type": "object",
+  "required": ["id", "slug", "title", "domain", "license", "quality_tier", "graph_version"],
+  "properties": {
+    "id": { "type": "string" },
+    "slug": { "type": "string" },
+    "title": { "type": "string" },
+    "description": { "type": "string" },
+    "domain": { "type": "string" },
+    "author_ids": { "type": "array", "items": { "type": "string" } },
+    "license": { "type": "string" },
+    "quality_tier": { "enum": ["personal", "community", "tested", "expert_reviewed", "gold", "canonical"] },
+    "graph_version": { "type": "string" }
+  }
+}

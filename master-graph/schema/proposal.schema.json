@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mnemosyne.engine/schema/proposal.schema.json",
+  "title": "Proposal",
+  "type": "object",
+  "required": ["id", "proposer_id", "proposal_type", "affected_object_ids", "diff", "rationale", "risk_level", "status"],
+  "properties": {
+    "id": { "type": "string" },
+    "proposer_id": { "type": "string" },
+    "proposal_type": {
+      "enum": ["add_claim", "modify_claim", "deprecate_claim", "add_concept", "split_concept", "merge_concepts", "add_edge", "remove_edge", "modify_definition", "add_video", "rank_video", "add_assessment", "modify_sleep_cue", "change_learning_path", "flag_misinformation", "flag_outdated", "change_badge"]
+    },
+    "affected_object_ids": { "type": "array", "items": { "type": "string" } },
+    "diff": { "type": "object" },
+    "rationale": { "type": "string" },
+    "risk_level": { "enum": ["low", "medium", "high", "critical"] },
+    "status": {
+      "enum": ["open", "needs_evidence", "ai_reviewing", "human_review_required", "accepted", "accepted_with_modifications", "rejected", "disputed", "merged", "reverted"]
+    }
+  }
+}

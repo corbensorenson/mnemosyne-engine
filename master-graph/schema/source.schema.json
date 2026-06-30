@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mnemosyne.engine/schema/source.schema.json",
+  "title": "SourceRef",
+  "type": "object",
+  "required": ["id", "title", "source_type", "quality_score"],
+  "properties": {
+    "id": { "type": "string" },
+    "title": { "type": "string" },
+    "url": { "type": "string", "format": "uri" },
+    "citation": { "type": "string" },
+    "source_type": { "enum": ["paper", "book", "website", "dataset", "expert", "course", "user_note", "unknown"] },
+    "quality_score": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mnemosyne.engine/schema/learning_object.schema.json",
+  "title": "LearningObject",
+  "type": "object",
+  "required": ["id", "object_type", "title", "linked_concept_ids", "status"],
+  "properties": {
+    "id": { "type": "string" },
+    "object_type": {
+      "enum": ["claim", "definition", "explanation", "example", "counterexample", "quiz_item", "video", "short_clip", "audio_lesson", "flashread_chunk", "sleep_cue", "haptic_cue", "visual_diagram", "learning_path", "boss_fight", "badge", "memory_hook"]
+    },
+    "title": { "type": "string" },
+    "content_ref": { "type": "string" },
+    "linked_concept_ids": { "type": "array", "items": { "type": "string" } },
+    "prerequisite_concept_ids": { "type": "array", "items": { "type": "string" } },
+    "screen_load_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "sleep_safety_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "truth_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "clarity_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "status": { "enum": ["submitted", "ai_triaged", "experimental", "active", "validated", "gold", "disputed", "deprecated", "rejected"] }
+  }
+}

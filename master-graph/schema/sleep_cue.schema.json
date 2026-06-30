@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mnemosyne.engine/schema/sleep_cue.schema.json",
+  "title": "SleepCueTemplate",
+  "type": "object",
+  "required": ["id", "concept_id", "cue_type", "duration_ms", "sleep_safety_score", "status"],
+  "properties": {
+    "id": { "type": "string" },
+    "concept_id": { "type": "string" },
+    "cue_type": { "enum": ["spoken", "tone", "motif", "music_embedded", "binaural_context", "silence_marker"] },
+    "text": { "type": "string" },
+    "duration_ms": { "type": "integer", "minimum": 1 },
+    "recommended_volume_db": { "type": "number" },
+    "cue_specificity": { "type": "number", "minimum": 0, "maximum": 1 },
+    "cross_talk_risk": { "type": "number", "minimum": 0, "maximum": 1 },
+    "sleep_safety_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "emotional_activation_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "status": { "enum": ["experimental", "active", "validated", "deprecated", "avoid"] }
+  }
+}

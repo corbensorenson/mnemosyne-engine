@@ -1,0 +1,16 @@
+{
+  "name": "@mnemosyne/api",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "dependencies": {
+    "@mnemosyne/schema": "*",
+    "@mnemosyne/scheduler-core": "*"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/routes.ts",
+      "import": "./src/routes.ts"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mnemosyne.engine/schema/assessment.schema.json",
+  "title": "AssessmentItem",
+  "type": "object",
+  "required": ["id", "concept_ids", "assessment_type", "prompt", "rubric", "difficulty", "modality"],
+  "properties": {
+    "id": { "type": "string" },
+    "concept_ids": { "type": "array", "items": { "type": "string" } },
+    "assessment_type": {
+      "enum": ["free_recall", "short_answer", "multiple_choice", "classification", "voice_explanation", "pronunciation", "translation", "timeline", "graph_reconstruction", "sketch", "worked_problem", "debugging", "simulation", "boss_fight", "transfer"]
+    },
+    "prompt": { "type": "string" },
+    "expected_answer": { "type": "string" },
+    "rubric": { "type": "object" },
+    "difficulty": { "type": "number", "minimum": 0, "maximum": 1 },
+    "modality": { "type": "array", "items": { "type": "string" } }
+  }
+}

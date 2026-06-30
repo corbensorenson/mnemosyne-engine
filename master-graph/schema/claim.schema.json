@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mnemosyne.engine/schema/claim.schema.json",
+  "title": "Claim",
+  "type": "object",
+  "required": ["id", "subject_id", "predicate_id", "object_value", "epistemic_status", "sources", "confidence_score"],
+  "properties": {
+    "id": { "type": "string" },
+    "subject_id": { "type": "string" },
+    "predicate_id": { "type": "string" },
+    "object_value": { "type": ["string", "number", "boolean"] },
+    "qualifiers": { "type": "object" },
+    "sources": { "type": "array", "items": { "$ref": "./source.schema.json" } },
+    "epistemic_status": {
+      "enum": ["accepted", "preferred", "disputed", "minority_view", "speculative", "deprecated", "retracted", "superseded", "contextual", "pedagogical_simplification", "unknown"]
+    },
+    "confidence_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "controversy_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "freshness_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "source_quality_score": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@mnemosyne/schema": ["packages/schema/src/index.ts"],
+      "@mnemosyne/shared-utils": ["packages/shared-utils/src/index.ts"],
+      "@mnemosyne/graph-core": ["packages/graph-core/src/index.ts"],
+      "@mnemosyne/assessment-core": ["packages/assessment-core/src/index.ts"],
+      "@mnemosyne/sleep-core": ["packages/sleep-core/src/index.ts"],
+      "@mnemosyne/video-core": ["packages/video-core/src/index.ts"],
+      "@mnemosyne/flashread-core": ["packages/flashread-core/src/index.ts"],
+      "@mnemosyne/technique-lab": ["packages/technique-lab/src/index.ts"],
+      "@mnemosyne/content-court": ["packages/content-court/src/index.ts"],
+      "@mnemosyne/audio-core": ["packages/audio-core/src/index.ts"],
+      "@mnemosyne/scheduler-core": ["packages/scheduler-core/src/index.ts"]
+    }
+  }
+}

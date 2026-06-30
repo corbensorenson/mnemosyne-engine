@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mnemosyne.engine/schema/edge.schema.json",
+  "title": "ConceptEdge",
+  "type": "object",
+  "required": ["from_id", "to_id", "edge_type", "strength", "confidence", "status", "created_by"],
+  "properties": {
+    "from_id": { "type": "string" },
+    "to_id": { "type": "string" },
+    "edge_type": {
+      "enum": ["prerequisite", "successor", "analogy", "contrast", "part_of", "causes", "enables", "commonly_confused_with", "example_of", "counterexample_of"]
+    },
+    "strength": { "type": "number", "minimum": 0, "maximum": 1 },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "status": { "enum": ["preferred", "normal", "disputed", "experimental", "deprecated"] },
+    "created_by": { "enum": ["ai", "human", "system"] }
+  }
+}
