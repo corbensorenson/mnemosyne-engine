@@ -115,6 +115,7 @@ import {
   revokeWearableConnection,
   type WearableCapabilityDashboard,
   type NormalizedWearableSleepSession,
+  type RawWearableSleepSession,
   type WearableConnection,
   type WearableConnectionStatus
 } from "@mnemosyne/wearables-core";
@@ -190,6 +191,21 @@ const tabs: Array<{ id: TabId; label: string; icon: typeof Home }> = [
   { id: "workbench", label: "Workbench", icon: ClipboardCheck },
   { id: "admin", label: "Admin", icon: ShieldCheck }
 ];
+
+const sampleRawWearableSleep: RawWearableSleepSession = {
+  external_id: "demo_oura_sleep_2026_06_29",
+  sleep_score: 0.82,
+  readiness_score: 0.78,
+  efficiency: 0.91,
+  started_at: "2026-06-29T03:46:00.000Z",
+  ended_at: "2026-06-29T11:54:00.000Z",
+  stages: [
+    { stage: "awake", duration_minutes: 22 },
+    { stage: "light", duration_minutes: 242 },
+    { stage: "deep", duration_minutes: 74 },
+    { stage: "rem", duration_minutes: 92 }
+  ]
+};
 
 type AnswerMode = "text" | "voice";
 type PhoneDownKey = "notificationsSilenced" | "screenDimmingEnabled" | "chargerReady" | "alarmSet";
@@ -457,20 +473,7 @@ export default function App() {
       normalizeWearableSleepSession({
         userId: activeUser.id,
         provider: "oura",
-        raw: {
-          external_id: "demo_oura_sleep_2026_06_29",
-          sleep_score: 0.82,
-          readiness_score: 0.78,
-          efficiency: 0.91,
-          started_at: "2026-06-29T03:46:00.000Z",
-          ended_at: "2026-06-29T11:54:00.000Z",
-          stages: [
-            { stage: "awake", duration_minutes: 22 },
-            { stage: "light", duration_minutes: 242 },
-            { stage: "deep", duration_minutes: 74 },
-            { stage: "rem", duration_minutes: 92 }
-          ]
-        },
+        raw: sampleRawWearableSleep,
         createdAt: "2026-06-29T12:05:00.000Z"
       }),
     [activeUser.id]
@@ -1735,11 +1738,9 @@ export default function App() {
       endpoint: "/api/wearables/sync",
       method: "POST",
       payload: {
-        provider: sampleWearableSleep.provider,
-        external_id: sampleWearableSleep.external_id,
-        sleep_quality: sampleWearableSleep.sleep_quality,
-        readiness_delta: sampleWearableSleep.readiness_delta,
-        stage_minutes: sampleWearableSleep.stage_minutes
+        userId: activeUser.id,
+        provider: "oura",
+        sleepSession: sampleRawWearableSleep
       },
       payloadScope: "health",
       idempotencyKey: `${activeUser.id}:wearable_sleep:${sampleWearableSleep.external_id}`

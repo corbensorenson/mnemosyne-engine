@@ -456,4 +456,71 @@ describe("web offline sync transport", () => {
       })
     );
   });
+
+  it("routes backend-compatible wearable sleep sync queue items to the wearable endpoint", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "wearable_sleep_sync",
+      endpoint: "/api/wearables/sync",
+      method: "POST",
+      payload: {
+        userId: "user_demo",
+        provider: "oura",
+        sleepSession: {
+          external_id: "demo_oura_sleep_2026_06_29",
+          sleep_score: 0.82,
+          readiness_score: 0.78,
+          efficiency: 0.91,
+          started_at: "2026-06-29T03:46:00.000Z",
+          ended_at: "2026-06-29T11:54:00.000Z",
+          stages: [
+            { stage: "awake", duration_minutes: 22 },
+            { stage: "light", duration_minutes: 242 },
+            { stage: "deep", duration_minutes: 74 },
+            { stage: "rem", duration_minutes: 92 }
+          ]
+        }
+      },
+      payloadScope: "health",
+      idempotencyKey: "wearable-sleep-domain-write"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787/", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/wearables/sync",
+        body: item.payload,
+        directDomainWrite: true
+      })
+    );
+  });
+
+  it("keeps legacy wearable sleep summaries on the offline receipt route", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "wearable_sleep_sync",
+      endpoint: "/api/wearables/sync",
+      method: "POST",
+      payload: {
+        provider: "oura",
+        external_id: "demo_oura_sleep_2026_06_29",
+        sleep_quality: 0.82,
+        readiness_delta: 0.08,
+        stage_minutes: { awake: 22, light: 242, deep: 74, rem: 92, unknown: 0 }
+      },
+      payloadScope: "health",
+      idempotencyKey: "legacy-wearable-sleep-receipt"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/offline/actions/sync",
+        body: { item },
+        directDomainWrite: false
+      })
+    );
+  });
 });

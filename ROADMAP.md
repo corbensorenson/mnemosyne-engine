@@ -491,6 +491,7 @@ Current implementation progress:
 
 - First-party `@mnemosyne/wearables-core` package now owns Oura authorization request construction, token exchange descriptors, AES-GCM token envelopes, revocation records, sleep-stage normalization, readiness adjustment, provider status, and native-edge planning.
 - API wearable flows now support Oura connect, wearable status, sleep sync, encrypted token storage, revocation, normalized sleep persistence, readiness updates, and audit events.
+- PWA wearable sleep sync now queues backend-compatible raw provider sleep imports and posts directly to `POST /api/wearables/sync` when API sync is configured, so the first-party backend owns normalization, readiness persistence, and health-data audit trails.
 - PWA Wear surface shows provider status, optional Oura authorization, manual fallback, synced sleep-stage totals, readiness impact, HealthKit/Health Connect native companion plan, and token control without storing provider tokens in browser state.
 - Native-edge design doc covers HealthKit, Health Connect, background audio, local notifications, watch haptics, token handling, fallback rules, and the boundary between native bridges and first-party learning logic.
 - Unit coverage verifies Oura connect, encrypted token envelopes, normalized deep/REM sleep stages, readiness updates, persisted wearable sleep sessions, local token clearing on revoke, provider status, and audit trail.

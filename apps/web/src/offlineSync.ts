@@ -150,6 +150,14 @@ function isDomainWritableOfflineActionItem(item: OfflineQueueItem): boolean {
     item.payload.controlResponses.length > 0 &&
     typeof item.payload.screenMinutes === "number" &&
     typeof item.payload.voiceUsed === "boolean";
+  const isWearableSleepSync =
+    item.action_type === "wearable_sleep_sync" &&
+    item.method === "POST" &&
+    item.endpoint === "/api/wearables/sync" &&
+    typeof item.payload.userId === "string" &&
+    typeof item.payload.provider === "string" &&
+    typeof item.payload.sleepSession === "object" &&
+    item.payload.sleepSession !== null;
   return (
     isMorningForge ||
     isWalkMode ||
@@ -157,7 +165,8 @@ function isDomainWritableOfflineActionItem(item: OfflineQueueItem): boolean {
     isGraphFeed ||
     isPacedRead ||
     isSleepPlayback ||
-    isSleepRecall
+    isSleepRecall ||
+    isWearableSleepSync
   );
 }
 
