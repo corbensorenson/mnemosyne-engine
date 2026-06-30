@@ -39,6 +39,10 @@ npm run verify
 
 The dev server runs the PWA at the URL printed by Vite, normally `http://localhost:5173`.
 
+## Roadmap
+
+See [ROADMAP.md](./ROADMAP.md) for the path from the current foundation to the fully usable, production-ready Mnemosyne Engine.
+
 ## Safety Boundaries
 
 Mnemosyne Engine does not recommend drug protocols. High-stakes domains such as medicine, law, finance, politics, public safety, weapons, self-harm, and drug use require source labels, review dates, disclaimers, and additional human/expert review before canonical status.
