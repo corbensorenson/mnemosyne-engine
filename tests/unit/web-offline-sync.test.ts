@@ -224,4 +224,55 @@ describe("web offline sync transport", () => {
       })
     );
   });
+
+  it("routes backend-compatible GraphFeed recall queue items to the watch completion endpoint", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "graphfeed_recall",
+      endpoint: "/api/watch-packets/watch_packet_demo/complete",
+      method: "POST",
+      payload: {
+        userId: "user_demo",
+        watchPacketId: "watch_packet_demo",
+        videoIds: ["video_demo"],
+        recallPassed: true,
+        screenMinutes: 18
+      },
+      idempotencyKey: "graphfeed-domain-write"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787/", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/watch-packets/watch_packet_demo/complete",
+        body: item.payload,
+        directDomainWrite: true
+      })
+    );
+  });
+
+  it("keeps legacy GraphFeed recall payloads on the offline receipt route", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "graphfeed_recall",
+      endpoint: "/api/watch-packets/watch_packet_demo/complete",
+      method: "POST",
+      payload: {
+        watch_packet_id: "watch_packet_demo",
+        response: { response_id: "local_only" }
+      },
+      idempotencyKey: "legacy-graphfeed-receipt"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/offline/actions/sync",
+        body: { item },
+        directDomainWrite: false
+      })
+    );
+  });
 });

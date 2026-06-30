@@ -1058,12 +1058,11 @@ export default function App() {
         endpoint: `/api/watch-packets/${activeWatchPacket?.id ?? "local"}/complete`,
         method: "POST",
         payload: {
-          watch_packet_id: activeWatchPacket?.id,
-          video_id: activeCinemaVideo.id,
-          recall_passed: recallPassed,
-          graph_progress_awarded: recallPassed,
-          screen_minutes: screenMinutes,
-          response: assessmentResponseSyncPayload(response)
+          userId: activeUser.id,
+          watchPacketId: activeWatchPacket?.id,
+          videoIds: activeWatchPacket?.video_ids ?? [activeCinemaVideo.id],
+          recallPassed,
+          screenMinutes
         },
         idempotencyKey: `${activeUser.id}:graphfeed:${activeCinemaVideo.id}:${completedAt}`
       });

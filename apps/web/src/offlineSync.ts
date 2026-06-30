@@ -106,7 +106,17 @@ function isDomainWritableSessionCompletionItem(item: OfflineQueueItem): boolean 
     Array.isArray(item.payload.boundCueIds) &&
     typeof item.payload.phoneDownChecklist === "object" &&
     item.payload.phoneDownChecklist !== null;
-  return isMorningForge || isWalkMode || isEveningLockIn;
+  const isGraphFeed =
+    item.action_type === "graphfeed_recall" &&
+    item.method === "POST" &&
+    /^\/api\/watch-packets\/[^/]+\/complete$/.test(item.endpoint) &&
+    typeof item.payload.userId === "string" &&
+    typeof item.payload.watchPacketId === "string" &&
+    Array.isArray(item.payload.videoIds) &&
+    item.payload.videoIds.length > 0 &&
+    typeof item.payload.recallPassed === "boolean" &&
+    typeof item.payload.screenMinutes === "number";
+  return isMorningForge || isWalkMode || isEveningLockIn || isGraphFeed;
 }
 
 function domainReceiptId(

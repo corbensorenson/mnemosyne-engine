@@ -364,6 +364,7 @@ Current implementation progress:
 
 - PWA GraphFeed runs as a bounded local session with selected packet videos, chapter metadata, transcript IDs, post-watch recall scoring, local cache, and WalkMode handoff only after recall passes.
 - First-party watch completion logs `video_watched` for audit but awards graph progress only when post-watch recall passes; failed recall keeps the watch out of concept progress.
+- PWA GraphFeed recall sync now queues backend-compatible watch completion payloads and posts them directly to `POST /api/watch-packets/:id/complete` when API sync is configured, preserving the post-watch recall gate in the first-party backend.
 - First-party Paced Read engine selects graph-aligned assets, builds chunked session plans with display-unit controls, and reports estimated effective WPM with the comprehension gate.
 - PWA Paced Read player runs locally in the browser with chunk display, WPM controls, pause/rewind/skip, completion gate, strain rating, local cache, and graph-state updates without a third-party service.
 - Optional first-party persistence endpoints record effective WPM, comprehension, retention, strain, screen load, and gated advancement; completion logs `paced_read_completed`, audits the result, and updates concept graph state only when the comprehension/strain gate allows progress.
