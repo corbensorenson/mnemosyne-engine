@@ -8,7 +8,7 @@ Every meaningful action emits a learning or governance event:
 - `cue_bound`
 - `sleep_cue_played`
 - `video_watched`
-- `flashread_completed`
+- `paced_read_completed`
 - `walk_recall_completed`
 - `graph_updated`
 - `proposal_submitted`

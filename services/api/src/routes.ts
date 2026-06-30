@@ -84,15 +84,15 @@ export const apiRoutes: ApiRoute[] = [
   },
   {
     method: "POST",
-    path: "/api/flash/generate",
-    service: "Flash Engine",
+    path: "/api/paced-read/generate",
+    service: "Paced Read Engine",
     eventType: "session_started"
   },
   {
     method: "POST",
-    path: "/api/flash/complete",
-    service: "Flash Engine",
-    eventType: "flashread_completed"
+    path: "/api/paced-read/complete",
+    service: "Paced Read Engine",
+    eventType: "paced_read_completed"
   },
   { method: "POST", path: "/api/sleep/packet/generate", service: "SleepCue Service", eventType: "cue_bound" },
   { method: "GET", path: "/api/sleep/packet/tonight", service: "SleepCue Service" },
@@ -122,6 +122,12 @@ export const apiRoutes: ApiRoute[] = [
   { method: "GET", path: "/api/personalization/profile", service: "Technique Lab Service" },
   { method: "GET", path: "/api/outcomes/dashboard", service: "Outcome Analytics Service" },
   { method: "POST", path: "/api/outcomes/refresh", service: "Outcome Analytics Service" },
+  { method: "POST", path: "/api/jobs", service: "Ops Queue Service" },
+  { method: "POST", path: "/api/jobs/:id/start", service: "Ops Queue Service" },
+  { method: "POST", path: "/api/jobs/:id/complete", service: "Ops Queue Service" },
+  { method: "POST", path: "/api/jobs/:id/fail", service: "Ops Queue Service" },
+  { method: "POST", path: "/api/objects", service: "Object Manifest Service" },
+  { method: "GET", path: "/api/ops/health", service: "Ops Health Service" },
   {
     method: "POST",
     path: "/api/proposals",

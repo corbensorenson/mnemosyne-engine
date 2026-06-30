@@ -17,7 +17,7 @@
         "video",
         "short_clip",
         "audio_lesson",
-        "flashread_chunk",
+        "paced_read_chunk",
         "sleep_cue",
         "haptic_cue",
         "visual_diagram",

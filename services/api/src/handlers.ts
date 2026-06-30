@@ -28,11 +28,11 @@ import {
   type VoteType
 } from "@mnemosyne/content-court";
 import {
-  buildFlashReadSession,
-  scoreFlashReadCompletion,
-  type FlashReadDisplayUnit,
-  type FlashReadSessionPlan
-} from "@mnemosyne/flashread-core";
+  buildPacedReadSession,
+  scorePacedReadCompletion,
+  type PacedReadDisplayUnit,
+  type PacedReadSessionPlan
+} from "@mnemosyne/paced-reader-core";
 import {
   computeGoalGap,
   selectFrontierConcepts,
@@ -49,6 +49,21 @@ import type {
   UserDataExportBundle
 } from "@mnemosyne/persistence-core";
 import { buildOutcomeDashboard, type OutcomeDashboard } from "@mnemosyne/outcome-core";
+import {
+  buildOpsHealthDashboard,
+  completeJob as completeOpsJob,
+  createJob as createOpsJob,
+  createObjectManifest as createOpsObjectManifest,
+  failJob as failOpsJob,
+  startJob as startOpsJob,
+  type JobPriority,
+  type JobRecord,
+  type ObjectBucket,
+  type ObjectManifest,
+  type ObjectRetentionPolicy,
+  type OpsHealthDashboard,
+  type QueueName
+} from "@mnemosyne/ops-core";
 import type {
   AssessmentItem,
   AssessmentResponse,
@@ -58,7 +73,7 @@ import type {
   DailyLearningPacket,
   DeviceCapabilityProfile,
   Experiment,
-  FlashReadAsset,
+  PacedReadAsset,
   Goal,
   LearningEvent,
   MasterGraph,
@@ -123,12 +138,15 @@ import {
   creatorIngestionRequestSchema,
   eveningLockInCompleteRequestSchema,
   experimentAssignmentRequestSchema,
-  flashReadCompleteRequestSchema,
-  flashReadGenerateRequestSchema,
   generateDailyPacketRequestSchema,
   humanOverrideRequestSchema,
+  jobCreateRequestSchema,
+  jobTransitionRequestSchema,
   morningForgeCompleteRequestSchema,
+  objectManifestRequestSchema,
   outcomeDashboardRequestSchema,
+  pacedReadCompleteRequestSchema,
+  pacedReadGenerateRequestSchema,
   privacyDeletionRequestSchema,
   privacyExportRequestSchema,
   proposalCreateRequestSchema,
@@ -365,18 +383,18 @@ type WearableSyncResponse = {
   dashboard: WearableCapabilityDashboard;
 };
 
-type FlashReadGenerateRequest = {
+type PacedReadGenerateRequest = {
   userId: string;
   assetId?: string;
   conceptIds: string[];
-  displayUnit: FlashReadDisplayUnit;
+  displayUnit: PacedReadDisplayUnit;
   requestedWpm?: number;
 };
 
-type FlashReadCompleteRequest = {
+type PacedReadCompleteRequest = {
   userId: string;
   sessionId?: string;
-  flashReadSessionId: string;
+  pacedReadSessionId: string;
   assetId: string;
   rawWpm: number;
   comprehensionScore: number;
@@ -428,6 +446,36 @@ type OutcomeDashboardRequest = {
   generatedAt?: string;
 };
 
+type JobCreateRequest = {
+  userId: string;
+  queue: QueueName;
+  type: string;
+  payload: Record<string, unknown>;
+  priority: JobPriority;
+  runAfter?: string;
+  idempotencyKey?: string;
+  maxAttempts: number;
+};
+
+type JobTransitionRequest = {
+  userId: string;
+  jobId: string;
+  workerId: string;
+  result: Record<string, unknown>;
+  error?: string;
+};
+
+type ObjectManifestRequest = {
+  userId: string;
+  bucket: ObjectBucket;
+  key: string;
+  contentType: string;
+  sizeBytes: number;
+  sha256: string;
+  retentionPolicy: ObjectRetentionPolicy;
+  metadata: Record<string, unknown>;
+};
+
 type CompleteOnboardingRequest = {
   userId?: string;
   displayName: string;
@@ -450,7 +498,7 @@ type CompleteOnboardingRequest = {
     eveningMinutes: number;
     voiceFirst: boolean;
     walking: boolean;
-    flashread: boolean;
+    paced_read: boolean;
     highContrast: boolean;
     reducedMotion: boolean;
     duskQuiet: boolean;
@@ -471,7 +519,7 @@ type CreatorIngestionRequest = {
     videos: VideoAsset[];
     assessments: AssessmentItem[];
     sleepCues: SleepCueTemplate[];
-    flashreadAssets: FlashReadAsset[];
+    pacedReadAssets: PacedReadAsset[];
   };
 };
 
@@ -500,19 +548,19 @@ type SleepCueRecallCompletionResponse = {
   summary: ReturnType<typeof sleepCueRecallSummary>;
 };
 
-type FlashReadGenerateResponse = {
+type PacedReadGenerateResponse = {
   session: SessionRecord;
-  asset: FlashReadAsset;
-  plan: FlashReadSessionPlan;
-  summary: ReturnType<typeof flashReadPlanSummary>;
+  asset: PacedReadAsset;
+  plan: PacedReadSessionPlan;
+  summary: ReturnType<typeof pacedReadPlanSummary>;
 };
 
-type FlashReadCompletionResponse = {
+type PacedReadCompletionResponse = {
   session: SessionRecord;
-  asset: FlashReadAsset;
-  result: ReturnType<typeof scoreFlashReadCompletion>;
+  asset: PacedReadAsset;
+  result: ReturnType<typeof scorePacedReadCompletion>;
   updated_states: UserConceptState[];
-  summary: ReturnType<typeof flashReadCompletionSummary>;
+  summary: ReturnType<typeof pacedReadCompletionSummary>;
 };
 
 type CreatorIngestionResponse = {
@@ -791,6 +839,146 @@ export function createApiHandlers(store: MnemosyneStore) {
       return envelope(dashboard);
     },
 
+    async createJob(input: unknown): Promise<HandlerEnvelope<JobRecord>> {
+      const request = validateRequest(jobCreateRequestSchema, input) as JobCreateRequest;
+      await requireUser(store, request.userId);
+      const job = await store.saveJob(
+        createOpsJob({
+          queue: request.queue,
+          type: request.type,
+          payload: request.payload,
+          priority: request.priority,
+          runAfter: request.runAfter,
+          idempotencyKey: request.idempotencyKey,
+          maxAttempts: request.maxAttempts,
+          auditSubjectId: request.userId
+        })
+      );
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "job_queued",
+        object_type: "service_job",
+        object_id: job.id,
+        payload: {
+          queue: job.queue,
+          type: job.type,
+          priority: job.priority,
+          run_after: job.run_after,
+          idempotency_key: job.idempotency_key
+        }
+      });
+      return envelope(job, audit.id);
+    },
+
+    async startJob(input: unknown): Promise<HandlerEnvelope<JobRecord>> {
+      const request = validateRequest(jobTransitionRequestSchema, input) as JobTransitionRequest;
+      await requireUser(store, request.userId);
+      const job = await getOwnedJob(store, request.userId, request.jobId);
+      if (!job) return notFound<JobRecord>("job_not_found");
+      const running = await store.saveJob(startOpsJob(job, request.workerId));
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "job_started",
+        object_type: "service_job",
+        object_id: running.id,
+        payload: {
+          queue: running.queue,
+          type: running.type,
+          worker_id: request.workerId,
+          attempts: running.attempts
+        }
+      });
+      return envelope(running, audit.id);
+    },
+
+    async completeJob(input: unknown): Promise<HandlerEnvelope<JobRecord>> {
+      const request = validateRequest(jobTransitionRequestSchema, input) as JobTransitionRequest;
+      await requireUser(store, request.userId);
+      const job = await getOwnedJob(store, request.userId, request.jobId);
+      if (!job) return notFound<JobRecord>("job_not_found");
+      const completed = await store.saveJob(completeOpsJob(job, request.result));
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "job_completed",
+        object_type: "service_job",
+        object_id: completed.id,
+        payload: {
+          queue: completed.queue,
+          type: completed.type,
+          worker_id: request.workerId,
+          attempts: completed.attempts,
+          result_keys: Object.keys(request.result)
+        }
+      });
+      return envelope(completed, audit.id);
+    },
+
+    async failJob(input: unknown): Promise<HandlerEnvelope<JobRecord>> {
+      const request = validateRequest(jobTransitionRequestSchema, input) as JobTransitionRequest;
+      await requireUser(store, request.userId);
+      if (!request.error) throw new Error("error is required when failing a job");
+      const job = await getOwnedJob(store, request.userId, request.jobId);
+      if (!job) return notFound<JobRecord>("job_not_found");
+      const failed = await store.saveJob(failOpsJob(job, request.error));
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: failed.status === "dead_lettered" ? "job_dead_lettered" : "job_failed",
+        object_type: "service_job",
+        object_id: failed.id,
+        payload: {
+          queue: failed.queue,
+          type: failed.type,
+          worker_id: request.workerId,
+          attempts: failed.attempts,
+          error: failed.last_error
+        }
+      });
+      return envelope(failed, audit.id);
+    },
+
+    async createObjectManifest(input: unknown): Promise<HandlerEnvelope<ObjectManifest>> {
+      const request = validateRequest(objectManifestRequestSchema, input) as ObjectManifestRequest;
+      await requireUser(store, request.userId);
+      const manifest = await store.saveObjectManifest(
+        createOpsObjectManifest({
+          bucket: request.bucket,
+          key: request.key,
+          contentType: request.contentType,
+          sizeBytes: request.sizeBytes,
+          sha256: request.sha256,
+          ownerId: request.userId,
+          retentionPolicy: request.retentionPolicy,
+          metadata: request.metadata
+        })
+      );
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "object_manifest_recorded",
+        object_type: "object_manifest",
+        object_id: manifest.id,
+        payload: {
+          bucket: manifest.bucket,
+          key: manifest.key,
+          content_type: manifest.content_type,
+          size_bytes: manifest.size_bytes,
+          retention_policy: manifest.retention_policy,
+          encryption_status: manifest.encryption.status
+        }
+      });
+      return envelope(manifest, audit.id);
+    },
+
+    async getOpsHealth(userId: string): Promise<HandlerEnvelope<OpsHealthDashboard>> {
+      await requireUser(store, userId);
+      const [jobs, objects] = await Promise.all([store.listJobs(), store.listObjectManifests(userId)]);
+      return envelope(
+        buildOpsHealthDashboard({
+          jobs: jobs.filter((job) => job.audit_subject_id === userId),
+          objects
+        })
+      );
+    },
+
     async completeOnboarding(input: unknown): Promise<HandlerEnvelope<OnboardingResponse>> {
       const request = validateRequest(completeOnboardingRequestSchema, input) as CompleteOnboardingRequest;
       const now = nowIso();
@@ -822,7 +1010,7 @@ export function createApiHandlers(store: MnemosyneStore) {
         modality_preferences: {
           voice_first: request.preferences.voiceFirst,
           walking: request.preferences.walking,
-          flashread: request.preferences.flashread
+          paced_read: request.preferences.paced_read
         },
         created_at: now,
         updated_at: now
@@ -1577,21 +1765,21 @@ export function createApiHandlers(store: MnemosyneStore) {
       return envelope(event);
     },
 
-    async generateFlashRead(input: unknown): Promise<HandlerEnvelope<FlashReadGenerateResponse>> {
-      const request = validateRequest(flashReadGenerateRequestSchema, input) as FlashReadGenerateRequest;
+    async generatePacedRead(input: unknown): Promise<HandlerEnvelope<PacedReadGenerateResponse>> {
+      const request = validateRequest(pacedReadGenerateRequestSchema, input) as PacedReadGenerateRequest;
       const context = await buildPlanningContext(store, request.userId);
-      const asset = selectFlashReadAsset(context.masterGraph, request, [
+      const asset = selectPacedReadAsset(context.masterGraph, request, [
         ...context.frontierIds,
         ...context.knownIds,
         ...context.horizonIds
       ]);
-      if (!asset) return notFound<FlashReadGenerateResponse>("flashread_asset_not_found");
+      if (!asset) return notFound<PacedReadGenerateResponse>("paced_read_asset_not_found");
 
-      const plan = buildFlashReadSession(asset, request.displayUnit, request.requestedWpm);
+      const plan = buildPacedReadSession(asset, request.displayUnit, request.requestedWpm);
       const session: SessionRecord = {
         id: createId("session"),
         user_id: request.userId,
-        session_type: "flashread",
+        session_type: "paced_read",
         status: "running",
         started_at: nowIso(),
         event_ids: []
@@ -1602,9 +1790,9 @@ export function createApiHandlers(store: MnemosyneStore) {
         event_type: "session_started",
         payload: {
           session_id: session.id,
-          session_type: "flashread",
-          flashread_session_id: plan.id,
-          flashread_asset_id: asset.id,
+          session_type: "paced_read",
+          paced_read_session_id: plan.id,
+          paced_read_asset_id: asset.id,
           concept_ids: asset.concept_ids,
           raw_wpm: plan.raw_wpm,
           estimated_effective_wpm: plan.estimated_effective_wpm,
@@ -1612,11 +1800,11 @@ export function createApiHandlers(store: MnemosyneStore) {
         }
       });
       const storedSession = await store.saveSession({ ...session, event_ids: [event.id] });
-      const summary = flashReadPlanSummary(asset, plan);
+      const summary = pacedReadPlanSummary(asset, plan);
       const audit = await store.appendAuditEvent({
         actor_id: request.userId,
-        action: "flashread_session_generated",
-        object_type: "flashread_asset",
+        action: "paced_read_session_generated",
+        object_type: "paced_read_asset",
         object_id: asset.id,
         payload: {
           session_id: storedSession.id,
@@ -1626,25 +1814,25 @@ export function createApiHandlers(store: MnemosyneStore) {
       return envelope({ session: storedSession, asset, plan, summary }, audit.id);
     },
 
-    async completeFlashRead(input: unknown): Promise<HandlerEnvelope<FlashReadCompletionResponse>> {
-      const request = validateRequest(flashReadCompleteRequestSchema, input) as FlashReadCompleteRequest;
+    async completePacedRead(input: unknown): Promise<HandlerEnvelope<PacedReadCompletionResponse>> {
+      const request = validateRequest(pacedReadCompleteRequestSchema, input) as PacedReadCompleteRequest;
       await requireUser(store, request.userId);
       const masterGraph = await store.getMasterGraph();
-      const asset = allFlashReadAssets(masterGraph).find((candidate) => candidate.id === request.assetId);
-      if (!asset) return notFound<FlashReadCompletionResponse>("flashread_asset_not_found");
+      const asset = allPacedReadAssets(masterGraph).find((candidate) => candidate.id === request.assetId);
+      if (!asset) return notFound<PacedReadCompletionResponse>("paced_read_asset_not_found");
       let session = request.sessionId ? await store.getSession(request.sessionId) : undefined;
       if (
         request.sessionId &&
-        (!session || session.user_id !== request.userId || session.session_type !== "flashread")
+        (!session || session.user_id !== request.userId || session.session_type !== "paced_read")
       ) {
-        return notFound<FlashReadCompletionResponse>("session_not_found");
+        return notFound<PacedReadCompletionResponse>("session_not_found");
       }
       const eventIds = session?.event_ids ? [...session.event_ids] : [];
       if (!session) {
         session = {
           id: createId("session"),
           user_id: request.userId,
-          session_type: "flashread",
+          session_type: "paced_read",
           status: "running",
           started_at: nowIso(),
           event_ids: []
@@ -1652,7 +1840,7 @@ export function createApiHandlers(store: MnemosyneStore) {
         await store.saveSession(session);
       }
 
-      const result = scoreFlashReadCompletion({
+      const result = scorePacedReadCompletion({
         rawWpm: request.rawWpm,
         comprehensionScore: request.comprehensionScore,
         retentionScore: request.retentionScore,
@@ -1660,7 +1848,7 @@ export function createApiHandlers(store: MnemosyneStore) {
       });
       const updatedGraph = await store.saveUserConceptStates(
         request.userId,
-        applyFlashReadCompletionToStates(
+        applyPacedReadCompletionToStates(
           (await store.getUserGraph(request.userId)).states,
           asset,
           result,
@@ -1671,10 +1859,10 @@ export function createApiHandlers(store: MnemosyneStore) {
       const updatedStates = updatedGraph.states.filter((state) =>
         asset.concept_ids.includes(state.concept_id)
       );
-      const summary = flashReadCompletionSummary(asset, request, result);
+      const summary = pacedReadCompletionSummary(asset, request, result);
       const event = await store.appendLearningEvent({
         user_id: request.userId,
-        event_type: "flashread_completed",
+        event_type: "paced_read_completed",
         payload: {
           session_id: session.id,
           ...summary
@@ -1689,8 +1877,8 @@ export function createApiHandlers(store: MnemosyneStore) {
       });
       const audit = await store.appendAuditEvent({
         actor_id: request.userId,
-        action: "flashread_completed",
-        object_type: "flashread_asset",
+        action: "paced_read_completed",
+        object_type: "paced_read_asset",
         object_id: asset.id,
         payload: {
           session_id: completedSession.id,
@@ -2347,7 +2535,7 @@ export function createApiHandlers(store: MnemosyneStore) {
           videos: request.draft.videos,
           assessments: request.draft.assessments,
           sleep_cues: request.draft.sleepCues,
-          flashread_assets: request.draft.flashreadAssets
+          paced_read_assets: request.draft.pacedReadAssets
         },
         risk_flags: riskFlags,
         proposal_ids: proposals.map((proposal) => proposal.id),
@@ -2550,7 +2738,9 @@ function exportBundleCounts(bundle: UserDataExportBundle): Record<string, number
     awarded_badges: bundle.awarded_badges.length,
     wearable_connections: bundle.wearable_connections.length,
     wearable_sleep_sessions: bundle.wearable_sleep_sessions.length,
-    outcome_dashboards: bundle.outcome_dashboards.length
+    outcome_dashboards: bundle.outcome_dashboards.length,
+    jobs: bundle.jobs.length,
+    object_manifests: bundle.object_manifests.length
   };
 }
 
@@ -2571,6 +2761,16 @@ async function buildOutcomeDashboardFor(
     states: graph.states,
     generatedAt
   });
+}
+
+async function getOwnedJob(
+  store: MnemosyneStore,
+  userId: string,
+  jobId: string
+): Promise<JobRecord | undefined> {
+  const job = await store.getJob(jobId);
+  if (!job || job.audit_subject_id !== userId) return undefined;
+  return job;
 }
 
 async function wearableDashboardFor(
@@ -3081,16 +3281,16 @@ function buildCreatorProposalDrafts(
       )
     });
   }
-  if (request.draft.flashreadAssets.length > 0) {
+  if (request.draft.pacedReadAssets.length > 0) {
     drafts.push({
       proposalType: "change_learning_path",
       affectedObjectIds: Array.from(
-        new Set(request.draft.flashreadAssets.flatMap((asset) => asset.concept_ids))
+        new Set(request.draft.pacedReadAssets.flatMap((asset) => asset.concept_ids))
       ),
-      diff: { ...base, add_flashread_assets: request.draft.flashreadAssets },
+      diff: { ...base, add_paced_read_assets: request.draft.pacedReadAssets },
       rationale: creatorRationale(
         request,
-        `Creator submitted ${request.draft.flashreadAssets.length} FlashRead asset(s) for path review.`
+        `Creator submitted ${request.draft.pacedReadAssets.length} PacedRead asset(s) for path review.`
       )
     });
   }
@@ -3207,7 +3407,7 @@ function creatorContentCounts(request: CreatorIngestionRequest) {
     videos: request.draft.videos.length,
     assessments: request.draft.assessments.length,
     sleep_cues: request.draft.sleepCues.length,
-    flashread_assets: request.draft.flashreadAssets.length
+    paced_read_assets: request.draft.pacedReadAssets.length
   };
 }
 
@@ -3335,19 +3535,19 @@ function playbackMinutes(startedAt: string | undefined, endedAt: string | undefi
   return Number(((ended - started) / 60_000).toFixed(1));
 }
 
-function allFlashReadAssets(masterGraph: MasterGraph): FlashReadAsset[] {
+function allPacedReadAssets(masterGraph: MasterGraph): PacedReadAsset[] {
   return [
-    ...masterGraph.flashReads,
-    ...masterGraph.concepts.flatMap((concept) => concept.flashread_assets)
+    ...masterGraph.pacedReads,
+    ...masterGraph.concepts.flatMap((concept) => concept.paced_read_assets)
   ].filter((asset, index, assets) => assets.findIndex((candidate) => candidate.id === asset.id) === index);
 }
 
-function selectFlashReadAsset(
+function selectPacedReadAsset(
   masterGraph: MasterGraph,
-  request: FlashReadGenerateRequest,
+  request: PacedReadGenerateRequest,
   planningConceptIds: string[]
-): FlashReadAsset | undefined {
-  const assets = allFlashReadAssets(masterGraph);
+): PacedReadAsset | undefined {
+  const assets = allPacedReadAssets(masterGraph);
   if (request.assetId) return assets.find((asset) => asset.id === request.assetId);
   const requestedConceptIds = new Set(request.conceptIds);
   const planningIds = new Set(planningConceptIds);
@@ -3367,10 +3567,10 @@ function selectFlashReadAsset(
     .sort((left, right) => right.score - left.score)[0]?.asset;
 }
 
-function flashReadPlanSummary(asset: FlashReadAsset, plan: FlashReadSessionPlan) {
+function pacedReadPlanSummary(asset: PacedReadAsset, plan: PacedReadSessionPlan) {
   return {
-    flashread_asset_id: asset.id,
-    flashread_session_id: plan.id,
+    paced_read_asset_id: asset.id,
+    paced_read_session_id: plan.id,
     concept_ids: asset.concept_ids,
     chunks: plan.chunks.length,
     display_unit: plan.display_unit,
@@ -3381,14 +3581,14 @@ function flashReadPlanSummary(asset: FlashReadAsset, plan: FlashReadSessionPlan)
   };
 }
 
-function flashReadCompletionSummary(
-  asset: FlashReadAsset,
-  request: FlashReadCompleteRequest,
-  result: ReturnType<typeof scoreFlashReadCompletion>
+function pacedReadCompletionSummary(
+  asset: PacedReadAsset,
+  request: PacedReadCompleteRequest,
+  result: ReturnType<typeof scorePacedReadCompletion>
 ) {
   return {
-    flashread_asset_id: asset.id,
-    flashread_session_id: request.flashReadSessionId,
+    paced_read_asset_id: asset.id,
+    paced_read_session_id: request.pacedReadSessionId,
     concept_ids: asset.concept_ids,
     raw_wpm: request.rawWpm,
     effective_wpm: result.effectiveWpm,
@@ -3458,10 +3658,10 @@ function avg(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
 }
 
-function applyFlashReadCompletionToStates(
+function applyPacedReadCompletionToStates(
   states: UserConceptState[],
-  asset: FlashReadAsset,
-  result: ReturnType<typeof scoreFlashReadCompletion>,
+  asset: PacedReadAsset,
+  result: ReturnType<typeof scorePacedReadCompletion>,
   updatedAt: string,
   userId: string
 ): UserConceptState[] {
@@ -3472,7 +3672,7 @@ function applyFlashReadCompletionToStates(
     const state = index >= 0 ? next[index] : initialConceptState(userId, conceptId);
     const masteryDelta = result.advanceAllowed ? 0.045 : -0.015;
     const recallDelta = result.advanceAllowed ? 0.05 : 0.005;
-    const strainFailure = result.screenLoadScore > 0.58 ? ["flashread_strain"] : [];
+    const strainFailure = result.screenLoadScore > 0.58 ? ["paced_read_strain"] : [];
     const gateFailure = result.advanceAllowed ? [] : ["comprehension_gate_missed"];
     const updated: UserConceptState = {
       ...state,
@@ -3488,8 +3688,8 @@ function applyFlashReadCompletionToStates(
       times_failed: result.advanceAllowed ? state.times_failed : state.times_failed + 1,
       modality_response_profile: {
         ...state.modality_response_profile,
-        flashread_effective_wpm: result.effectiveWpm,
-        flashread_screen_load: result.screenLoadScore
+        paced_read_effective_wpm: result.effectiveWpm,
+        paced_read_screen_load: result.screenLoadScore
       },
       updated_at: updatedAt
     };

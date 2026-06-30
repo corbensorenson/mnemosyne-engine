@@ -162,7 +162,7 @@ CREATE TABLE sleep_cues (
   status TEXT NOT NULL
 );
 
-CREATE TABLE flashread_assets (
+CREATE TABLE paced_read_assets (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   source_id TEXT NOT NULL,

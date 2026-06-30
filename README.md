@@ -1,6 +1,6 @@
 # Mnemosyne Engine
 
-Mnemosyne Engine is a TypeScript-first foundation for a universal learning operating system: personal knowledge graphs, daily graph scheduling, voice-first sessions, bounded video, a first-party Flash reading engine, content governance, technique experiments, and sleep-protective targeted reactivation.
+Mnemosyne Engine is a TypeScript-first foundation for a universal learning operating system: personal knowledge graphs, daily graph scheduling, voice-first sessions, bounded video, a first-party paced-reading engine, content governance, technique experiments, and sleep-protective targeted reactivation.
 
 This repository is MIT licensed so the code can be used, forked, modified, and commercialized with minimal friction.
 
@@ -10,12 +10,13 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/schema`: shared Zod schemas and TypeScript types for graph, user state, sessions, sleep cues, content court, experiments, packs, videos, and events.
 - `packages/auth-core`: session issuance, hashed tokens, CSRF checks, RBAC, consent gates, and object-level authorization.
 - `packages/outcome-core`: immediate, 24h, 7d, and 30d learning outcome rollups with quality gates.
+- `packages/ops-core`: first-party queue, job lifecycle, object manifest, and ops health primitives.
 - `packages/graph-core`: graph gap analysis, prerequisite debt, pathing, and user graph snapshots.
 - `packages/scheduler-core`: daily packet builder joining graph, assessment, video, walk, evening, and sleep planning.
 - `packages/assessment-core`: answer scoring, false-confidence detection, failure modes, and user graph updates.
 - `packages/sleep-core`: sleep cue packet selection with matched controls and rendered audio-plan metadata.
 - `packages/video-core`: bounded GraphFeed ranking and watch packet generation.
-- `packages/flashread-core`: graph-aware chunking and effective WPM calculations.
+- `packages/paced-reader-core`: graph-aware chunking and effective WPM calculations.
 - `packages/technique-lab`: evidence registry and experiment templates for learning techniques.
 - `packages/social-core`: outcome-safe badges, challenges, privacy-aware dashboards, and contributor reputation.
 - `packages/wearables-core`: optional wearable connection, token envelope, sleep normalization, readiness, and native-edge planning primitives.

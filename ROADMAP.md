@@ -17,7 +17,7 @@ Mnemosyne Engine is "fully usable and completed" when all of these are true:
 - Every session records events, assessments, graph updates, screen load, confidence, latency, and retention outcomes.
 - The personal graph is private by default, exportable, deletable, and updated by real performance.
 - The master graph has public schemas, seed packs, governance workflows, proposal review, verdict logging, versioned releases, and case files.
-- Voice capture, text fallback, audio playback, first-party Flash, bounded video, and sleep cue planning work on the PWA.
+- Voice capture, text fallback, audio playback, first-party Paced Read, bounded video, and sleep cue planning work on the PWA.
 - Sleep features remain conservative: sparse cue replay, matched controls, stop conditions, and no claims of learning complex new material while asleep.
 - At least one wearable or sleep-data integration path is functional.
 - The backend has authentication, persistence, authorization, audit logs, queues, object storage, analytics, and deployment automation.
@@ -32,9 +32,10 @@ The repository already has the first foundation:
 - TypeScript monorepo and MIT license.
 - PWA shell with Today, Graph, Forge, Cinema, Walk, Lock-In, Sleep, Stats, Packs, Court, Lab, and Admin surfaces.
 - Shared schemas for graph, user state, sessions, video, sleep, governance, experiments, and events.
-- Core packages for graph analysis, scheduling, assessment scoring, sleep packets, audio timelines, video ranking, the first-party Flash engine, Technique Lab, and Content Court.
+- Core packages for graph analysis, scheduling, assessment scoring, sleep packets, audio timelines, video ranking, the first-party Paced Read engine, Technique Lab, and Content Court.
 - Seed master graph layout, schemas, packs, arbiter policy, source rubric, and release notes.
 - API, scheduler, and audio-renderer service skeletons.
+- First-party ops primitives for queues, job lifecycle, object manifests, and release health gates.
 - Docker dev infra and starter unit tests.
 
 ## Operating Principles
@@ -56,7 +57,7 @@ Deliver the learner-facing PWA from polished prototype to daily-use application.
 
 1. Replace demo-only state with authenticated persisted state.
 2. Build onboarding for goals, packs, modality preferences, readiness, and privacy consent.
-3. Implement real session players for Morning Forge, GraphFeed, WalkMode, Evening Lock-In, Flash, and Sleep.
+3. Implement real session players for Morning Forge, GraphFeed, WalkMode, Evening Lock-In, Paced Read, and Sleep.
 4. Add offline lesson-packet cache, IndexedDB queueing, and sync recovery.
 5. Add responsive accessibility passes: keyboard navigation, screen reader labels, reduced motion, contrast, and text scaling.
 6. Add settings for voice retention, sleep data, research consent, sharing, and notifications.
@@ -102,7 +103,7 @@ Move from local heuristic scoring to robust multimodal assessment.
 7. Add session transcripts and privacy-aware deletion policies.
 8. Add tutor evaluations for hallucination, over-explanation, answer leakage, and high-stakes safety.
 
-### Track E: Voice, Audio, WalkMode, and Flash
+### Track E: Voice, Audio, WalkMode, and Paced Read
 
 Make low-screen learning excellent.
 
@@ -111,7 +112,7 @@ Make low-screen learning excellent.
 3. Add Media Session controls and lock-screen friendly playback.
 4. Add WalkMode state machine: prompt, listen, score, hint, retry, skip, mark confusing, complete.
 5. Add voice commands and wake-safe command handling.
-6. Add first-party Flash player with chunk display, speed controls, pause/rewind, ORP/highlight modes, comprehension gates, and strain rating.
+6. Add first-party Paced Read player with chunk display, speed controls, pause/rewind, ORP/highlight modes, comprehension gates, and strain rating.
 7. Add SpeedListen sessions with comprehension and retention checks.
 8. Add audio accessibility and quiet-environment fallbacks.
 
@@ -134,7 +135,7 @@ Replace random educational scrolling with bounded graph-curated learning.
 
 1. Add YouTube embed/API-compliant video playback.
 2. Add transcript ingestion and chapter mapping.
-3. Add video-to-concept mapping, prerequisite checks, recall prompts, Flash recaps, and sleep-safe cue suggestions.
+3. Add video-to-concept mapping, prerequisite checks, recall prompts, Paced Read recaps, and sleep-safe cue suggestions.
 4. Add creator upload/link workflows.
 5. Add sponsor-noise, misinformation-risk, cognitive-load, and screen-efficiency scoring.
 6. Add bounded packet UX with no infinite scroll by default.
@@ -157,11 +158,11 @@ Make the public graph trustworthy and improvable.
 
 Make the platform self-improving.
 
-1. Persist technique, content, path, sleep cue, video, Flash, audio-speed, gamification, and typography experiments.
+1. Persist technique, content, path, sleep cue, video, Paced Read, audio-speed, gamification, and typography experiments.
 2. Add within-user matched controls by concept, cue, content object, and session.
 3. Add assignment strategies: random, stratified, within-user matched, and multi-armed bandit.
 4. Add outcome metrics: immediate recall, 24h, 7d, 30d, transfer, latency, calibration, sleep disruption, screen efficiency, preference.
-5. Add personalization profiles: technique response, modality response, sleep cue response, video preference, screen tolerance, voice tolerance, walking profile, Flash profile, domain profile, time-of-day profile.
+5. Add personalization profiles: technique response, modality response, sleep cue response, video preference, screen tolerance, voice tolerance, walking profile, Paced Read profile, domain profile, time-of-day profile.
 6. Add experiment dashboards and automated deprecation of harmful or ineffective variants.
 
 ### Track J: Social, Badges, and Creator Studio
@@ -334,7 +335,7 @@ Exit criteria:
 - User can run a sleep packet and see next-morning cue-gain comparison.
 - Controls are hidden during assignment but visible in results.
 
-### Milestone 6: GraphFeed and Flash
+### Milestone 6: GraphFeed and Paced Read
 
 Goal: turn video and fast reading into active graph work.
 
@@ -344,21 +345,21 @@ Deliverables:
 - YouTube embed player.
 - Transcript/chapter metadata model.
 - Post-watch recall generator.
-- First-party Flash player with comprehension gate.
+- First-party Paced Read player with comprehension gate.
 - WalkMode handoff after video.
 
 Current implementation progress:
 
 - PWA GraphFeed runs as a bounded local session with selected packet videos, chapter metadata, transcript IDs, post-watch recall scoring, local cache, and WalkMode handoff only after recall passes.
 - First-party watch completion logs `video_watched` for audit but awards graph progress only when post-watch recall passes; failed recall keeps the watch out of concept progress.
-- First-party Flash engine selects graph-aligned assets, builds chunked session plans with display-unit controls, and reports estimated effective WPM with the comprehension gate.
-- PWA Flash player runs locally in the browser with chunk display, WPM controls, pause/rewind/skip, completion gate, strain rating, local cache, and graph-state updates without a third-party service.
-- Optional first-party persistence endpoints record effective WPM, comprehension, retention, strain, screen load, and gated advancement; completion logs `flashread_completed`, audits the result, and updates concept graph state only when the comprehension/strain gate allows progress.
+- First-party Paced Read engine selects graph-aligned assets, builds chunked session plans with display-unit controls, and reports estimated effective WPM with the comprehension gate.
+- PWA Paced Read player runs locally in the browser with chunk display, WPM controls, pause/rewind/skip, completion gate, strain rating, local cache, and graph-state updates without a third-party service.
+- Optional first-party persistence endpoints record effective WPM, comprehension, retention, strain, screen load, and gated advancement; completion logs `paced_read_completed`, audits the result, and updates concept graph state only when the comprehension/strain gate allows progress.
 
 Exit criteria:
 
 - Video only counts toward progress after recall.
-- Flash reports effective WPM, not raw speed.
+- Paced Read reports effective WPM, not raw speed.
 
 ### Milestone 7: WalkMode and Voice Tutor
 
@@ -499,6 +500,7 @@ Current implementation progress:
 - PWA Admin surface includes Privacy Ops cards for export, voice deletion, health deletion, and account deletion alongside the service map and audit log.
 - Security foundation now includes `@mnemosyne/auth-core` for RBAC, object-level authorization, consent-aware analytics access, CSRF verification, session expiry, and API audit trails for auth decisions.
 - Outcome analytics now exposes `GET /api/outcomes/dashboard` and `POST /api/outcomes/refresh` with quality gates for immediate recall, 24h recall, 7d recall, 30d recall, transfer, latency, calibration, screen load, and SleepCue controls.
+- First-party ops core now models queue names, job lifecycle, idempotency, retries, dead letters, object manifests, encryption/integrity gates, and an ops health dashboard; API routes persist and audit jobs and object manifests.
 - Production release runbook covers deployment environments, required services and secrets, monitoring, backup/restore, accessibility, load/reliability, and release checklist.
 - Privacy documentation covers export bundle contents, deletion scopes, audit rules, product requirements, and test coverage.
 
@@ -573,7 +575,7 @@ Exit criteria:
 - Screen-off Morning Walk support.
 - Audio-first Evening Lock-In.
 - Bounded GraphFeed packets.
-- Flash with comprehension gate.
+- Paced Read with comprehension gate.
 - Phone-down ritual.
 - Graph exploration.
 - Friend challenges.

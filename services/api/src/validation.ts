@@ -2,7 +2,7 @@ import {
   assessmentItemSchema,
   conceptNodeSchema,
   deviceCapabilityProfileSchema,
-  flashReadAssetSchema,
+  pacedReadAssetSchema,
   modalitySchema,
   readinessProfileSchema,
   sleepCueTemplateSchema,
@@ -120,7 +120,7 @@ const learningEventTypeSchema = z.enum([
   "cue_bound",
   "sleep_cue_played",
   "video_watched",
-  "flashread_completed",
+  "paced_read_completed",
   "walk_recall_completed",
   "graph_updated",
   "proposal_submitted",
@@ -195,6 +195,69 @@ export const outcomeDashboardRequestSchema = z
   })
   .strict();
 
+const queueNameSchema = z.enum([
+  "ingestion",
+  "ai",
+  "audio_render",
+  "notification",
+  "analytics",
+  "export",
+  "moderation"
+]);
+const jobPrioritySchema = z.enum(["low", "normal", "high", "critical"]);
+const objectBucketSchema = z.enum([
+  "audio",
+  "transcript",
+  "import",
+  "generated_asset",
+  "export",
+  "evidence",
+  "backup"
+]);
+const objectRetentionPolicySchema = z.enum([
+  "temporary",
+  "user_controlled",
+  "product",
+  "legal_hold",
+  "backup"
+]);
+
+export const jobCreateRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    queue: queueNameSchema,
+    type: z.string().min(2),
+    payload: z.record(z.unknown()).default({}),
+    priority: jobPrioritySchema.default("normal"),
+    runAfter: z.string().optional(),
+    idempotencyKey: z.string().min(3).optional(),
+    maxAttempts: z.number().int().positive().max(25).default(3)
+  })
+  .strict();
+
+export const jobTransitionRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    jobId: z.string().min(1),
+    workerId: z.string().min(1),
+    result: z.record(z.unknown()).default({}),
+    error: z.string().min(1).optional()
+  })
+  .strict();
+
+export const objectManifestRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    bucket: objectBucketSchema,
+    key: z.string().min(1),
+    contentType: z.string().min(3),
+    sizeBytes: z.number().int().nonnegative(),
+    sha256: z.string().regex(/^[a-fA-F0-9]{64}$/),
+    retentionPolicy: objectRetentionPolicySchema.default("user_controlled"),
+    metadata: z.record(z.unknown()).default({})
+  })
+  .strict();
+
 export const completeOnboardingRequestSchema = z
   .object({
     userId: z.string().min(1).optional(),
@@ -225,7 +288,7 @@ export const completeOnboardingRequestSchema = z
         eveningMinutes: z.number().int().positive().max(180).default(30),
         voiceFirst: z.boolean().default(true),
         walking: z.boolean().default(true),
-        flashread: z.boolean().default(true),
+        paced_read: z.boolean().default(true),
         highContrast: z.boolean().default(false),
         reducedMotion: z.boolean().default(false),
         duskQuiet: z.boolean().default(true),
@@ -240,7 +303,7 @@ export const startSessionRequestSchema = z
   .object({
     userId: userIdSchema,
     dailyPacketId: z.string().min(1),
-    sessionType: z.enum(["morning_forge", "graphfeed", "walk_mode", "evening_lock_in", "sleep", "flashread"])
+    sessionType: z.enum(["morning_forge", "graphfeed", "walk_mode", "evening_lock_in", "sleep", "paced_read"])
   })
   .strict();
 
@@ -340,23 +403,23 @@ export const completeWatchPacketRequestSchema = z
   })
   .strict();
 
-const flashReadDisplayUnitSchema = z.enum(["word", "phrase", "clause", "concept"]);
+const pacedReadDisplayUnitSchema = z.enum(["word", "phrase", "clause", "concept"]);
 
-export const flashReadGenerateRequestSchema = z
+export const pacedReadGenerateRequestSchema = z
   .object({
     userId: userIdSchema,
     assetId: z.string().min(1).optional(),
     conceptIds: z.array(z.string().min(1)).default([]),
-    displayUnit: flashReadDisplayUnitSchema.default("phrase"),
+    displayUnit: pacedReadDisplayUnitSchema.default("phrase"),
     requestedWpm: z.number().int().min(120).max(1200).optional()
   })
   .strict();
 
-export const flashReadCompleteRequestSchema = z
+export const pacedReadCompleteRequestSchema = z
   .object({
     userId: userIdSchema,
     sessionId: z.string().min(1).optional(),
-    flashReadSessionId: z.string().min(1),
+    pacedReadSessionId: z.string().min(1),
     assetId: z.string().min(1),
     rawWpm: z.number().int().min(120).max(1200),
     comprehensionScore: z.number().min(0).max(1),
@@ -606,7 +669,7 @@ export const creatorIngestionRequestSchema = z
         videos: z.array(videoAssetSchema).default([]),
         assessments: z.array(assessmentItemSchema).default([]),
         sleepCues: z.array(sleepCueTemplateSchema).default([]),
-        flashreadAssets: z.array(flashReadAssetSchema).default([])
+        pacedReadAssets: z.array(pacedReadAssetSchema).default([])
       })
       .strict()
       .refine(
@@ -615,7 +678,7 @@ export const creatorIngestionRequestSchema = z
             draft.videos.length +
             draft.assessments.length +
             draft.sleepCues.length +
-            draft.flashreadAssets.length >
+            draft.pacedReadAssets.length >
           0,
         "At least one creator content object is required."
       )

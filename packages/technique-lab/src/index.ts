@@ -89,8 +89,8 @@ export const techniqueRegistry: Technique[] = [
     "moderate"
   ),
   makeTechnique(
-    "flashread",
-    "FlashRead RSVP",
+    "paced_read",
+    "PacedRead RSVP",
     "Graph-aware chunked RSVP with comprehension gates.",
     "visual_intake",
     "experimental"
@@ -207,7 +207,7 @@ export function recommendTechniques(input: {
       const transferFit =
         lowTransfer > 0.3 && ["compare_mode", "example_fade", "sketch_lock"].includes(technique.id) ? 0.2 : 0;
       const duskPenalty =
-        input.avoidDuskActivation && ["smart_video", "flashread", "typography_lab"].includes(technique.id)
+        input.avoidDuskActivation && ["smart_video", "paced_read", "typography_lab"].includes(technique.id)
           ? 0.25
           : 0;
       return evidence + falseConfidenceFit + transferFit - duskPenalty;
@@ -292,7 +292,7 @@ export type ModalityResponseProfile = {
   text_score: number;
   walking_score: number;
   video_score: number;
-  flash_score: number;
+  paced_read_score: number;
   screen_efficiency_score: number;
 };
 
@@ -852,10 +852,10 @@ function modalityProfile(states: UserConceptState[], events: LearningEvent[]): M
   const videoStateScores = stateProfiles
     .map((profile) => numberOrUndefined(profile.video_screen_efficiency))
     .filter((value): value is number => value !== undefined);
-  const flashLoads = stateProfiles
-    .map((profile) => numberOrUndefined(profile.flashread_screen_load))
+  const pacedReadLoads = stateProfiles
+    .map((profile) => numberOrUndefined(profile.paced_read_screen_load))
     .filter((value): value is number => value !== undefined);
-  const flashScores = flashLoads.map((load) => clamp(1 - load));
+  const pacedReadScores = pacedReadLoads.map((load) => clamp(1 - load));
   const videoEventScores = events
     .filter((event) => event.event_type === "video_watched")
     .map((event) =>
@@ -874,14 +874,14 @@ function modalityProfile(states: UserConceptState[], events: LearningEvent[]): M
     .filter((event) => event.event_type === "walk_recall_completed")
     .map((event) => numberField(event.payload.average_correctness, 0.5));
   const videoScore = average([...videoStateScores, ...videoEventScores]);
-  const flashScore = average(flashScores);
+  const pacedReadScore = average(pacedReadScores);
   return {
     voice_score: round(average(voiceScores), 3),
     text_score: round(average(textScores), 3),
     walking_score: round(average(walkingScores), 3),
     video_score: round(videoScore, 3),
-    flash_score: round(flashScore, 3),
-    screen_efficiency_score: round(average([videoScore, flashScore].filter((value) => value > 0)), 3)
+    paced_read_score: round(pacedReadScore, 3),
+    screen_efficiency_score: round(average([videoScore, pacedReadScore].filter((value) => value > 0)), 3)
   };
 }
 

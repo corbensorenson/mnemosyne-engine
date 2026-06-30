@@ -14,7 +14,7 @@
     "@mnemosyne/audio-core": "*",
     "@mnemosyne/content-court": "*",
     "@mnemosyne/demo-fixtures": "*",
-    "@mnemosyne/flashread-core": "*",
+    "@mnemosyne/paced-reader-core": "*",
     "@mnemosyne/graph-core": "*",
     "@mnemosyne/scheduler-core": "*",
     "@mnemosyne/schema": "*",

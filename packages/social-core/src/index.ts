@@ -329,7 +329,7 @@ export function computeOutcomeMetrics(evidence: SocialEvidence): Record<OutcomeM
   const outcomeDates = new Set(
     evidence.events
       .filter((event) =>
-        ["assessment_answered", "graph_updated", "walk_recall_completed", "flashread_completed"].includes(
+        ["assessment_answered", "graph_updated", "walk_recall_completed", "paced_read_completed"].includes(
           event.event_type
         )
       )

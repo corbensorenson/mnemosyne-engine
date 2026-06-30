@@ -1,14 +1,11 @@
 {
-  "name": "@mnemosyne/persistence-core",
+  "name": "@mnemosyne/paced-reader-core",
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
   "dependencies": {
-    "@mnemosyne/ops-core": "*",
-    "@mnemosyne/outcome-core": "*",
     "@mnemosyne/schema": "*",
-    "@mnemosyne/shared-utils": "*",
-    "@mnemosyne/wearables-core": "*"
+    "@mnemosyne/shared-utils": "*"
   },
   "exports": {
     ".": {

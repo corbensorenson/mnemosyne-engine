@@ -32,6 +32,8 @@ Required services:
 - audio renderer worker
 - analytics/rollup worker
 
+The code-level readiness contract is documented in [`queues-and-object-storage.md`](./queues-and-object-storage.md). Production adapters must preserve the same job lifecycle, idempotency, object manifest, audit, export, and deletion behavior.
+
 ## Required Secrets
 
 - session signing secret
@@ -50,6 +52,8 @@ Track:
 
 - API availability and latency
 - queue depth and job failure rate
+- dead-letter count and stale worker locks
+- object manifest encryption and SHA-256 coverage
 - daily packet generation failures
 - assessment scoring failures
 - audio render failures
@@ -101,7 +105,7 @@ Exercise:
 - SleepCue playback event ingestion
 - next-morning recall completion
 - GraphFeed recall completion
-- Flash completion
+- Paced Read completion
 - proposal release
 - wearable sync
 - export and deletion

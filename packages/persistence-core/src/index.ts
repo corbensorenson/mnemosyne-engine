@@ -5,7 +5,7 @@ import type {
   ConceptNode,
   DailyLearningPacket,
   Experiment,
-  FlashReadAsset,
+  PacedReadAsset,
   Goal,
   LearningEvent,
   MasterGraph,
@@ -19,6 +19,7 @@ import type {
   UserKnowledgeGraph,
   VideoAsset
 } from "@mnemosyne/schema";
+import type { JobRecord, ObjectManifest, QueueName } from "@mnemosyne/ops-core";
 import type { OutcomeDashboard } from "@mnemosyne/outcome-core";
 import { createId, nowIso, stableHash, todayIsoDate } from "@mnemosyne/shared-utils";
 import type { NormalizedWearableSleepSession, WearableConnection } from "@mnemosyne/wearables-core";
@@ -38,7 +39,7 @@ export type SessionRecord = {
   id: string;
   user_id: string;
   daily_packet_id?: string;
-  session_type: "morning_forge" | "graphfeed" | "walk_mode" | "evening_lock_in" | "sleep" | "flashread";
+  session_type: "morning_forge" | "graphfeed" | "walk_mode" | "evening_lock_in" | "sleep" | "paced_read";
   status: "planned" | "running" | "completed" | "abandoned";
   started_at?: string;
   completed_at?: string;
@@ -72,7 +73,7 @@ export type CreatorSubmissionRecord = {
     videos: VideoAsset[];
     assessments: AssessmentItem[];
     sleep_cues: SleepCueTemplate[];
-    flashread_assets: FlashReadAsset[];
+    paced_read_assets: PacedReadAsset[];
   };
   risk_flags: string[];
   proposal_ids: string[];
@@ -194,6 +195,8 @@ export type UserDataExportBundle = {
   wearable_connections: WearableConnection[];
   wearable_sleep_sessions: NormalizedWearableSleepSession[];
   outcome_dashboards: OutcomeDashboard[];
+  jobs: JobRecord[];
+  object_manifests: ObjectManifest[];
 };
 
 export type UserDataDeletionSummary = {
@@ -267,6 +270,12 @@ export interface MnemosyneStore {
   listWearableSleepSessions(userId: string): Promise<NormalizedWearableSleepSession[]>;
   saveOutcomeDashboard(dashboard: OutcomeDashboard): Promise<OutcomeDashboard>;
   getLatestOutcomeDashboard(userId: string): Promise<OutcomeDashboard | undefined>;
+  saveJob(job: JobRecord): Promise<JobRecord>;
+  getJob(jobId: string): Promise<JobRecord | undefined>;
+  listJobs(queue?: QueueName): Promise<JobRecord[]>;
+  saveObjectManifest(manifest: ObjectManifest): Promise<ObjectManifest>;
+  getObjectManifest(objectId: string): Promise<ObjectManifest | undefined>;
+  listObjectManifests(ownerId?: string): Promise<ObjectManifest[]>;
   exportUserData(userId: string): Promise<UserDataExportBundle>;
   deleteUserData(userId: string, scope: DataDeletionScope): Promise<UserDataDeletionSummary>;
 }
@@ -281,7 +290,7 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
     edges: [],
     videos: [],
     sleepCues: [],
-    flashReads: []
+    pacedReads: []
   };
   private states = new Map<string, UserConceptState>();
   private dailyPackets = new Map<string, DailyLearningPacket>();
@@ -302,6 +311,8 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
   private wearableConnections = new Map<string, WearableConnection>();
   private wearableSleepSessions = new Map<string, NormalizedWearableSleepSession>();
   private outcomeDashboards = new Map<string, OutcomeDashboard[]>();
+  private jobs = new Map<string, JobRecord>();
+  private objectManifests = new Map<string, ObjectManifest>();
 
   constructor(seed?: MnemosyneSeedData) {
     if (!seed) return;
@@ -575,6 +586,34 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
     )[0];
   }
 
+  async saveJob(job: JobRecord): Promise<JobRecord> {
+    this.jobs.set(job.id, job);
+    return job;
+  }
+
+  async getJob(jobId: string): Promise<JobRecord | undefined> {
+    return this.jobs.get(jobId);
+  }
+
+  async listJobs(queue?: QueueName): Promise<JobRecord[]> {
+    const jobs = [...this.jobs.values()];
+    return queue ? jobs.filter((job) => job.queue === queue) : jobs;
+  }
+
+  async saveObjectManifest(manifest: ObjectManifest): Promise<ObjectManifest> {
+    this.objectManifests.set(manifest.id, manifest);
+    return manifest;
+  }
+
+  async getObjectManifest(objectId: string): Promise<ObjectManifest | undefined> {
+    return this.objectManifests.get(objectId);
+  }
+
+  async listObjectManifests(ownerId?: string): Promise<ObjectManifest[]> {
+    const manifests = [...this.objectManifests.values()];
+    return ownerId ? manifests.filter((manifest) => manifest.owner_id === ownerId) : manifests;
+  }
+
   async exportUserData(userId: string): Promise<UserDataExportBundle> {
     const dailyPackets = [...this.dailyPackets.values()].filter((packet) => packet.user_id === userId);
     const sleepCuePackets = [...this.sleepCuePackets.values()].filter((packet) => packet.user_id === userId);
@@ -606,7 +645,9 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
       awarded_badges: await this.listAwardedBadges(userId),
       wearable_connections: await this.listWearableConnections(userId),
       wearable_sleep_sessions: await this.listWearableSleepSessions(userId),
-      outcome_dashboards: this.outcomeDashboards.get(userId) ?? []
+      outcome_dashboards: this.outcomeDashboards.get(userId) ?? [],
+      jobs: (await this.listJobs()).filter((job) => job.audit_subject_id === userId),
+      object_manifests: await this.listObjectManifests(userId)
     };
   }
 
@@ -646,6 +687,13 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
       count(
         "sleep_audio_plans",
         deleteMapEntries(this.audioPlans, (plan) => deletedSleepAudioIds.has(plan.id))
+      );
+      count(
+        "sleep_object_manifests",
+        deleteMapEntries(
+          this.objectManifests,
+          (manifest) => manifest.owner_id === userId && manifest.bucket === "audio"
+        )
       );
       const beforeEvents = this.learningEvents.length;
       this.learningEvents = this.learningEvents.filter(
@@ -723,6 +771,14 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
       count(
         "outcome_dashboards",
         deleteMapEntries(this.outcomeDashboards, (_dashboards, key) => key === userId)
+      );
+      count(
+        "jobs",
+        deleteMapEntries(this.jobs, (job) => job.audit_subject_id === userId)
+      );
+      count(
+        "object_manifests",
+        deleteMapEntries(this.objectManifests, (manifest) => manifest.owner_id === userId)
       );
       count(
         "awarded_badges",

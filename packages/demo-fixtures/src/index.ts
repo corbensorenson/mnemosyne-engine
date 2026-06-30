@@ -3,7 +3,7 @@ import type {
   Claim,
   ConceptEdge,
   ConceptNode,
-  FlashReadAsset,
+  PacedReadAsset,
   Goal,
   MasterGraph,
   Proposal,
@@ -44,7 +44,7 @@ export const demoUser: User = {
   notification_settings: { dusk_quiet: true, morning_prompt: true },
   default_session_preferences: { morning_minutes: 30, evening_minutes: 30 },
   accessibility_preferences: { high_contrast: false, reduced_motion: false },
-  modality_preferences: { voice_first: true, walking: true, flashread: true },
+  modality_preferences: { voice_first: true, walking: true, paced_read: true },
   created_at: now,
   updated_at: now
 };
@@ -93,7 +93,7 @@ function cue(conceptId: string, text: string, specificity = 0.8): SleepCueTempla
   };
 }
 
-function flash(id: string, title: string, conceptIds: string[], rawText: string): FlashReadAsset {
+function pacedRead(id: string, title: string, conceptIds: string[], rawText: string): PacedReadAsset {
   return {
     id,
     title,
@@ -126,8 +126,8 @@ function concept(input: {
   const prereqEdges = (input.prerequisites ?? []).map((from) => edge(from, input.id));
   const successorEdges = (input.successors ?? []).map((to) => edge(input.id, to));
   const sleepCue = cue(input.id, input.cue);
-  const flashAsset = flash(
-    `flash_${input.id}`,
+  const pacedReadAsset = pacedRead(
+    `paced_read_${input.id}`,
     `${input.title} recap`,
     [input.id],
     input.flashText ?? `${input.title}: ${input.definition} Retrieve it, apply it, and name when it breaks.`
@@ -157,7 +157,7 @@ function concept(input: {
     haptic_cues: [],
     visual_assets: [{ kind: "graph_node", palette: input.domain }],
     video_assets: [],
-    flashread_assets: [flashAsset],
+    paced_read_assets: [pacedReadAsset],
     learning_paths: [],
     status: "active",
     created_at: now,
@@ -361,7 +361,7 @@ const conceptSpecs = [
 export const demoConcepts = conceptSpecs.map((spec) => concept(spec));
 export const demoEdges = demoConcepts.flatMap((item) => item.prerequisites);
 const cueMap = demoConcepts.flatMap((item) => item.sleep_cues);
-const flashMap = demoConcepts.flatMap((item) => item.flashread_assets);
+const pacedReadMap = demoConcepts.flatMap((item) => item.paced_read_assets);
 
 export const demoClaims: Claim[] = demoConcepts.map((item) => ({
   id: `claim_${item.id}`,
@@ -424,7 +424,7 @@ function video(input: {
     retention_lift_score: 0.7,
     transfer_lift_score: 0.66,
     quiz_items: [],
-    flashread_recaps: flashMap.filter((asset) =>
+    paced_read_recaps: pacedReadMap.filter((asset) =>
       asset.concept_ids.some((conceptId) => input.conceptIds.includes(conceptId))
     ),
     sleep_safe_cues: cueMap.filter((item) => input.conceptIds.includes(item.concept_id)),
@@ -501,7 +501,7 @@ export const demoMasterGraph: MasterGraph = {
   edges: demoEdges,
   videos: demoVideos,
   sleepCues: cueMap,
-  flashReads: flashMap
+  pacedReads: pacedReadMap
 };
 
 function state(conceptId: string, mastery: number, stability: number, transfer: number): UserConceptState {

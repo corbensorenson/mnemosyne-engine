@@ -1,29 +1,29 @@
-import type { FlashReadAsset } from "@mnemosyne/schema";
+import type { PacedReadAsset } from "@mnemosyne/schema";
 import { clamp, createId, nowIso, round } from "@mnemosyne/shared-utils";
 
-export type FlashReadDisplayUnit = "word" | "phrase" | "clause" | "concept";
+export type PacedReadDisplayUnit = "word" | "phrase" | "clause" | "concept";
 
-export type FlashReadSessionPlan = {
+export type PacedReadSessionPlan = {
   id: string;
   asset_id: string;
   chunks: string[];
-  display_unit: FlashReadDisplayUnit;
+  display_unit: PacedReadDisplayUnit;
   raw_wpm: number;
   estimated_effective_wpm: number;
   comprehension_gate: string;
   created_at: string;
 };
 
-export function buildFlashReadSession(
-  asset: FlashReadAsset,
-  displayUnit: FlashReadDisplayUnit = "phrase",
+export function buildPacedReadSession(
+  asset: PacedReadAsset,
+  displayUnit: PacedReadDisplayUnit = "phrase",
   requestedWpm = asset.recommended_wpm
-): FlashReadSessionPlan {
-  const chunks = chunkFlashReadText(asset.raw_text, displayUnit);
+): PacedReadSessionPlan {
+  const chunks = chunkPacedReadText(asset.raw_text, displayUnit);
   const rawWpm = Math.max(120, requestedWpm);
   const comprehensionPrior = clamp(1 - asset.cognitive_load_score * 0.38);
   return {
-    id: createId("flashread_session", `${asset.id}:${displayUnit}:${rawWpm}`),
+    id: createId("paced_read_session", `${asset.id}:${displayUnit}:${rawWpm}`),
     asset_id: asset.id,
     chunks,
     display_unit: displayUnit,
@@ -34,7 +34,7 @@ export function buildFlashReadSession(
   };
 }
 
-export function chunkFlashReadText(text: string, displayUnit: FlashReadDisplayUnit): string[] {
+export function chunkPacedReadText(text: string, displayUnit: PacedReadDisplayUnit): string[] {
   const clean = text.replace(/\s+/g, " ").trim();
   if (!clean) return [];
   if (displayUnit === "word") return clean.split(" ");
@@ -59,7 +59,7 @@ export function effectiveWpm(rawWpm: number, comprehensionScore: number, retenti
   return Math.round(rawWpm * clamp(comprehensionScore) * clamp(retentionScore));
 }
 
-export function scoreFlashReadCompletion(input: {
+export function scorePacedReadCompletion(input: {
   rawWpm: number;
   comprehensionScore: number;
   retentionScore: number;

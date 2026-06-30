@@ -10,6 +10,7 @@
     "@mnemosyne/content-court": "*",
     "@mnemosyne/demo-fixtures": "*",
     "@mnemosyne/graph-core": "*",
+    "@mnemosyne/ops-core": "*",
     "@mnemosyne/outcome-core": "*",
     "@mnemosyne/persistence-core": "*",
     "@mnemosyne/schema": "*",

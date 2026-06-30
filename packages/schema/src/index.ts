@@ -176,7 +176,7 @@ export const sleepCueTemplateSchema = z.object({
 });
 export type SleepCueTemplate = z.infer<typeof sleepCueTemplateSchema>;
 
-export const flashReadAssetSchema = z.object({
+export const pacedReadAssetSchema = z.object({
   id: z.string(),
   title: z.string(),
   source_id: z.string(),
@@ -187,7 +187,7 @@ export const flashReadAssetSchema = z.object({
   cognitive_load_score: z.number().min(0).max(1),
   comprehension_gate: z.string()
 });
-export type FlashReadAsset = z.infer<typeof flashReadAssetSchema>;
+export type PacedReadAsset = z.infer<typeof pacedReadAssetSchema>;
 
 export const videoAssetSchema = z.object({
   id: z.string(),
@@ -225,7 +225,7 @@ export const videoAssetSchema = z.object({
   retention_lift_score: z.number().min(0).max(1),
   transfer_lift_score: z.number().min(0).max(1),
   quiz_items: z.array(assessmentItemSchema).default([]),
-  flashread_recaps: z.array(flashReadAssetSchema).default([]),
+  paced_read_recaps: z.array(pacedReadAssetSchema).default([]),
   sleep_safe_cues: z.array(sleepCueTemplateSchema).default([]),
   status: z.enum([
     "submitted",
@@ -266,7 +266,7 @@ export const conceptNodeSchema = z.object({
   haptic_cues: z.array(z.record(z.unknown())).default([]),
   visual_assets: z.array(z.record(z.unknown())).default([]),
   video_assets: z.array(z.string()).default([]),
-  flashread_assets: z.array(flashReadAssetSchema).default([]),
+  paced_read_assets: z.array(pacedReadAssetSchema).default([]),
   learning_paths: z.array(z.record(z.unknown())).default([]),
   status: z.enum(["active", "experimental", "disputed", "deprecated", "archived"]),
   created_at: z.string(),
@@ -483,7 +483,7 @@ export const learningEventSchema = z.object({
     "cue_bound",
     "sleep_cue_played",
     "video_watched",
-    "flashread_completed",
+    "paced_read_completed",
     "walk_recall_completed",
     "graph_updated",
     "proposal_submitted",
@@ -581,7 +581,7 @@ export const experimentSchema = z.object({
     "learning_path",
     "sleep_cue",
     "video",
-    "flashread",
+    "paced_read",
     "audio_speed",
     "gamification",
     "typography"
@@ -664,7 +664,7 @@ export const knowledgePackSchema = z.object({
   assessments: z.array(assessmentItemSchema),
   sleep_cues: z.array(sleepCueTemplateSchema),
   videos: z.array(videoAssetSchema),
-  flashread_assets: z.array(flashReadAssetSchema),
+  paced_read_assets: z.array(pacedReadAssetSchema),
   badges: z.array(badgeTemplateSchema),
   boss_fights: z.array(assessmentItemSchema),
   quality_tier: z.enum(["personal", "community", "tested", "expert_reviewed", "gold", "canonical"]),
@@ -695,7 +695,7 @@ export type MasterGraph = {
   edges: ConceptEdge[];
   videos: VideoAsset[];
   sleepCues: SleepCueTemplate[];
-  flashReads: FlashReadAsset[];
+  pacedReads: PacedReadAsset[];
 };
 
 export type UserKnowledgeGraph = {
