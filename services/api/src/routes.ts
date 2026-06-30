@@ -47,8 +47,15 @@ export const apiRoutes: ApiRoute[] = [
     service: "VideoGraph Service",
     eventType: "video_watched"
   },
+  {
+    method: "POST",
+    path: "/api/watch-packets/:id/complete",
+    service: "VideoGraph Service",
+    eventType: "video_watched"
+  },
   { method: "POST", path: "/api/flashread/generate", service: "FlashRead Service" },
   { method: "POST", path: "/api/sleep/packet/generate", service: "SleepCue Service", eventType: "cue_bound" },
+  { method: "GET", path: "/api/sleep/packet/tonight", service: "SleepCue Service" },
   { method: "POST", path: "/api/sleep/audio/render", service: "Audio Render Service" },
   { method: "POST", path: "/api/wearables/sync", service: "Wearable Integration Service" },
   {
@@ -94,3 +101,4 @@ export function packetSummary(packet: DailyLearningPacket) {
 
 export { createApiHandlers } from "./handlers";
 export { createDemoSeedData, demoKnowledgePacks, seedDemoStore } from "./seed";
+export * from "./validation";

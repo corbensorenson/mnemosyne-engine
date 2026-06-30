@@ -5,11 +5,17 @@
   "license": "MIT",
   "dependencies": {
     "@mnemosyne/assessment-core": "*",
+    "@mnemosyne/audio-renderer-service": "*",
+    "@mnemosyne/content-court": "*",
     "@mnemosyne/demo-fixtures": "*",
+    "@mnemosyne/graph-core": "*",
     "@mnemosyne/persistence-core": "*",
     "@mnemosyne/schema": "*",
     "@mnemosyne/scheduler-core": "*",
-    "@mnemosyne/shared-utils": "*"
+    "@mnemosyne/shared-utils": "*",
+    "@mnemosyne/sleep-core": "*",
+    "@mnemosyne/video-core": "*",
+    "zod": "^3.23.8"
   },
   "exports": {
     ".": {

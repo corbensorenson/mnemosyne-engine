@@ -219,6 +219,16 @@ CREATE TABLE daily_learning_packets (
   UNIQUE (user_id, packet_date)
 );
 
+CREATE TABLE sleep_cue_packets (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  night_date DATE NOT NULL,
+  packet JSONB NOT NULL,
+  audio_plan_id TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL,
+  UNIQUE (user_id, night_date)
+);
+
 CREATE TABLE audio_plans (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -7,6 +7,7 @@ import type {
   MasterGraph,
   Proposal,
   ReadinessProfile,
+  SleepCuePacket,
   User,
   UserConceptState,
   UserKnowledgeGraph
@@ -79,6 +80,8 @@ export interface MnemosyneStore {
   saveUserConceptStates(userId: string, states: UserConceptState[]): Promise<UserKnowledgeGraph>;
   getDailyPacket(userId: string, date?: string): Promise<DailyLearningPacket | undefined>;
   saveDailyPacket(packet: DailyLearningPacket): Promise<DailyLearningPacket>;
+  getSleepCuePacket(userId: string, nightDate?: string): Promise<SleepCuePacket | undefined>;
+  saveSleepCuePacket(packet: SleepCuePacket): Promise<SleepCuePacket>;
   saveAudioPlan(plan: AudioPlan): Promise<AudioPlan>;
   getAudioPlan(planId: string): Promise<AudioPlan | undefined>;
   saveAssessmentResponse(response: AssessmentResponse): Promise<AssessmentResponse>;
@@ -112,6 +115,7 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
   };
   private states = new Map<string, UserConceptState>();
   private dailyPackets = new Map<string, DailyLearningPacket>();
+  private sleepCuePackets = new Map<string, SleepCuePacket>();
   private audioPlans = new Map<string, AudioPlan>();
   private assessmentResponses = new Map<string, AssessmentResponse>();
   private learningEvents: LearningEvent[] = [];
@@ -185,6 +189,15 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
 
   async saveDailyPacket(packet: DailyLearningPacket): Promise<DailyLearningPacket> {
     this.dailyPackets.set(packetKey(packet.user_id, packet.date), packet);
+    return packet;
+  }
+
+  async getSleepCuePacket(userId: string, nightDate = todayIsoDate()): Promise<SleepCuePacket | undefined> {
+    return this.sleepCuePackets.get(packetKey(userId, nightDate));
+  }
+
+  async saveSleepCuePacket(packet: SleepCuePacket): Promise<SleepCuePacket> {
+    this.sleepCuePackets.set(packetKey(packet.user_id, packet.night_date), packet);
     return packet;
   }
 

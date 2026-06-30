@@ -229,8 +229,9 @@ Deliverables:
 
 - [x] Postgres schema and migrations.
 - [x] API service with route handlers for users, goals, graph, daily packets, sessions, assessments, packs, and proposals.
-- [ ] API service route handlers for sleep, videos, wearables, creator ingestion, and moderation actions.
-- [ ] Shared schema validation at API boundaries.
+- [x] API service route handlers for sleep, videos, wearables, and moderation actions.
+- [ ] API service route handlers for creator ingestion.
+- [x] Shared schema validation at API boundaries.
 - [x] Event log and audit log tables.
 - [x] Seed loader for master graph packs.
 - [x] Local Docker dev environment.

@@ -13,6 +13,13 @@ async function createSeededStore() {
 }
 
 describe("persistence-backed API handlers", () => {
+  it("validates request bodies before generating persistent state", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+
+    await expect(handlers.generateDailyPacket({ userId: "" })).rejects.toThrow();
+  });
+
   it("generates and persists a daily packet with learning and audit events", async () => {
     const store = await createSeededStore();
     const handlers = createApiHandlers(store);
@@ -89,6 +96,99 @@ describe("persistence-backed API handlers", () => {
       (state) => state.concept_id === "attention_qkv"
     );
     expect(after?.false_confidence_risk).toBeGreaterThan(before?.false_confidence_risk ?? 0);
+  });
+
+  it("supports video packet, sleep packet, audio render, wearable, and governance API flows", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+
+    const recommendations = unwrap(await handlers.recommendVideos({ userId: demoUser.id, limit: 3 }));
+    expect(recommendations.length).toBeGreaterThan(0);
+
+    const watch = unwrap(
+      await handlers.generateWatchPacket({
+        userId: demoUser.id,
+        timeBudgetMinutes: 30,
+        purpose: "deepen"
+      })
+    );
+    expect(watch.packet.required_post_watch_recall).toBe(true);
+    expect(watch.packet.video_ids.length).toBeGreaterThan(0);
+
+    const completedWatch = unwrap(
+      await handlers.completeWatchPacket({
+        userId: demoUser.id,
+        watchPacketId: watch.packet.id,
+        videoIds: watch.packet.video_ids,
+        recallPassed: true,
+        screenMinutes: 24
+      })
+    );
+    expect(completedWatch.event_type).toBe("video_watched");
+
+    const sleep = unwrap(await handlers.generateSleepPacket({ userId: demoUser.id, conservative: true }));
+    expect(sleep.summary.controls).toBeGreaterThan(0);
+
+    const tonight = unwrap(await handlers.getTonightSleepPacket(demoUser.id, sleep.packet.night_date));
+    expect(tonight.packet.id).toBe(sleep.packet.id);
+
+    const render = unwrap(
+      await handlers.renderSleepAudio({
+        userId: demoUser.id,
+        audioPlanId: sleep.packet.audio_plan_id,
+        outputFormat: "mp3"
+      })
+    );
+    expect(render.output_format).toBe("mp3");
+    expect(render.chapters.length).toBeGreaterThan(0);
+
+    const wearable = unwrap(
+      await handlers.syncWearableSleep({
+        userId: demoUser.id,
+        provider: "oura",
+        sleepSession: {
+          sleep_quality: 0.82,
+          fatigue: 0.18,
+          stages: [{ stage: "deep", minutes: 74 }]
+        }
+      })
+    );
+    expect(wearable.readiness.sleep_quality).toBe(0.82);
+
+    const created = unwrap(
+      await handlers.createProposal({
+        proposerId: demoUser.id,
+        proposalType: "modify_definition",
+        affectedObjectIds: ["attention_qkv"],
+        diff: { before: "attention weights values", after: "queries compare with keys to weight values" },
+        rationale: "Improve precision for a common attention misconception.",
+        evidenceFor: [
+          {
+            id: "src_attention_reference",
+            title: "Attention reference",
+            source_type: "paper",
+            quality_score: 0.86
+          }
+        ],
+        riskLevel: "low"
+      })
+    );
+    expect(created.proposal.status).toBe("open");
+
+    const reviewed = unwrap(
+      await handlers.reviewProposal({ proposalId: created.proposal.id, actorId: "ai_agent" })
+    );
+    expect(reviewed.verdict.confidence).toBeGreaterThan(0);
+
+    const overridden = unwrap(
+      await handlers.humanOverrideProposal({
+        proposalId: created.proposal.id,
+        moderatorId: "mod_demo",
+        status: "accepted",
+        reason: "Accepted for seed graph after review."
+      })
+    );
+    expect(overridden.status).toBe("accepted");
   });
 });
 
