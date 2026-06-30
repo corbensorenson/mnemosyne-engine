@@ -35,6 +35,7 @@ The repository already has the first foundation:
 - Core packages for graph analysis, scheduling, assessment scoring, sleep packets, audio timelines, video ranking, the first-party Paced Read engine, Technique Lab, and Content Court.
 - First-party tutor core for rubric semantics, tutor modes, feedback safety gates, and compatible assessment events.
 - First-party security core for CSP headers, rate-limit policies, high-stakes labels, and audit-safety release gates.
+- First-party reliability core for load, latency, error-budget, audit-coverage, integrity, replay, and worker-drain release gates.
 - Seed master graph layout, schemas, packs, arbiter policy, source rubric, and release notes.
 - API, scheduler, and audio-renderer service skeletons.
 - First-party ops primitives for queues, job lifecycle, object manifests, and release health gates.
@@ -513,6 +514,7 @@ Current implementation progress:
 - Restore drills now support asynchronous `export:run_system_backup_restore_drill` jobs that read backup objects back through first-party storage, verify integrity/schema/counts/graph/sleep/audit/privacy bundle continuity, and audit completed or failed drill reports.
 - Incident response now supports `POST /api/ops/incidents/reports`, producing first-party `mnemosyne-incident-response-v0.1` artifacts from monitoring alerts with severity, blockers, recommended actions, object manifests, and audit events.
 - Accessibility release gates now expose `GET /api/accessibility/release-gate`, auditing keyboard, focus, screen-reader labels, icon labels, reduced motion, contrast, text scaling, and phone-overflow checks across the PWA surface inventory.
+- Reliability release gates now expose `GET /api/reliability/release-gate`, auditing target load, concurrency, p95/p99 latency, error and timeout rates, audit-event coverage, object integrity, graph replay verification, and worker queue-drain budgets across the core learning journeys.
 - PWA Admin surface includes incident command metrics, local incident artifact staging, Privacy Ops cards for export, voice deletion, health deletion, and account deletion alongside the service map and audit log.
 - Creator ingestion now uses first-party `ingestion:process_creator_submission` jobs for queued creator drafts, preserving the same validation, high-stakes labels, proposal generation, and audit trail as synchronous submissions.
 - Notification scheduling now uses first-party `@mnemosyne/notification-core` plans and `notification:deliver_learning_reminder` workers for Morning Forge, Evening Lock-In, phone-down, and SleepCue recall outbox reminders.

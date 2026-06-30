@@ -412,6 +412,17 @@ describe("persistence-backed API handlers", () => {
     expect(accessibility.surface_count).toBeGreaterThanOrEqual(17);
     expect(accessibility.surfaces.map((surface) => surface.surface_id)).toContain("admin");
 
+    const reliability = unwrap(
+      await handlers.getReliabilityReleaseGate({
+        userId: demoUser.id,
+        environment: "production"
+      })
+    );
+    expect(reliability.schema_version).toBe("mnemosyne-reliability-release-gate-v0.1");
+    expect(reliability.passed).toBe(true);
+    expect(reliability.score).toBe(1);
+    expect(reliability.required_scenarios.map((scenario) => scenario.id)).toContain("worker_queue_drain");
+
     const submitted = unwrap(
       await handlers.createProposal({
         proposerId: demoUser.id,
@@ -471,6 +482,10 @@ describe("persistence-backed API handlers", () => {
         expect.objectContaining({
           action: "accessibility_release_gate_checked",
           payload: expect.objectContaining({ passed: true, score: 1 })
+        }),
+        expect.objectContaining({
+          action: "reliability_release_gate_checked",
+          payload: expect.objectContaining({ passed: true, scenario_count: reliability.scenario_count })
         }),
         expect.objectContaining({
           action: "proposal_submitted",

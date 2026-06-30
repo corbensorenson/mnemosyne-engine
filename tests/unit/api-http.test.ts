@@ -66,6 +66,18 @@ describe("API HTTP adapter", () => {
       expect(response.headers.get("x-frame-options")).toBe("DENY");
       expect(body.ok).toBe(true);
       expect(body.data?.release_gate).toEqual(expect.objectContaining({ passed: true }));
+
+      const reliability = await fetch(
+        `${baseUrl}/api/reliability/release-gate?userId=${demoUser.id}&environment=production`
+      );
+      const reliabilityBody = (await reliability.json()) as ApiJson;
+      expect(reliability.status).toBe(200);
+      expect(reliabilityBody.data).toEqual(
+        expect.objectContaining({
+          schema_version: "mnemosyne-reliability-release-gate-v0.1",
+          passed: true
+        })
+      );
     } finally {
       await close(server);
     }

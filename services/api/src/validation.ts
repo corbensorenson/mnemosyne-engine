@@ -366,6 +366,13 @@ export const accessibilityReleaseGateRequestSchema = z
   })
   .strict();
 
+export const reliabilityReleaseGateRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    environment: z.enum(["local", "staging", "production"]).default("production")
+  })
+  .strict();
+
 export const opsMonitoringRequestSchema = z
   .object({
     userId: userIdSchema,

@@ -57,6 +57,7 @@ import {
   replayUserGraph as replayUserGraphFromEvents,
   type GraphReplaySummary
 } from "@mnemosyne/replay-core";
+import { buildReliabilityReleaseGate, type ReliabilityReleaseGate } from "@mnemosyne/reliability-core";
 import {
   buildNotificationPlan,
   type NotificationChannel,
@@ -207,6 +208,7 @@ import {
   proposalReviewRequestSchema,
   proposalVoteRequestSchema,
   renderSleepAudioRequestSchema,
+  reliabilityReleaseGateRequestSchema,
   sessionEventRequestSchema,
   securityReleaseGateRequestSchema,
   sleepPlaybackEventRequestSchema,
@@ -682,6 +684,11 @@ type SecurityReleaseGateRequest = {
 };
 
 type AccessibilityReleaseGateRequest = {
+  userId: string;
+  environment: "local" | "staging" | "production";
+};
+
+type ReliabilityReleaseGateRequest = {
   userId: string;
   environment: "local" | "staging" | "production";
 };
@@ -1581,6 +1588,30 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
           failed_criteria: releaseGate.summaries
             .filter((summary) => !summary.passed)
             .map((summary) => summary.criterion)
+        }
+      });
+      return envelope(releaseGate, audit.id);
+    },
+
+    async getReliabilityReleaseGate(input: unknown): Promise<HandlerEnvelope<ReliabilityReleaseGate>> {
+      const request = validateRequest(
+        reliabilityReleaseGateRequestSchema,
+        input
+      ) as ReliabilityReleaseGateRequest;
+      await requireUser(store, request.userId);
+      const releaseGate = buildReliabilityReleaseGate({ environment: request.environment });
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "reliability_release_gate_checked",
+        object_type: "reliability_release_gate",
+        object_id: request.environment,
+        payload: {
+          passed: releaseGate.passed,
+          score: releaseGate.score,
+          scenario_count: releaseGate.scenario_count,
+          aggregate_error_rate: releaseGate.aggregate_error_rate,
+          maximum_observed_p95_ms: releaseGate.maximum_observed_p95_ms,
+          failing_scenario_ids: releaseGate.failing_scenario_ids
         }
       });
       return envelope(releaseGate, audit.id);

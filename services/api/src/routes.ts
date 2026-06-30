@@ -143,6 +143,7 @@ export const apiRoutes: ApiRoute[] = [
   },
   { method: "GET", path: "/api/security/release-gate", service: "Security Service" },
   { method: "GET", path: "/api/accessibility/release-gate", service: "Accessibility Service" },
+  { method: "GET", path: "/api/reliability/release-gate", service: "Reliability Service" },
   {
     method: "POST",
     path: "/api/proposals",

@@ -14,6 +14,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/outcome-core`: immediate, 24h, 7d, and 30d learning outcome rollups with quality gates.
 - `packages/ops-core`: first-party queue, job lifecycle, object manifest, ops health, monitoring alert, and incident response primitives.
 - `packages/persistence-core`: in-memory and Postgres-backed stores for users, graphs, sessions, events, privacy, backups, ops, and product state.
+- `packages/reliability-core`: first-party load and reliability release gates for critical learning journeys, worker drain, audit coverage, integrity checks, and graph replay verification.
 - `packages/graph-core`: graph gap analysis, prerequisite debt, pathing, and user graph snapshots.
 - `packages/replay-core`: first-party replay of persisted assessments and learning events into touched personal graph state.
 - `packages/scheduler-core`: daily packet builder joining graph, assessment, video, walk, evening, and sleep planning.
