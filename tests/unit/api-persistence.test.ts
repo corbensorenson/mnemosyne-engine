@@ -642,6 +642,26 @@ describe("persistence-backed API handlers", () => {
     );
     expect(reviewed.verdict.confidence).toBeGreaterThan(0);
 
+    const voted = unwrap(
+      await handlers.voteOnProposal({
+        proposalId: created.proposal.id,
+        voterId: demoUser.id,
+        perspectiveId: "learner",
+        voteType: "clear"
+      })
+    );
+    expect(Object.keys(voted.community_votes)).toContain("clear:learner");
+
+    const commented = unwrap(
+      await handlers.commentOnProposal({
+        proposalId: created.proposal.id,
+        authorId: "expert_demo",
+        text: "Definition is clearer and cites acceptable evidence.",
+        commentType: "expert"
+      })
+    );
+    expect(commented.expert_comments).toHaveLength(1);
+
     const overridden = unwrap(
       await handlers.humanOverrideProposal({
         proposalId: created.proposal.id,
@@ -651,6 +671,48 @@ describe("persistence-backed API handlers", () => {
       })
     );
     expect(overridden.status).toBe("accepted");
+
+    const released = unwrap(
+      await handlers.releaseProposal({
+        proposalId: created.proposal.id,
+        releaserId: "release_manager",
+        graphVersion: "graph-v-test-release",
+        notes: "Released attention definition precision update."
+      })
+    );
+    expect(released.proposal.status).toBe("merged");
+    expect(released.release.graph_version).toBe("graph-v-test-release");
+    expect(released.release.release_notes).toContain("attention definition");
+
+    const releasedConcept = (await store.getMasterGraph()).concepts.find(
+      (concept) => concept.id === "attention_qkv"
+    );
+    expect((releasedConcept?.definitions[0] as { text?: string } | undefined)?.text).toBe(
+      "queries compare with keys to weight values"
+    );
+    expect(releasedConcept?.version).toBe("graph-v-test-release");
+
+    const audits = await store.listAuditEvents();
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "proposal_vote_cast",
+          object_id: created.proposal.id
+        }),
+        expect.objectContaining({
+          action: "proposal_comment_added",
+          object_id: created.proposal.id
+        }),
+        expect.objectContaining({
+          action: "proposal_released",
+          object_type: "graph_release",
+          payload: expect.objectContaining({
+            proposal_id: created.proposal.id,
+            graph_version: "graph-v-test-release"
+          })
+        })
+      ])
+    );
   });
 
   it("completes private-default onboarding from empty user state to first packet", async () => {

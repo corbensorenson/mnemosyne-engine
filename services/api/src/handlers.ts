@@ -5,7 +5,13 @@ import {
 } from "@mnemosyne/assessment-core";
 import { buildRenderManifest } from "@mnemosyne/audio-renderer-service";
 import type { RenderManifest } from "@mnemosyne/audio-renderer-service";
-import { arbitrateProposal, createProposal as createCourtProposal } from "@mnemosyne/content-court";
+import {
+  arbitrateProposal,
+  castVote,
+  computeBridgingPriority,
+  createProposal as createCourtProposal,
+  type VoteType
+} from "@mnemosyne/content-court";
 import {
   buildFlashReadSession,
   scoreFlashReadCompletion,
@@ -62,7 +68,10 @@ import {
   humanOverrideRequestSchema,
   morningForgeCompleteRequestSchema,
   proposalCreateRequestSchema,
+  proposalCommentRequestSchema,
+  proposalReleaseRequestSchema,
   proposalReviewRequestSchema,
+  proposalVoteRequestSchema,
   renderSleepAudioRequestSchema,
   sessionEventRequestSchema,
   sleepPlaybackEventRequestSchema,
@@ -345,6 +354,17 @@ type CreatorIngestionResponse = {
   submission: CreatorSubmissionRecord;
   proposals: Proposal[];
   risk_flags: string[];
+};
+
+type GraphReleaseArtifact = {
+  id: string;
+  graph_version: string;
+  proposal_id: string;
+  released_by: string;
+  affected_object_ids: string[];
+  release_notes: string;
+  diff: Record<string, unknown>;
+  created_at: string;
 };
 
 type OnboardingResponse = {
@@ -1734,6 +1754,125 @@ export function createApiHandlers(store: MnemosyneStore) {
       return envelope({ proposal: updated, verdict }, audit.id);
     },
 
+    async voteOnProposal(input: unknown): Promise<HandlerEnvelope<Proposal>> {
+      const request = validateRequest(proposalVoteRequestSchema, input) as {
+        proposalId: string;
+        voterId: string;
+        perspectiveId: string;
+        voteType: VoteType;
+      };
+      const proposal = await store.getProposal(request.proposalId);
+      if (!proposal) return notFound<Proposal>("proposal_not_found");
+      const updated = await store.saveProposal(castVote(proposal, request.voteType, request.perspectiveId));
+      const audit = await store.appendAuditEvent({
+        actor_id: request.voterId,
+        action: "proposal_vote_cast",
+        object_type: "proposal",
+        object_id: proposal.id,
+        payload: {
+          vote_type: request.voteType,
+          perspective_id: request.perspectiveId,
+          bridging_priority: computeBridgingPriority(updated)
+        }
+      });
+      return envelope(updated, audit.id);
+    },
+
+    async commentOnProposal(input: unknown): Promise<HandlerEnvelope<Proposal>> {
+      const request = validateRequest(proposalCommentRequestSchema, input) as {
+        proposalId: string;
+        authorId: string;
+        text: string;
+        commentType: "expert" | "learner" | "moderator" | "appeal";
+      };
+      const proposal = await store.getProposal(request.proposalId);
+      if (!proposal) return notFound<Proposal>("proposal_not_found");
+      const updated = await store.saveProposal({
+        ...proposal,
+        expert_comments: [
+          ...proposal.expert_comments,
+          {
+            author_id: request.authorId,
+            text: request.text,
+            comment_type: request.commentType,
+            created_at: nowIso()
+          }
+        ],
+        updated_at: nowIso()
+      });
+      const audit = await store.appendAuditEvent({
+        actor_id: request.authorId,
+        action: "proposal_comment_added",
+        object_type: "proposal",
+        object_id: proposal.id,
+        payload: {
+          comment_type: request.commentType,
+          comment_count: updated.expert_comments.length
+        }
+      });
+      return envelope(updated, audit.id);
+    },
+
+    async releaseProposal(
+      input: unknown
+    ): Promise<HandlerEnvelope<{ proposal: Proposal; release: GraphReleaseArtifact }>> {
+      const request = validateRequest(proposalReleaseRequestSchema, input) as {
+        proposalId: string;
+        releaserId: string;
+        graphVersion?: string;
+        notes?: string;
+      };
+      const proposal = await store.getProposal(request.proposalId);
+      if (!proposal) {
+        return notFound<{ proposal: Proposal; release: GraphReleaseArtifact }>("proposal_not_found");
+      }
+      if (!["accepted", "accepted_with_modifications"].includes(proposal.status)) {
+        return invalidRequest<{ proposal: Proposal; release: GraphReleaseArtifact }>(
+          "proposal_not_accepted_for_release"
+        );
+      }
+
+      const releasedAt = nowIso();
+      const graphVersion = request.graphVersion ?? `graph-${todayIsoDate()}-${proposal.id.slice(-6)}`;
+      const release = buildGraphReleaseArtifact(
+        proposal,
+        request.releaserId,
+        graphVersion,
+        releasedAt,
+        request.notes
+      );
+      await applyProposalToMasterGraph(store, proposal, graphVersion, releasedAt);
+      const updated = await store.saveProposal({
+        ...proposal,
+        status: "merged",
+        expert_comments: [
+          ...proposal.expert_comments,
+          {
+            author_id: request.releaserId,
+            text: release.release_notes,
+            comment_type: "release_note",
+            graph_version: graphVersion,
+            created_at: releasedAt
+          }
+        ],
+        updated_at: releasedAt
+      });
+      const audit = await store.appendAuditEvent({
+        actor_id: request.releaserId,
+        action: "proposal_released",
+        object_type: "graph_release",
+        object_id: release.id,
+        payload: {
+          proposal_id: proposal.id,
+          graph_version: graphVersion,
+          affected_object_ids: proposal.affected_object_ids,
+          release_notes: release.release_notes,
+          diff: proposal.diff
+        }
+      });
+      return envelope({ proposal: updated, release }, audit.id);
+    },
+
     async humanOverrideProposal(input: unknown): Promise<HandlerEnvelope<Proposal>> {
       const request = validateRequest(humanOverrideRequestSchema, input) as {
         proposalId: string;
@@ -2223,6 +2362,16 @@ function notFound<T = never>(code: string): HandlerEnvelope<T> {
   };
 }
 
+function invalidRequest<T = never>(code: string): HandlerEnvelope<T> {
+  return {
+    ok: false,
+    error: {
+      code,
+      message: code.replaceAll("_", " ")
+    }
+  };
+}
+
 function normalizeSourceRefs(sources: Array<Partial<SourceRef>> | undefined): SourceRef[] {
   return (sources ?? []).map((source) => ({
     id: source.id ?? createId("source"),
@@ -2359,6 +2508,61 @@ function statusForCreatorSubmission(riskFlags: string[], proposalCount: number):
   if (riskFlags.includes("missing_supporting_evidence")) return "needs_evidence";
   if (riskFlags.length > 0) return "queued_for_review";
   return "proposal_created";
+}
+
+function buildGraphReleaseArtifact(
+  proposal: Proposal,
+  releasedBy: string,
+  graphVersion: string,
+  releasedAt: string,
+  notes?: string
+): GraphReleaseArtifact {
+  const releaseNotes =
+    notes ??
+    `Released ${proposal.proposal_type.replaceAll("_", " ")} for ${proposal.affected_object_ids.join(", ")}.`;
+  return {
+    id: createId("graph_release", `${proposal.id}:${graphVersion}`),
+    graph_version: graphVersion,
+    proposal_id: proposal.id,
+    released_by: releasedBy,
+    affected_object_ids: proposal.affected_object_ids,
+    release_notes: releaseNotes,
+    diff: proposal.diff,
+    created_at: releasedAt
+  };
+}
+
+async function applyProposalToMasterGraph(
+  store: MnemosyneStore,
+  proposal: Proposal,
+  graphVersion: string,
+  releasedAt: string
+): Promise<void> {
+  if (proposal.proposal_type !== "modify_definition") return;
+  const after = typeof proposal.diff.after === "string" ? proposal.diff.after : undefined;
+  if (!after) return;
+  const masterGraph = await store.getMasterGraph();
+  const affectedIds = new Set(proposal.affected_object_ids);
+  const updatedConcepts = masterGraph.concepts.map((concept) => {
+    if (!affectedIds.has(concept.id)) return concept;
+    const [primaryDefinition = {}, ...restDefinitions] = concept.definitions;
+    return {
+      ...concept,
+      definitions: [
+        {
+          ...primaryDefinition,
+          text: after,
+          source: "content_court_release",
+          proposal_id: proposal.id
+        },
+        ...restDefinitions
+      ],
+      status: "active" as const,
+      updated_at: releasedAt,
+      version: graphVersion
+    };
+  });
+  await store.saveMasterGraph({ ...masterGraph, concepts: updatedConcepts });
 }
 
 function creatorRationale(request: CreatorIngestionRequest, summary: string): string {

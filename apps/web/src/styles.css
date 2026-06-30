@@ -1569,6 +1569,117 @@ input[type="range"] {
   gap: 12px;
 }
 
+.court-case-file h2 {
+  margin: 0 0 8px;
+}
+
+.diff-view {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.diff-view > div {
+  min-height: 142px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.diff-view span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.diff-view p,
+.release-note p {
+  margin: 8px 0 0;
+  line-height: 1.45;
+}
+
+.court-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.court-comment-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 12px;
+}
+
+.court-comment-box textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.court-flow-actions {
+  margin: 14px 0;
+}
+
+.court-event-log {
+  margin-top: 12px;
+}
+
+.court-note-ledger {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.court-note-ledger h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.court-note {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.court-note header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.court-note p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.release-note {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--teal);
+  border-radius: 8px;
+  background: var(--teal-soft);
+}
+
 .pack-grid,
 .lab-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1777,6 +1888,11 @@ input[type="range"] {
   }
 
   .graphfeed-screen {
+    grid-template-columns: 1fr;
+  }
+
+  .diff-view,
+  .court-comment-box {
     grid-template-columns: 1fr;
   }
 

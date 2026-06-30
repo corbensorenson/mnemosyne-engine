@@ -395,6 +395,11 @@ Deliverables:
 - Human moderation override.
 - Release notes generator.
 
+Current implementation progress:
+
+- PWA Content Court case file shows proposal rationale, affected objects, source/risk metrics, before/after diff, vote controls, comments, arbiter review, moderation accept, release action, and generated release notes.
+- First-party proposal lifecycle supports vote, comment, AI review, human override, and release endpoints; accepted definition changes can update the master graph, mark the proposal merged, and emit a graph-release audit artifact with graph version and release notes.
+
 Exit criteria:
 
 - A content change can move from proposal to verdict to released graph version with audit trail.

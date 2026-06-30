@@ -391,6 +391,49 @@ export const proposalReviewRequestSchema = z
   })
   .strict();
 
+export const proposalVoteRequestSchema = z
+  .object({
+    proposalId: z.string().min(1),
+    voterId: z.string().min(1),
+    perspectiveId: z.string().min(1).default("learner"),
+    voteType: z.enum([
+      "clear",
+      "unclear",
+      "accurate",
+      "wrong",
+      "outdated",
+      "too_easy",
+      "too_hard",
+      "misleading",
+      "great_for_beginners",
+      "great_for_experts",
+      "bad_sleep_cue",
+      "good_sleep_cue",
+      "wrong_prerequisite",
+      "better_video_exists",
+      "needs_expert_review"
+    ])
+  })
+  .strict();
+
+export const proposalCommentRequestSchema = z
+  .object({
+    proposalId: z.string().min(1),
+    authorId: z.string().min(1),
+    text: z.string().min(4),
+    commentType: z.enum(["expert", "learner", "moderator", "appeal"]).default("learner")
+  })
+  .strict();
+
+export const proposalReleaseRequestSchema = z
+  .object({
+    proposalId: z.string().min(1),
+    releaserId: z.string().min(1),
+    graphVersion: z.string().min(1).optional(),
+    notes: z.string().min(4).optional()
+  })
+  .strict();
+
 export const humanOverrideRequestSchema = z
   .object({
     proposalId: z.string().min(1),

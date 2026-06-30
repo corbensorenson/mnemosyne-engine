@@ -40,7 +40,12 @@ import {
   scoreAssessmentResponse
 } from "@mnemosyne/assessment-core";
 import { estimateCueDensity } from "@mnemosyne/audio-core";
-import { arbitrateProposal, computeBridgingPriority } from "@mnemosyne/content-court";
+import {
+  arbitrateProposal,
+  castVote,
+  computeBridgingPriority,
+  type VoteType
+} from "@mnemosyne/content-court";
 import {
   buildFlashReadSession,
   scoreFlashReadCompletion,
@@ -54,6 +59,7 @@ import type {
   AssessmentResponse,
   ConceptNode,
   FlashReadAsset,
+  Proposal,
   ReadinessProfile,
   UserConceptState,
   VideoAsset,
@@ -2988,12 +2994,101 @@ function PacksView() {
   );
 }
 
-function CourtView({ verdict }: { verdict: ReturnType<typeof arbitrateProposal> }) {
-  const proposal = demoProposals[0];
+function CourtView({ verdict: initialVerdict }: { verdict: ReturnType<typeof arbitrateProposal> }) {
+  const [proposal, setProposal] = useState<Proposal>(demoProposals[0]);
+  const [verdict, setVerdict] = useState(initialVerdict);
+  const [comment, setComment] = useState("");
+  const [release, setRelease] = useState<GraphReleasePreview | null>(null);
+  const voteTypes: VoteType[] = ["clear", "accurate", "needs_expert_review", "misleading"];
+  const diffBefore = proposal.diff.before;
+  const diffAfter = proposal.diff.after;
+  const commentPreviews = proposal.expert_comments.map(toCourtCommentPreview);
+
+  function runArbiter() {
+    const nextVerdict = arbitrateProposal(proposal);
+    setVerdict(nextVerdict);
+    setProposal({
+      ...proposal,
+      ai_review: nextVerdict as unknown as Record<string, unknown>,
+      status: courtStatusForVerdict(nextVerdict.decision),
+      updated_at: nowIso()
+    });
+    setRelease(null);
+  }
+
+  function castCourtVote(voteType: VoteType) {
+    setProposal(castVote(proposal, voteType, "learner"));
+    setRelease(null);
+  }
+
+  function addCourtComment() {
+    if (comment.trim().length < 4) return;
+    setProposal({
+      ...proposal,
+      expert_comments: [
+        ...proposal.expert_comments,
+        {
+          author_id: demoUser.id,
+          text: comment,
+          comment_type: "learner",
+          created_at: nowIso()
+        }
+      ],
+      updated_at: nowIso()
+    });
+    setComment("");
+    setRelease(null);
+  }
+
+  function acceptForRelease() {
+    setProposal({
+      ...proposal,
+      status: "accepted",
+      expert_comments: [
+        ...proposal.expert_comments,
+        {
+          author_id: "moderator_demo",
+          text: "Accepted for seed graph release after review.",
+          comment_type: "moderator",
+          override: true,
+          created_at: nowIso()
+        }
+      ],
+      updated_at: nowIso()
+    });
+    setRelease(null);
+  }
+
+  function releaseGraphVersion() {
+    const graphVersion = `graph-${new Date().toISOString().slice(0, 10)}-court`;
+    const releaseNotes = `Released ${proposal.proposal_type.replaceAll("_", " ")} for ${proposal.affected_object_ids.join(", ")}.`;
+    setProposal({
+      ...proposal,
+      status: "merged",
+      expert_comments: [
+        ...proposal.expert_comments,
+        {
+          author_id: "release_bot",
+          text: releaseNotes,
+          comment_type: "release_note",
+          graph_version: graphVersion,
+          created_at: nowIso()
+        }
+      ],
+      updated_at: nowIso()
+    });
+    setRelease({
+      graphVersion,
+      releaseNotes,
+      affectedObjectIds: proposal.affected_object_ids,
+      auditAction: "proposal_released"
+    });
+  }
+
   return (
     <div className="page-grid court-grid">
-      <section className="panel">
-        <PanelTitle icon={Gavel} title="Content Court" meta={proposal.status} />
+      <section className="panel court-case-file">
+        <PanelTitle icon={Gavel} title="Case File" meta={proposal.status} />
         <h2>{proposal.proposal_type.replaceAll("_", " ")}</h2>
         <p className="dense-copy">{proposal.rationale}</p>
         <div className="case-grid">
@@ -3005,6 +3100,36 @@ function CourtView({ verdict }: { verdict: ReturnType<typeof arbitrateProposal> 
           <MiniStat label="Sources" value={`${proposal.evidence_for.length}`} />
           <MiniStat label="Objects" value={`${proposal.affected_object_ids.length}`} />
         </div>
+        <div className="diff-view">
+          <div>
+            <span>Before</span>
+            <p>{typeof diffBefore === "string" ? diffBefore : JSON.stringify(diffBefore)}</p>
+          </div>
+          <div>
+            <span>After</span>
+            <p>{typeof diffAfter === "string" ? diffAfter : JSON.stringify(diffAfter)}</p>
+          </div>
+        </div>
+        <div className="court-actions">
+          {voteTypes.map((voteType) => (
+            <button className="command" key={voteType} onClick={() => castCourtVote(voteType)}>
+              <BadgeCheck size={18} />
+              {voteType.replaceAll("_", " ")}
+            </button>
+          ))}
+        </div>
+        <div className="court-comment-box">
+          <textarea
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+            placeholder="Add review note..."
+            rows={4}
+          />
+          <button className="command primary" onClick={addCourtComment}>
+            <ClipboardCheck size={18} />
+            Comment
+          </button>
+        </div>
       </section>
       <section className="panel">
         <PanelTitle icon={ShieldCheck} title="Arbiter Verdict" meta={verdict.decision} />
@@ -3012,10 +3137,76 @@ function CourtView({ verdict }: { verdict: ReturnType<typeof arbitrateProposal> 
         <ObjectLine label="For" value={verdict.strongest_argument_for} />
         <ObjectLine label="Against" value={verdict.strongest_argument_against} />
         <Progress label="Confidence" value={verdict.confidence} />
+        <div className="action-row court-flow-actions">
+          <button className="command primary" onClick={runArbiter}>
+            <Sparkles size={18} />
+            Review
+          </button>
+          <button className="command" onClick={acceptForRelease}>
+            <ShieldCheck size={18} />
+            Accept
+          </button>
+          <button
+            className="command"
+            onClick={releaseGraphVersion}
+            disabled={!["accepted", "accepted_with_modifications"].includes(proposal.status)}
+          >
+            <GitBranch size={18} />
+            Release
+          </button>
+        </div>
+        <div className="object-list court-event-log">
+          <ObjectLine label="Votes" value={`${Object.keys(proposal.community_votes).length}`} />
+          <ObjectLine label="Comments" value={`${proposal.expert_comments.length}`} />
+          <ObjectLine label="AI review" value={proposal.ai_review ? "recorded" : "pending"} />
+          <ObjectLine label="Audit" value={release?.auditAction ?? "proposal case open"} />
+        </div>
+        {commentPreviews.length > 0 && (
+          <div className="court-note-ledger">
+            <h3>Review Notes</h3>
+            {commentPreviews.map((entry) => (
+              <article className="court-note" key={entry.id}>
+                <header>
+                  <span>{entry.comment_type.replaceAll("_", " ")}</span>
+                  <strong>{entry.author_id}</strong>
+                </header>
+                <p>{entry.text}</p>
+              </article>
+            ))}
+          </div>
+        )}
+        {release && (
+          <div className="release-note">
+            <PanelTitle icon={GitBranch} title="Release Notes" meta={release.graphVersion} />
+            <ObjectLine label="Graph version" value={release.graphVersion} />
+            <p>{release.releaseNotes}</p>
+            <div className="tag-row">
+              {release.affectedObjectIds.map((objectId) => (
+                <span className="tag" key={objectId}>
+                  {objectId}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );
 }
+
+type GraphReleasePreview = {
+  graphVersion: string;
+  releaseNotes: string;
+  affectedObjectIds: string[];
+  auditAction: string;
+};
+
+type CourtCommentPreview = {
+  id: string;
+  author_id: string;
+  comment_type: string;
+  text: string;
+};
 
 function LabView({ techniques }: { techniques: typeof techniqueRegistry }) {
   return (
@@ -3444,6 +3635,31 @@ function graphFeedStatusFor(state: UserConceptState): UserConceptState["status"]
   if (strength > 0.62) return "known";
   if (strength > 0.42) return "learning";
   return "fragile";
+}
+
+function courtStatusForVerdict(decision: string): Proposal["status"] {
+  if (decision === "accept") return "accepted";
+  if (decision === "accept_with_modifications") return "accepted_with_modifications";
+  if (decision === "reject") return "rejected";
+  if (decision === "mark_as_disputed") return "disputed";
+  if (decision === "send_to_human_moderation") return "human_review_required";
+  if (decision === "needs_more_evidence") return "needs_evidence";
+  return "ai_reviewing";
+}
+
+function toCourtCommentPreview(entry: Record<string, unknown>, index: number): CourtCommentPreview {
+  const authorId = courtCommentString(entry.author_id, "unknown_reviewer");
+  const createdAt = courtCommentString(entry.created_at, `comment-${index}`);
+  return {
+    id: `${authorId}-${createdAt}-${index}`,
+    author_id: authorId,
+    comment_type: courtCommentString(entry.comment_type, "note"),
+    text: courtCommentString(entry.text, "No note text recorded.")
+  };
+}
+
+function courtCommentString(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim().length > 0 ? value : fallback;
 }
 
 function rankFlashAssets(

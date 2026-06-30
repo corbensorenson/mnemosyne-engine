@@ -112,7 +112,10 @@ export const apiRoutes: ApiRoute[] = [
     eventType: "proposal_submitted"
   },
   { method: "POST", path: "/api/proposals/:id/ai-review", service: "AI Agent Orchestrator" },
+  { method: "POST", path: "/api/proposals/:id/vote", service: "Content Court Service" },
+  { method: "POST", path: "/api/proposals/:id/comment", service: "Content Court Service" },
   { method: "POST", path: "/api/proposals/:id/human-override", service: "Admin/Moderation Service" },
+  { method: "POST", path: "/api/proposals/:id/release", service: "Master Graph Release Service" },
   {
     method: "POST",
     path: "/api/creator/ingestions",
