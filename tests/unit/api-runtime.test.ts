@@ -93,8 +93,23 @@ describe("API runtime", () => {
       expect(healthBody.data).toEqual(
         expect.objectContaining({
           service: "mnemosyne-api",
-          status: "ok",
+          status: "live",
           environment: "local"
+        })
+      );
+
+      const ready = await fetch(`${baseUrl}/readyz`);
+      const readyBody = (await ready.json()) as ApiJson;
+      expect(ready.status).toBe(200);
+      expect(readyBody.data).toEqual(
+        expect.objectContaining({
+          service: "mnemosyne-api",
+          status: "ready",
+          environment: "local",
+          components: expect.objectContaining({
+            store: expect.objectContaining({ status: "ok" }),
+            object_storage: expect.objectContaining({ status: "ok" })
+          })
         })
       );
 

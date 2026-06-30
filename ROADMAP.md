@@ -514,7 +514,7 @@ Current implementation progress:
 - Local deployment automation now includes a first-party Dockerfile and Compose stack for Postgres, Redis, MinIO, API, scheduler worker, audio worker, health checks, migrations, demo seeding, and a shared durable object-storage volume.
 - First-party security core now exposes `GET /api/security/release-gate` with CSP/header policy, rate-limit profiles, high-stakes labels, CSRF expectations, and audit-safety checks.
 - The API service now has a first-party Node HTTP adapter that dispatches every route to handlers, attaches security headers, enforces production CSRF headers, bounds JSON bodies, maps route params, and applies the rate-limit profiles before expensive handlers.
-- The API service now has executable runtime scripts for server startup and migrations, env-based memory/Postgres storage selection, health/readiness endpoints, and ordered migration tracking.
+- The API service now has executable runtime scripts for server startup and migrations, env-based memory/Postgres storage selection, cheap liveness checks, dependency-backed readiness checks, and ordered migration tracking.
 - Production release runbook covers deployment environments, required services and secrets, monitoring, backup/restore, accessibility, load/reliability, and release checklist.
 - Privacy documentation covers export bundle contents, deletion scopes, audit rules, product requirements, and test coverage.
 

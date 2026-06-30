@@ -56,6 +56,23 @@ type JsonEnvelope = {
   audit_event_id?: string;
 };
 
+type ReadinessComponent = {
+  status: "ok" | "error";
+  checked_at: string;
+  message?: string;
+};
+
+type ReadinessReport = {
+  service: "mnemosyne-api";
+  status: "ready" | "not_ready";
+  environment: ApiHttpEnvironment;
+  checked_at: string;
+  components: {
+    store: ReadinessComponent;
+    object_storage: ReadinessComponent;
+  };
+};
+
 export class InMemoryRateLimitStore {
   private readonly hits = new Map<string, string[]>();
 
@@ -111,14 +128,30 @@ export function createApiHttpHandler(options: ApiHttpOptions) {
       return;
     }
 
-    if (method === "GET" && (url.pathname === "/healthz" || url.pathname === "/readyz")) {
+    if (method === "GET" && url.pathname === "/healthz") {
       sendJson(response, 200, {
         ok: true,
         data: {
           service: "mnemosyne-api",
-          status: "ok",
+          status: "live",
           environment
         }
+      });
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/readyz") {
+      const readiness = await buildReadinessReport(options.store, options.objectStorage, environment);
+      sendJson(response, readiness.status === "ready" ? 200 : 503, {
+        ok: readiness.status === "ready",
+        data: readiness,
+        error:
+          readiness.status === "ready"
+            ? undefined
+            : {
+                code: "service_not_ready",
+                message: "One or more required API dependencies failed readiness checks."
+              }
       });
       return;
     }
@@ -320,6 +353,55 @@ function createHttpRoutes(handlers: ReturnType<typeof createApiHandlers>): Route
   ];
 }
 
+async function buildReadinessReport(
+  store: MnemosyneStore,
+  objectStorage: ObjectStorageAdapter | undefined,
+  environment: ApiHttpEnvironment
+): Promise<ReadinessReport> {
+  const checkedAt = new Date().toISOString();
+  const [storeComponent, objectStorageComponent] = await Promise.all([
+    checkReadinessComponent(checkedAt, async () => {
+      await Promise.all([store.getMasterGraph(), store.listJobs(), store.listObjectManifests()]);
+    }),
+    objectStorage
+      ? checkReadinessComponent(checkedAt, async () => {
+          await objectStorage.listManifests();
+        })
+      : Promise.resolve({
+          status: "error" as const,
+          checked_at: checkedAt,
+          message: "Object storage adapter is not configured."
+        })
+  ]);
+  const ready = storeComponent.status === "ok" && objectStorageComponent.status === "ok";
+  return {
+    service: "mnemosyne-api",
+    status: ready ? "ready" : "not_ready",
+    environment,
+    checked_at: checkedAt,
+    components: {
+      store: storeComponent,
+      object_storage: objectStorageComponent
+    }
+  };
+}
+
+async function checkReadinessComponent(
+  checkedAt: string,
+  check: () => Promise<void>
+): Promise<ReadinessComponent> {
+  try {
+    await check();
+    return { status: "ok", checked_at: checkedAt };
+  } catch (error) {
+    return {
+      status: "error",
+      checked_at: checkedAt,
+      message: errorMessage(error)
+    };
+  }
+}
+
 function route(
   method: HttpMethod,
   path: string,
@@ -514,6 +596,11 @@ function ensureAssessmentRouteMatchesBody(context: RouteContext): void {
 
 function isJsonRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }
 
 function normalizeError(error: unknown): { status: number; envelope: JsonEnvelope } {

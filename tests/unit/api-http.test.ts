@@ -15,6 +15,39 @@ type ApiJson = {
 };
 
 describe("API HTTP adapter", () => {
+  it("separates cheap liveness from dependency-backed readiness", async () => {
+    const { server } = await createSeededDemoApiHttpServer({
+      environment: "local"
+    });
+    const baseUrl = await listen(server);
+
+    try {
+      const health = await fetch(`${baseUrl}/healthz`);
+      const healthBody = (await health.json()) as ApiJson;
+      expect(health.status).toBe(200);
+      expect(healthBody.data).toEqual(
+        expect.objectContaining({
+          service: "mnemosyne-api",
+          status: "live"
+        })
+      );
+
+      const ready = await fetch(`${baseUrl}/readyz`);
+      const readyBody = (await ready.json()) as ApiJson;
+      expect(ready.status).toBe(503);
+      expect(readyBody.ok).toBe(false);
+      expect(readyBody.error?.code).toBe("service_not_ready");
+      expect(readyBody.data?.components).toEqual(
+        expect.objectContaining({
+          store: expect.objectContaining({ status: "ok" }),
+          object_storage: expect.objectContaining({ status: "error" })
+        })
+      );
+    } finally {
+      await close(server);
+    }
+  });
+
   it("serves handler envelopes with first-party security headers", async () => {
     const { server } = await createSeededDemoApiHttpServer({
       environment: "production",

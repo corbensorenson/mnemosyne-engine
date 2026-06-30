@@ -129,7 +129,7 @@ The system should preserve audit events even when downstream analytics or person
 - Scheduler and audio-render workers run `@mnemosyne/worker-core` handlers for `scheduler:generate_daily_packet` and `audio_render:render_sleep_audio`, including audit events, retries, and dead-letter handling.
 - `npm run worker:start` is deployed for worker processes with `MNEMOSYNE_WORKER_QUEUES`, `MNEMOSYNE_WORKER_ID`, and `MNEMOSYNE_OBJECT_STORAGE_ROOT` set per environment.
 - `npm run docker:config` passes for the local deployment manifest.
-- `GET /healthz` and `GET /readyz` return healthy responses from the deployed API runtime.
+- `GET /healthz` returns liveness, and `GET /readyz` returns dependency-backed readiness with healthy store and object-storage components.
 - Production secrets are rotated into the target environment.
 - Database migrations are applied in staging first.
 - Restore drill completed for the release window.
