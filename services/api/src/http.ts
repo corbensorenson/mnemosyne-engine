@@ -286,6 +286,12 @@ function createHttpRoutes(handlers: ReturnType<typeof createApiHandlers>): Route
       handlers.getOutcomeDashboard(requiredQuery(context, "userId"))
     ),
     route("POST", "/api/outcomes/refresh", (context) => handlers.refreshOutcomeDashboard(context.body)),
+    route(
+      "POST",
+      "/api/outcomes/refresh/jobs",
+      (context) => handlers.queueOutcomeDashboardRefresh(context.body),
+      { rateLimitKey: "ops_job" }
+    ),
     route("POST", "/api/jobs", (context) => handlers.createJob(context.body), { rateLimitKey: "ops_job" }),
     route(
       "POST",

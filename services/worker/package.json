@@ -10,6 +10,7 @@
     "@mnemosyne/api": "*",
     "@mnemosyne/audio-renderer-service": "*",
     "@mnemosyne/ops-core": "*",
+    "@mnemosyne/outcome-core": "*",
     "@mnemosyne/scheduler-service": "*",
     "@mnemosyne/storage-core": "*",
     "@mnemosyne/worker-core": "*"

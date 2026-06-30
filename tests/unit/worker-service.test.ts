@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { demoUser } from "@mnemosyne/demo-fixtures";
 import { createJob, startJob } from "@mnemosyne/ops-core";
+import type { AssessmentResponse } from "@mnemosyne/schema";
 import {
   createWorkerServiceRuntime,
   runWorkerServiceBatch,
@@ -188,4 +189,81 @@ describe("worker-service", () => {
       await rm(objectStorageRoot, { recursive: true, force: true });
     }
   });
+
+  it("refreshes outcome dashboards through the analytics worker", async () => {
+    const objectStorageRoot = await mkdtemp(join(tmpdir(), "mnemosyne-worker-analytics-"));
+    const generatedAt = "2026-06-30T12:00:00.000Z";
+    const config = workerServiceConfigFromEnv({
+      MNEMOSYNE_STORAGE: "memory",
+      MNEMOSYNE_SEED_DEMO: "true",
+      MNEMOSYNE_OBJECT_STORAGE_ROOT: objectStorageRoot,
+      MNEMOSYNE_WORKER_ID: "worker-analytics-test",
+      MNEMOSYNE_WORKER_MODE: "batch",
+      MNEMOSYNE_WORKER_QUEUES: "analytics",
+      MNEMOSYNE_WORKER_MAX_JOBS: "1"
+    });
+    const runtime = await createWorkerServiceRuntime(config);
+
+    try {
+      await runtime.store.saveAssessmentResponse(
+        outcomeResponse("worker_outcome_immediate", "attention_qkv", "2026-06-30T10:30:00.000Z")
+      );
+      const analyticsJob = await runtime.store.saveJob(
+        createJob({
+          queue: "analytics",
+          type: "refresh_outcome_dashboard",
+          payload: { user_id: demoUser.id, generated_at: generatedAt },
+          priority: "normal",
+          idempotencyKey: "worker-service-analytics",
+          auditSubjectId: demoUser.id,
+          createdAt: "2026-06-29T12:00:00.000Z"
+        })
+      );
+
+      const result = await runWorkerServiceBatch(runtime);
+      expect(result.completed).toBe(1);
+      expect(result.failed).toBe(0);
+      expect((await runtime.store.getJob(analyticsJob.id))?.result).toEqual(
+        expect.objectContaining({
+          user_id: demoUser.id,
+          generated_at: generatedAt,
+          learning_velocity: expect.any(Number)
+        })
+      );
+      const dashboard = await runtime.store.getLatestOutcomeDashboard(demoUser.id);
+      expect(dashboard).toEqual(
+        expect.objectContaining({
+          user_id: demoUser.id,
+          generated_at: generatedAt,
+          quality_gates: expect.objectContaining({ immediate_recall_measured: true })
+        })
+      );
+      expect((await runtime.store.listAuditEvents(demoUser.id)).map((event) => event.action)).toEqual(
+        expect.arrayContaining(["outcome_dashboard_refreshed", "job_completed"])
+      );
+    } finally {
+      await runtime.close();
+      await rm(objectStorageRoot, { recursive: true, force: true });
+    }
+  });
 });
+
+function outcomeResponse(id: string, conceptId: string, createdAt: string): AssessmentResponse {
+  return {
+    id,
+    user_id: demoUser.id,
+    assessment_item_id: `item_${id}`,
+    raw_response: "durable answer",
+    correctness_score: 0.82,
+    semantic_score: 0.8,
+    latency_ms: 24_000,
+    confidence_reported: 0.75,
+    hint_count: 0,
+    retries: 0,
+    detected_failure_modes: [],
+    misconception_ids: [],
+    model_feedback: "worker outcome scored",
+    graph_updates: [{ concept_id: conceptId }],
+    created_at: createdAt
+  };
+}

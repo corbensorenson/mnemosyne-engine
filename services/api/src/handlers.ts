@@ -172,6 +172,7 @@ import {
   objectManifestRequestSchema,
   objectPutRequestSchema,
   opsMonitoringRequestSchema,
+  outcomeDashboardJobRequestSchema,
   outcomeDashboardRequestSchema,
   pacedReadCompleteRequestSchema,
   pacedReadGenerateRequestSchema,
@@ -509,6 +510,15 @@ type PrivacyDeletionRequest = {
 type OutcomeDashboardRequest = {
   userId: string;
   generatedAt?: string;
+};
+
+type OutcomeDashboardJobRequest = {
+  userId: string;
+  generatedAt?: string;
+  priority: JobPriority;
+  runAfter?: string;
+  idempotencyKey?: string;
+  maxAttempts: number;
 };
 
 type JobCreateRequest = {
@@ -967,6 +977,44 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
         }
       });
       return envelope(dashboard, audit.id);
+    },
+
+    async queueOutcomeDashboardRefresh(input: unknown): Promise<HandlerEnvelope<JobRecord>> {
+      const request = validateRequest(outcomeDashboardJobRequestSchema, input) as OutcomeDashboardJobRequest;
+      await requireUser(store, request.userId);
+      const queuedAt = nowIso();
+      const job = await store.saveJob(
+        createOpsJob({
+          queue: "analytics",
+          type: "refresh_outcome_dashboard",
+          payload: {
+            user_id: request.userId,
+            generated_at: request.generatedAt,
+            requested_at: queuedAt
+          },
+          priority: request.priority,
+          runAfter: request.runAfter,
+          idempotencyKey: request.idempotencyKey ?? `outcome_refresh:${request.userId}:${queuedAt}`,
+          maxAttempts: request.maxAttempts,
+          auditSubjectId: request.userId,
+          createdAt: queuedAt
+        })
+      );
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "outcome_dashboard_refresh_queued",
+        object_type: "service_job",
+        object_id: job.id,
+        payload: {
+          queue: job.queue,
+          type: job.type,
+          priority: job.priority,
+          run_after: job.run_after,
+          generated_at: request.generatedAt,
+          idempotency_key: job.idempotency_key
+        }
+      });
+      return envelope(job, audit.id);
     },
 
     async getOutcomeDashboard(userId: string): Promise<HandlerEnvelope<OutcomeDashboard>> {

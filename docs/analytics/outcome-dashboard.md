@@ -31,8 +31,11 @@ Default windows:
 
 - `GET /api/outcomes/dashboard`
 - `POST /api/outcomes/refresh`
+- `POST /api/outcomes/refresh/jobs`
 
 Refreshing a dashboard persists the rollup and emits `outcome_dashboard_refreshed`.
+
+Queued refresh creates an `analytics:refresh_outcome_dashboard` service job. The worker runs the same `@mnemosyne/outcome-core` rollup, saves the dashboard, records the same audit action with job metadata, and returns the quality gates in the job result.
 
 ## Quality Gates
 
@@ -60,5 +63,6 @@ The unit suite verifies:
 - quality gate coverage when all windows exist
 - recommendations when delayed recall evidence is missing
 - API persistence of refreshed dashboards
+- queued analytics refresh jobs and worker persistence
 - export inclusion for outcome dashboards
 - audit event emission for dashboard refresh

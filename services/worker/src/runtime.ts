@@ -1,6 +1,7 @@
 import { createAudioRendererWorkerHandlers, type RenderManifest } from "@mnemosyne/audio-renderer-service";
 import { configFromEnv, createConfiguredStore, seedDemoStore, type ApiRuntimeConfig } from "@mnemosyne/api";
 import { queueNames, type QueueName } from "@mnemosyne/ops-core";
+import { buildOutcomeDashboard } from "@mnemosyne/outcome-core";
 import { createSchedulerWorkerHandlers } from "@mnemosyne/scheduler-service";
 import { createLocalObjectStorage } from "@mnemosyne/storage-core";
 import {
@@ -65,6 +66,7 @@ export async function createWorkerServiceRuntime(
   const handlers = createWorkerHandlerRegistry([
     ...createSchedulerWorkerHandlers(),
     ...createAudioRendererWorkerHandlers(config.audioOutputFormat),
+    ...createOutcomeAnalyticsWorkerHandlers(),
     ...createPrivacyExportWorkerHandlers()
   ]);
   return {
@@ -192,6 +194,55 @@ export function createPrivacyExportWorkerHandlers(): WorkerHandlerDefinition[] {
           sha256: stored.sha256,
           audit_event_id: audit.id,
           schema_version: bundle.schema_version
+        };
+      }
+    }
+  ];
+}
+
+export function createOutcomeAnalyticsWorkerHandlers(): WorkerHandlerDefinition[] {
+  return [
+    {
+      queue: "analytics",
+      type: "refresh_outcome_dashboard",
+      async handle(context) {
+        const userId = payloadString(context.job.payload, "user_id");
+        const generatedAt =
+          typeof context.job.payload.generated_at === "string" ? context.job.payload.generated_at : undefined;
+        const [responses, events, graph] = await Promise.all([
+          context.store.listAssessmentResponses(userId),
+          context.store.listLearningEvents(userId),
+          context.store.getUserGraph(userId)
+        ]);
+        const dashboard = await context.store.saveOutcomeDashboard(
+          buildOutcomeDashboard({
+            userId,
+            responses,
+            events,
+            states: graph.states,
+            generatedAt
+          })
+        );
+        const audit = await context.store.appendAuditEvent({
+          actor_id: userId,
+          action: "outcome_dashboard_refreshed",
+          object_type: "outcome_dashboard",
+          object_id: dashboard.generated_at,
+          payload: {
+            job_id: context.job.id,
+            worker_id: context.workerId,
+            quality_gates: dashboard.quality_gates,
+            learning_velocity: dashboard.learning_velocity,
+            retention_risk: dashboard.retention_risk
+          }
+        });
+        return {
+          user_id: userId,
+          generated_at: dashboard.generated_at,
+          audit_event_id: audit.id,
+          learning_velocity: dashboard.learning_velocity,
+          retention_risk: dashboard.retention_risk,
+          quality_gates: dashboard.quality_gates
         };
       }
     }

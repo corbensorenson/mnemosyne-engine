@@ -123,6 +123,7 @@ export const apiRoutes: ApiRoute[] = [
   { method: "GET", path: "/api/personalization/profile", service: "Technique Lab Service" },
   { method: "GET", path: "/api/outcomes/dashboard", service: "Outcome Analytics Service" },
   { method: "POST", path: "/api/outcomes/refresh", service: "Outcome Analytics Service" },
+  { method: "POST", path: "/api/outcomes/refresh/jobs", service: "Outcome Analytics Worker Service" },
   { method: "POST", path: "/api/jobs", service: "Ops Queue Service" },
   { method: "POST", path: "/api/jobs/:id/start", service: "Ops Queue Service" },
   { method: "POST", path: "/api/jobs/:id/complete", service: "Ops Queue Service" },

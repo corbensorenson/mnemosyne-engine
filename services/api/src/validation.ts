@@ -207,6 +207,17 @@ const queueNameSchema = z.enum([
 ]);
 const jobPrioritySchema = z.enum(["low", "normal", "high", "critical"]);
 
+export const outcomeDashboardJobRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    generatedAt: z.string().optional(),
+    priority: jobPrioritySchema.default("normal"),
+    runAfter: z.string().optional(),
+    idempotencyKey: z.string().min(3).optional(),
+    maxAttempts: z.number().int().positive().max(25).default(3)
+  })
+  .strict();
+
 export const privacyExportJobRequestSchema = z
   .object({
     userId: userIdSchema,

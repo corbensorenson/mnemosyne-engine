@@ -28,8 +28,8 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/content-court`: proposal, voting, AI arbitration, and moderation primitives.
 - `packages/audio-core`: deterministic audio timeline assembly for sparse sleep cue playback.
 - `master-graph`: open master graph layout, seed packs, schemas, policies, and release notes.
-- `services`: API, scheduler, audio-renderer, and worker services wired to the same shared models, including a first-party HTTP adapter with security headers, CSRF checks, rate limits, privacy export/deletion handlers, queued export artifacts, and executable queue workers.
-- `infra/docker`: local production-like Compose stack for Postgres, Redis, MinIO, API, scheduler worker, audio worker, and shared object storage.
+- `services`: API, scheduler, audio-renderer, and worker services wired to the same shared models, including a first-party HTTP adapter with security headers, CSRF checks, rate limits, privacy export/deletion handlers, queued analytics rollups, queued export artifacts, and executable queue workers.
+- `infra/docker`: local production-like Compose stack for Postgres, Redis, MinIO, API, scheduler, audio, analytics, export workers, and shared object storage.
 
 ## Product Principles
 

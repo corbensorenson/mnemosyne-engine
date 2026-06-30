@@ -188,12 +188,26 @@ describe("persistence-backed API handlers", () => {
 
     const latest = unwrap(await handlers.getOutcomeDashboard(demoUser.id));
     expect(latest.generated_at).toBe(generatedAt);
+
+    const queuedRefresh = unwrap(
+      await handlers.queueOutcomeDashboardRefresh({
+        userId: demoUser.id,
+        generatedAt,
+        idempotencyKey: "outcome_refresh_worker_test"
+      })
+    );
+    expect(queuedRefresh.queue).toBe("analytics");
+    expect(queuedRefresh.type).toBe("refresh_outcome_dashboard");
+    expect(queuedRefresh.payload.user_id).toBe(demoUser.id);
+    expect(queuedRefresh.payload.generated_at).toBe(generatedAt);
+
     const exported = unwrap(await handlers.exportUserData({ userId: demoUser.id }));
     expect(exported.outcome_dashboards).toHaveLength(1);
 
     const audits = await store.listAuditEvents(demoUser.id);
     expect(audits).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({ action: "outcome_dashboard_refresh_queued" }),
         expect.objectContaining({
           action: "outcome_dashboard_refreshed",
           payload: expect.objectContaining({
