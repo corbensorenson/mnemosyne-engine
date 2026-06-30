@@ -10,6 +10,10 @@ Mnemosyne treats personal graph data, voice artifacts, sleep data, health data, 
 
 Validated handler: `exportUserData({ userId })`
 
+`POST /api/privacy/export/jobs`
+
+Validated handler: `queuePrivacyExport({ userId })`
+
 The export bundle includes:
 
 - user profile and preferences
@@ -33,6 +37,8 @@ Export schema version: `mnemosyne-export-v0.1`
 
 Wearable tokens are never exported as plaintext. If a token exists, the export can contain only the encrypted token envelope.
 
+Synchronous export returns the bundle directly. Queued export creates an `export:build_privacy_export` service job. The worker builds the same bundle, stores it as a JSON object in the first-party `export` bucket, saves the object manifest, and audits `privacy_export_object_stored`.
+
 ### Delete
 
 `DELETE /api/privacy/data`
@@ -51,6 +57,7 @@ Every deletion returns a count summary and retained deletion audit event id.
 ## Audit Rules
 
 - Export emits `user_data_exported`.
+- Queued export emits `privacy_export_queued`, then `privacy_export_object_stored` when the worker writes the artifact.
 - Deletion emits `user_data_deleted`.
 - Full account deletion anonymizes prior user audit events before writing the retained deletion audit event.
 - Deletion audit payloads include counts, not deleted private content.
@@ -58,6 +65,7 @@ Every deletion returns a count summary and retained deletion audit event id.
 ## Product Requirements
 
 - Export must be available without asking the user to contact support.
+- Large exports must have an asynchronous artifact path backed by first-party object storage.
 - Destructive deletion must require explicit confirmation.
 - Health and wearable deletion must clear local token envelopes and normalized sleep imports.
 - Voice deletion must not erase scored learning outcomes unless the user requests full account deletion.
@@ -65,4 +73,4 @@ Every deletion returns a count summary and retained deletion audit event id.
 
 ## Test Coverage
 
-The persistence-backed API suite verifies export bundle contents, absence of plaintext wearable tokens, voice payload redaction, health-data deletion, account deletion, and anonymized retained audit state.
+The persistence-backed API suite verifies export bundle contents, queued export jobs, absence of plaintext wearable tokens, voice payload redaction, health-data deletion, account deletion, and anonymized retained audit state. Worker-service coverage verifies queued export jobs write readable JSON artifacts to first-party object storage.

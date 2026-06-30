@@ -1214,6 +1214,19 @@ describe("persistence-backed API handlers", () => {
     expect(exported.wearable_sleep_sessions).toHaveLength(1);
     expect(JSON.stringify(exported)).not.toContain("oura_access_demo_token");
 
+    const queuedExport = unwrap(
+      await handlers.queuePrivacyExport({
+        userId: demoUser.id,
+        idempotencyKey: "privacy_export_worker_test"
+      })
+    );
+    expect(queuedExport.queue).toBe("export");
+    expect(queuedExport.type).toBe("build_privacy_export");
+    expect(queuedExport.payload.user_id).toBe(demoUser.id);
+    expect((await store.listAuditEvents(demoUser.id)).map((event) => event.action)).toContain(
+      "privacy_export_queued"
+    );
+
     const voiceDeleted = unwrap(
       await handlers.deleteUserData({
         userId: demoUser.id,

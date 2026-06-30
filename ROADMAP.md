@@ -503,6 +503,7 @@ Current implementation progress:
 - GitHub repository visibility is public and GitHub license detection reports MIT.
 - API privacy flow now supports user data export and scoped deletion for voice, sleep, health, and full account data with explicit confirmation, deletion summaries, and retained audit events.
 - Persistence layer can produce export bundles across user profile, goals, graph state, packets, sessions, events, experiments, social state, and wearable data, while account deletion removes user-owned records and anonymizes retained audit entries.
+- Privacy exports now support asynchronous `export:build_privacy_export` jobs that write readable JSON artifacts to first-party object storage with manifests and audit events.
 - PWA Admin surface includes Privacy Ops cards for export, voice deletion, health deletion, and account deletion alongside the service map and audit log.
 - Security foundation now includes `@mnemosyne/auth-core` for RBAC, object-level authorization, consent-aware analytics access, CSRF verification, session expiry, and API audit trails for auth decisions.
 - Outcome analytics now exposes `GET /api/outcomes/dashboard` and `POST /api/outcomes/refresh` with quality gates for immediate recall, 24h recall, 7d recall, 30d recall, transfer, latency, calibration, screen load, and SleepCue controls.
@@ -510,7 +511,7 @@ Current implementation progress:
 - First-party ops core now models queue names, job lifecycle, idempotency, retries, dead letters, object manifests, encryption/integrity gates, and an ops health dashboard; API routes persist and audit jobs and object manifests.
 - First-party storage core now writes object bytes to local durable storage, validates SHA-256 and size integrity, records sidecar manifests, blocks unsafe keys, and exposes `POST /api/objects/store` through the API runtime.
 - First-party worker core now leases runnable jobs from persistent queues, dispatches registered handlers, records audit events, applies retry/dead-letter transitions, generates daily packets from scheduler jobs, queues sleep audio renders, and stores audio render manifests through object storage.
-- First-party worker service now provides an executable `npm run worker:start` process with env-based memory/Postgres bootstrap, object storage, queue filters, batch/loop modes, scheduler/audio handlers, graceful shutdown, and smoke-tested artifact persistence.
+- First-party worker service now provides an executable `npm run worker:start` process with env-based memory/Postgres bootstrap, object storage, queue filters, batch/loop modes, scheduler/audio/export handlers, graceful shutdown, and smoke-tested artifact persistence.
 - Worker recovery mode now clears stale running locks through first-party job transitions, returns retryable work to the queue, dead-letters exhausted stale jobs, and audits each recovery with the previous lock holder.
 - Local deployment automation now includes a first-party Dockerfile and Compose stack for Postgres, Redis, MinIO, API, scheduler worker, audio worker, health checks, migrations, demo seeding, and a shared durable object-storage volume.
 - Postgres persistence now exposes an atomic runnable-job claim path using row locks and `SKIP LOCKED`, so parallel workers lease only handled, runnable jobs without double-starting the same record.

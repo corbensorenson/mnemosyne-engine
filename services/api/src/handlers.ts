@@ -176,6 +176,7 @@ import {
   pacedReadCompleteRequestSchema,
   pacedReadGenerateRequestSchema,
   privacyDeletionRequestSchema,
+  privacyExportJobRequestSchema,
   privacyExportRequestSchema,
   proposalCreateRequestSchema,
   proposalCommentRequestSchema,
@@ -489,6 +490,14 @@ type UpdatePreferencesRequest = {
 
 type PrivacyExportRequest = {
   userId: string;
+};
+
+type PrivacyExportJobRequest = {
+  userId: string;
+  priority: JobPriority;
+  runAfter?: string;
+  idempotencyKey?: string;
+  maxAttempts: number;
 };
 
 type PrivacyDeletionRequest = {
@@ -895,6 +904,42 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
         }
       });
       return envelope(bundle, audit.id);
+    },
+
+    async queuePrivacyExport(input: unknown): Promise<HandlerEnvelope<JobRecord>> {
+      const request = validateRequest(privacyExportJobRequestSchema, input) as PrivacyExportJobRequest;
+      await requireUser(store, request.userId);
+      const queuedAt = nowIso();
+      const job = await store.saveJob(
+        createOpsJob({
+          queue: "export",
+          type: "build_privacy_export",
+          payload: {
+            user_id: request.userId,
+            requested_at: queuedAt
+          },
+          priority: request.priority,
+          runAfter: request.runAfter,
+          idempotencyKey: request.idempotencyKey ?? `privacy_export:${request.userId}:${queuedAt}`,
+          maxAttempts: request.maxAttempts,
+          auditSubjectId: request.userId,
+          createdAt: queuedAt
+        })
+      );
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "privacy_export_queued",
+        object_type: "service_job",
+        object_id: job.id,
+        payload: {
+          queue: job.queue,
+          type: job.type,
+          priority: job.priority,
+          run_after: job.run_after,
+          idempotency_key: job.idempotency_key
+        }
+      });
+      return envelope(job, audit.id);
     },
 
     async deleteUserData(input: unknown): Promise<HandlerEnvelope<UserDataDeletionSummary>> {

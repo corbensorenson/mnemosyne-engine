@@ -10,6 +10,7 @@ import {
   runWorkerLoop,
   runWorkerOnce,
   type WorkerBatchResult,
+  type WorkerHandlerDefinition,
   type WorkerHandlerRegistry,
   type WorkerRecoveryResult,
   type WorkerRunResult
@@ -63,7 +64,8 @@ export async function createWorkerServiceRuntime(
   if (config.seedDemo) await seedDemoStore(store);
   const handlers = createWorkerHandlerRegistry([
     ...createSchedulerWorkerHandlers(),
-    ...createAudioRendererWorkerHandlers(config.audioOutputFormat)
+    ...createAudioRendererWorkerHandlers(config.audioOutputFormat),
+    ...createPrivacyExportWorkerHandlers()
   ]);
   return {
     config,
@@ -141,6 +143,61 @@ export async function runWorkerServiceFromEnv(
   }
 }
 
+export function createPrivacyExportWorkerHandlers(): WorkerHandlerDefinition[] {
+  return [
+    {
+      queue: "export",
+      type: "build_privacy_export",
+      async handle(context) {
+        if (!context.objectStorage) throw new Error("privacy export worker requires object storage");
+        const userId = payloadString(context.job.payload, "user_id");
+        const bundle = await context.store.exportUserData(userId);
+        const body = JSON.stringify(bundle, null, 2);
+        const stored = await context.objectStorage.putObject({
+          bucket: "export",
+          key: `exports/${safePathSegment(userId)}/${safePathSegment(context.job.id)}.json`,
+          contentType: "application/json",
+          body,
+          ownerId: userId,
+          retentionPolicy: "user_controlled",
+          metadata: {
+            job_id: context.job.id,
+            schema_version: bundle.schema_version,
+            requested_at:
+              typeof context.job.payload.requested_at === "string"
+                ? context.job.payload.requested_at
+                : undefined
+          }
+        });
+        const manifest = await context.store.saveObjectManifest(stored.manifest);
+        const audit = await context.store.appendAuditEvent({
+          actor_id: userId,
+          action: "privacy_export_object_stored",
+          object_type: "object_manifest",
+          object_id: manifest.id,
+          payload: {
+            job_id: context.job.id,
+            bucket: manifest.bucket,
+            key: manifest.key,
+            size_bytes: manifest.size_bytes,
+            sha256: manifest.sha256,
+            schema_version: bundle.schema_version
+          }
+        });
+        return {
+          user_id: userId,
+          object_manifest_id: manifest.id,
+          object_key: manifest.key,
+          bytes_written: stored.bytes_written,
+          sha256: stored.sha256,
+          audit_event_id: audit.id,
+          schema_version: bundle.schema_version
+        };
+      }
+    }
+  ];
+}
+
 function parseWorkerMode(value: string | undefined): WorkerServiceMode {
   if (value === "once" || value === "batch" || value === "loop" || value === "recover") return value;
   return "loop";
@@ -174,4 +231,16 @@ function parseOptionalPositiveInteger(value: string | undefined): number | undef
 function parseAudioOutputFormat(value: string | undefined): RenderManifest["output_format"] {
   if (value === "m4a" || value === "mp3" || value === "wav") return value;
   return "m4a";
+}
+
+function payloadString(payload: Record<string, unknown>, key: string): string {
+  const value = payload[key];
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`privacy export job payload requires ${key}`);
+  }
+  return value;
+}
+
+function safePathSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_");
 }

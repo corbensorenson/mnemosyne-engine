@@ -20,6 +20,7 @@ export const apiRoutes: ApiRoute[] = [
   { method: "POST", path: "/api/auth/authorize", service: "Auth Service" },
   { method: "PATCH", path: "/api/me/preferences", service: "User Service", eventType: "graph_updated" },
   { method: "GET", path: "/api/privacy/export", service: "Privacy Service" },
+  { method: "POST", path: "/api/privacy/export/jobs", service: "Privacy Export Worker Service" },
   { method: "DELETE", path: "/api/privacy/data", service: "Privacy Service" },
   { method: "GET", path: "/api/me/capabilities", service: "Wearable Integration Service" },
   { method: "GET", path: "/api/goals", service: "User Service" },

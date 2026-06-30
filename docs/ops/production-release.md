@@ -126,7 +126,8 @@ The system should preserve audit events even when downstream analytics or person
 - The API HTTP adapter is serving CSP/security headers, CSRF enforcement, bounded JSON parsing, and rate-limit responses in the target environment.
 - Postgres migrations through `0003_job_claim_indexes.sql` are applied and the API is constructed with `createPostgresStore`.
 - Object storage root is mounted durably, and `/api/objects/store` writes bytes, validates SHA-256 integrity, and persists manifests.
-- Scheduler and audio-render workers run `@mnemosyne/worker-core` handlers for `scheduler:generate_daily_packet` and `audio_render:render_sleep_audio`, including audit events, retries, and dead-letter handling.
+- Scheduler, audio-render, and export workers run `@mnemosyne/worker-core` handlers for `scheduler:generate_daily_packet`, `audio_render:render_sleep_audio`, and `export:build_privacy_export`, including audit events, retries, and dead-letter handling.
+- `POST /api/privacy/export/jobs` queues export artifacts, and the export worker writes JSON bundles to the first-party `export` object bucket.
 - Postgres job leasing uses `claimNextRunnableJob` row locks so parallel worker processes do not double-start runnable jobs.
 - `npm run worker:start` is deployed for worker processes with `MNEMOSYNE_WORKER_QUEUES`, `MNEMOSYNE_WORKER_ID`, and `MNEMOSYNE_OBJECT_STORAGE_ROOT` set per environment.
 - A scheduled worker recovery run uses `MNEMOSYNE_WORKER_MODE=recover` to clear stale running locks and audit `job_recovered` or `job_dead_lettered` outcomes.

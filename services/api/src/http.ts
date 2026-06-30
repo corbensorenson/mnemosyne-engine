@@ -221,6 +221,9 @@ function createHttpRoutes(handlers: ReturnType<typeof createApiHandlers>): Route
       (context) => handlers.exportUserData({ userId: requiredQuery(context, "userId") }),
       { rateLimitKey: "privacy_export" }
     ),
+    route("POST", "/api/privacy/export/jobs", (context) => handlers.queuePrivacyExport(context.body), {
+      rateLimitKey: "privacy_export"
+    }),
     route("DELETE", "/api/privacy/data", (context) => handlers.deleteUserData(context.body)),
     route("GET", "/api/me/capabilities", (context) =>
       handlers.getCapabilities(requiredQuery(context, "userId"))

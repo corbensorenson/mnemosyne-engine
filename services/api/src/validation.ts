@@ -206,6 +206,17 @@ const queueNameSchema = z.enum([
   "moderation"
 ]);
 const jobPrioritySchema = z.enum(["low", "normal", "high", "critical"]);
+
+export const privacyExportJobRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    priority: jobPrioritySchema.default("high"),
+    runAfter: z.string().optional(),
+    idempotencyKey: z.string().min(3).optional(),
+    maxAttempts: z.number().int().positive().max(25).default(3)
+  })
+  .strict();
+
 const objectBucketSchema = z.enum([
   "audio",
   "transcript",

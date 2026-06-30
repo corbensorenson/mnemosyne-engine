@@ -38,6 +38,8 @@ The scheduler service registers `scheduler:generate_daily_packet`. The handler l
 
 The audio renderer service registers `audio_render:render_sleep_audio`. The handler builds the deterministic render manifest, stores it as a first-party object when object storage is configured, updates the audio plan render status, and leaves failures for the worker runtime to retry or dead-letter.
 
+The privacy export worker registers `export:build_privacy_export`. The handler loads the user export bundle from `MnemosyneStore`, writes the bundle as JSON through configured object storage, persists the `export` object manifest, and audits the stored artifact.
+
 `@mnemosyne/worker-service` is the executable process wrapper. `npm run worker:start` uses the same `MNEMOSYNE_STORAGE`, `DATABASE_URL`, migration, demo-seed, and object-root settings as the API runtime, plus worker-specific queue, mode, batch, poll, and audio-format settings.
 
 ## API Surface
@@ -48,6 +50,7 @@ The API service now exposes:
 - `POST /api/jobs/:id/start`
 - `POST /api/jobs/:id/complete`
 - `POST /api/jobs/:id/fail`
+- `POST /api/privacy/export/jobs`
 - `POST /api/objects`
 - `POST /api/objects/store`
 - `GET /api/ops/monitoring`
