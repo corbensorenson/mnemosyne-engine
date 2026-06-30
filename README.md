@@ -28,7 +28,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/content-court`: proposal, voting, AI arbitration, and moderation primitives.
 - `packages/audio-core`: deterministic audio timeline assembly for sparse sleep cue playback.
 - `master-graph`: open master graph layout, seed packs, schemas, policies, and release notes.
-- `services`: API, scheduler, and audio-renderer services wired to the same shared models, including a first-party HTTP adapter with security headers, CSRF checks, rate limits, and privacy export/deletion handlers.
+- `services`: API, scheduler, audio-renderer, and worker services wired to the same shared models, including a first-party HTTP adapter with security headers, CSRF checks, rate limits, privacy export/deletion handlers, and executable queue workers.
 
 ## Product Principles
 

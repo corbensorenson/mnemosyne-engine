@@ -14,6 +14,7 @@
     "dev": "npm run dev -w @mnemosyne/web",
     "api:dev": "npm run start -w @mnemosyne/api",
     "api:migrate": "npm run migrate -w @mnemosyne/api",
+    "worker:start": "npm run start -w @mnemosyne/worker-service",
     "build": "npm run build -w @mnemosyne/web",
     "preview": "npm run preview -w @mnemosyne/web",
     "typecheck": "tsc -p tsconfig.json --noEmit",
