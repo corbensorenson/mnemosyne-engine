@@ -8,7 +8,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 
 - `apps/web`: installable PWA shell with the core product surfaces: Today, Graph, Morning Forge, Tutor, GraphFeed, WalkMode, Evening Lock-In, Sleep, Stats, Social, Wear, Packs, Content Court, Lab, Workbench with offline sync recovery, and Admin with incident command plus privacy operations.
 - `packages/schema`: shared Zod schemas and TypeScript types for graph, user state, sessions, sleep cues, content court, experiments, packs, videos, and events.
-- `packages/accessibility-core`: first-party PWA accessibility release gates for keyboard, focus, labels, reduced motion, contrast, text scaling, and overflow.
+- `packages/accessibility-core`: first-party PWA accessibility release gates for keyboard, focus, labels, reduced motion, contrast, text scaling, overflow, speech controls, and quiet fallback.
 - `packages/auth-core`: session issuance, hashed tokens, CSRF checks, RBAC, consent gates, and object-level authorization.
 - `packages/media-core`: first-party Media Session plans for lock-screen WalkMode, Paced Read, and SleepCue controls.
 - `packages/notification-core`: first-party learning reminder planning for morning, evening, phone-down, and SleepCue recall prompts.

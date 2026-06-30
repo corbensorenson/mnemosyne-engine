@@ -54,4 +54,35 @@ describe("accessibility-core", () => {
       expect.arrayContaining(["Add keyboard paths for walk.", "Fix phone-width horizontal overflow in walk."])
     );
   });
+
+  it("gates audio-first surfaces on speech stop, quiet fallback, and privacy controls", () => {
+    const broken = defaultPwaAccessibilitySurfaces().map((surface) =>
+      surface.surface_id === "lock_in"
+        ? {
+            ...surface,
+            speech_stop_controls: false,
+            quiet_environment_fallback: false,
+            audio_privacy_controls: false
+          }
+        : surface
+    );
+
+    const gate = buildAccessibilityReleaseGate({ surfaces: broken });
+
+    expect(gate.passed).toBe(false);
+    expect(gate.failing_surface_ids).toEqual(["lock_in"]);
+    expect(gate.summaries.find((summary) => summary.criterion === "speech_stop_controls")).toEqual(
+      expect.objectContaining({
+        passed: false,
+        failing_surface_ids: ["lock_in"]
+      })
+    );
+    expect(gate.remediation).toEqual(
+      expect.arrayContaining([
+        "Add immediate speech stop controls for lock_in.",
+        "Add quiet-environment fallback text for lock_in.",
+        "Show audio privacy and transcript-retention controls for lock_in."
+      ])
+    );
+  });
 });

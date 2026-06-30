@@ -9,7 +9,11 @@ export const accessibilityCriteria = [
   "reduced_motion",
   "contrast_checked",
   "text_scaling_checked",
-  "no_horizontal_overflow"
+  "no_horizontal_overflow",
+  "speech_plan_controls",
+  "speech_stop_controls",
+  "quiet_environment_fallback",
+  "audio_privacy_controls"
 ] as const;
 
 export type AccessibilityCriterion = (typeof accessibilityCriteria)[number];
@@ -53,8 +57,20 @@ export function defaultPwaAccessibilitySurfaces(): AccessibilitySurfaceCheck[] {
     ]),
     surface("today", "Today", "/?tab=today", ["daily packet refresh", "session launch"]),
     surface("graph", "Graph", "/?tab=graph", ["node selection", "path inspection"]),
-    surface("forge", "Morning Forge", "/?tab=forge", ["answer entry", "voice/text mode", "confidence"]),
-    surface("tutor", "Tutor", "/?tab=tutor", ["mode selection", "answer entry", "release-gate feedback"]),
+    surface("forge", "Morning Forge", "/?tab=forge", [
+      "answer entry",
+      "voice/text mode",
+      "confidence",
+      "speech plan",
+      "quiet fallback"
+    ]),
+    surface("tutor", "Tutor", "/?tab=tutor", [
+      "mode selection",
+      "answer entry",
+      "release-gate feedback",
+      "speech plan",
+      "quiet fallback"
+    ]),
     surface("cinema", "GraphFeed", "/?tab=cinema", ["bounded video choice", "post-watch recall"]),
     surface("paced_read", "Paced Read", "/?tab=pacedRead", [
       "WPM control",
@@ -62,9 +78,26 @@ export function defaultPwaAccessibilitySurfaces(): AccessibilitySurfaceCheck[] {
       "rewind",
       "completion gate"
     ]),
-    surface("walk", "WalkMode", "/?tab=walk", ["screen-off prompt", "voice/text recall", "skip"]),
-    surface("lock_in", "Evening Lock-In", "/?tab=lock", ["phone-down checklist", "audio controls"]),
-    surface("sleep", "Sleep", "/?tab=sleep", ["sleep cue playback", "stop condition", "recall comparison"]),
+    surface("walk", "WalkMode", "/?tab=walk", [
+      "screen-off prompt",
+      "voice/text recall",
+      "skip",
+      "speech repeat",
+      "stop speech"
+    ]),
+    surface("lock_in", "Evening Lock-In", "/?tab=lock", [
+      "phone-down checklist",
+      "audio controls",
+      "speech plan",
+      "quiet fallback"
+    ]),
+    surface("sleep", "Sleep", "/?tab=sleep", [
+      "sleep cue playback",
+      "stop condition",
+      "recall comparison",
+      "cue preview speech",
+      "quiet fallback"
+    ]),
     surface("stats", "Stats", "/?tab=stats", ["outcome inspection", "screen-load review"]),
     surface("social", "Social", "/?tab=social", ["challenge review", "badge inspection"]),
     surface("wearables", "Wearables", "/?tab=wearables", ["provider status", "sync", "revoke"]),
@@ -141,10 +174,15 @@ function surface(
     contrast_checked: true,
     text_scaling_checked: true,
     no_horizontal_overflow: true,
+    speech_plan_controls: true,
+    speech_stop_controls: true,
+    quiet_environment_fallback: true,
+    audio_privacy_controls: true,
     notes: [
       "Uses semantic buttons and form controls.",
       "Icon-only controls expose title or aria-label text.",
-      "Responsive layout collapses below tablet and phone widths."
+      "Responsive layout collapses below tablet and phone widths.",
+      "Audio-first workflows expose local speech controls, stop controls, and quiet fallback text."
     ]
   };
 }
@@ -173,6 +211,14 @@ function remediationFor(summaries: AccessibilityCriterionSummary[]): string[] {
         return `Verify text scaling in ${surfaces}.`;
       case "no_horizontal_overflow":
         return `Fix phone-width horizontal overflow in ${surfaces}.`;
+      case "speech_plan_controls":
+        return `Add local speech plan play controls for ${surfaces}.`;
+      case "speech_stop_controls":
+        return `Add immediate speech stop controls for ${surfaces}.`;
+      case "quiet_environment_fallback":
+        return `Add quiet-environment fallback text for ${surfaces}.`;
+      case "audio_privacy_controls":
+        return `Show audio privacy and transcript-retention controls for ${surfaces}.`;
     }
   });
 }
