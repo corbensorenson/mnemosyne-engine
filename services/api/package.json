@@ -4,8 +4,12 @@
   "type": "module",
   "license": "MIT",
   "dependencies": {
+    "@mnemosyne/assessment-core": "*",
+    "@mnemosyne/demo-fixtures": "*",
+    "@mnemosyne/persistence-core": "*",
     "@mnemosyne/schema": "*",
-    "@mnemosyne/scheduler-core": "*"
+    "@mnemosyne/scheduler-core": "*",
+    "@mnemosyne/shared-utils": "*"
   },
   "exports": {
     ".": {

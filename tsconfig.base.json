@@ -27,6 +27,7 @@
       "@mnemosyne/flashread-core": ["packages/flashread-core/src/index.ts"],
       "@mnemosyne/technique-lab": ["packages/technique-lab/src/index.ts"],
       "@mnemosyne/content-court": ["packages/content-court/src/index.ts"],
+      "@mnemosyne/persistence-core": ["packages/persistence-core/src/index.ts"],
       "@mnemosyne/audio-core": ["packages/audio-core/src/index.ts"],
       "@mnemosyne/scheduler-core": ["packages/scheduler-core/src/index.ts"],
       "@mnemosyne/demo-fixtures": ["packages/demo-fixtures/src/index.ts"]

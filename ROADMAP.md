@@ -227,12 +227,13 @@ Goal: replace demo-only state with durable data.
 
 Deliverables:
 
-- Postgres schema and migrations.
-- API service with route handlers for users, goals, graph, daily packets, sessions, assessments, sleep, videos, packs, and proposals.
-- Shared schema validation at API boundaries.
-- Event log and audit log tables.
-- Seed loader for master graph packs.
-- Local Docker dev environment.
+- [x] Postgres schema and migrations.
+- [x] API service with route handlers for users, goals, graph, daily packets, sessions, assessments, packs, and proposals.
+- [ ] API service route handlers for sleep, videos, wearables, creator ingestion, and moderation actions.
+- [ ] Shared schema validation at API boundaries.
+- [x] Event log and audit log tables.
+- [x] Seed loader for master graph packs.
+- [x] Local Docker dev environment.
 
 Exit criteria:
 

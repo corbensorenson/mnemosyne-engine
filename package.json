@@ -14,7 +14,7 @@
     "dev": "npm run dev -w @mnemosyne/web",
     "build": "npm run build -w @mnemosyne/web",
     "preview": "npm run preview -w @mnemosyne/web",
-    "typecheck": "npm run typecheck -w @mnemosyne/web",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
