@@ -70,6 +70,19 @@ import {
   type ObjectManifest,
   type OpsMonitoringDashboard
 } from "@mnemosyne/ops-core";
+import {
+  createOfflineQueueItem,
+  markOfflineItemSynced,
+  markOfflineItemSyncing,
+  recoverStaleOfflineItems,
+  summarizeOfflineQueue,
+  upsertOfflineItem,
+  type OfflineActionType,
+  type OfflineHttpMethod,
+  type OfflinePayloadScope,
+  type OfflineQueueItem,
+  type OfflineQueueSummary
+} from "@mnemosyne/offline-core";
 import { buildDailyLearningPacket } from "@mnemosyne/scheduler-core";
 import type {
   AssessmentItem,
@@ -127,6 +140,7 @@ import {
   emptyState,
   initialUserStates
 } from "@mnemosyne/demo-fixtures";
+import { clearSyncedOfflineQueueItems, listOfflineQueueItems, putOfflineQueueItem } from "./offlineQueue";
 
 type TabId =
   | "onboarding"
@@ -215,6 +229,8 @@ export default function App() {
   const [lastResponse, setLastResponse] = useState<AssessmentResponse | null>(null);
   const [repairTips, setRepairTips] = useState<string[]>([]);
   const [offlineCacheStatus, setOfflineCacheStatus] = useState("pending");
+  const [offlineQueue, setOfflineQueue] = useState<OfflineQueueItem[]>([]);
+  const [offlineSyncStatus, setOfflineSyncStatus] = useState("indexeddb loading");
   const [cinemaVideoId, setCinemaVideoId] = useState(demoMasterGraph.videos[0]?.id ?? "");
   const [cinemaAnswer, setCinemaAnswer] = useState("");
   const [cinemaConfidence, setCinemaConfidence] = useState(0.62);
@@ -285,6 +301,7 @@ export default function App() {
   ]);
 
   const userGraph = useMemo(() => ({ userId: demoUser.id, states }), [states]);
+  const offlineQueueSummary = useMemo(() => summarizeOfflineQueue(offlineQueue), [offlineQueue]);
   const baselineConstraints = useMemo(() => personalizeSessionConstraints(readiness), [readiness]);
   const baseScheduled = useMemo(
     () =>
@@ -655,20 +672,42 @@ export default function App() {
   );
 
   useEffect(() => {
+    let active = true;
+    listOfflineQueueItems()
+      .then((items) => {
+        if (!active) return;
+        setOfflineQueue((current) => items.reduce((next, item) => upsertOfflineItem(next, item), current));
+        setOfflineSyncStatus(items.length > 0 ? `${items.length} stored actions` : "indexeddb ready");
+      })
+      .catch(() => {
+        if (active) setOfflineSyncStatus("memory fallback");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const cachedAt = new Date().toISOString();
+    const payload = {
+      cached_at: cachedAt,
+      packet_id: scheduled.packet.id,
+      date: scheduled.packet.date,
+      user_id: scheduled.packet.user_id,
+      morning_items: scheduled.packet.morning.cold_retrieval_items.length,
+      walk_packets: scheduled.packet.walk_packets.length,
+      sleep_audio_plan_id: scheduled.audioPlan.id
+    };
     try {
-      window.localStorage.setItem(
-        "mnemosyne.dailyPacket.v1",
-        JSON.stringify({
-          cached_at: new Date().toISOString(),
-          packet_id: scheduled.packet.id,
-          date: scheduled.packet.date,
-          user_id: scheduled.packet.user_id,
-          morning_items: scheduled.packet.morning.cold_retrieval_items.length,
-          walk_packets: scheduled.packet.walk_packets.length,
-          sleep_audio_plan_id: scheduled.audioPlan.id
-        })
-      );
+      window.localStorage.setItem("mnemosyne.dailyPacket.v1", JSON.stringify(payload));
       setOfflineCacheStatus("ready");
+      stageOfflineAction({
+        actionType: "daily_packet_cache",
+        endpoint: "/api/daily-packet/today",
+        method: "GET",
+        payload,
+        idempotencyKey: `${demoUser.id}:daily_packet_cache:${scheduled.packet.id}`
+      });
     } catch {
       setOfflineCacheStatus("unavailable");
     }
@@ -695,6 +734,75 @@ export default function App() {
     }, delayMs);
     return () => window.clearTimeout(timer);
   }, [pacedReadChunkIndex, pacedReadPlan, pacedReadPlaying]);
+
+  function stageOfflineAction(input: {
+    actionType: OfflineActionType;
+    endpoint: string;
+    method: OfflineHttpMethod;
+    payload: Record<string, unknown>;
+    payloadScope?: OfflinePayloadScope;
+    idempotencyKey: string;
+  }) {
+    const item = createOfflineQueueItem({
+      userId: demoUser.id,
+      actionType: input.actionType,
+      endpoint: input.endpoint,
+      method: input.method,
+      payload: input.payload,
+      payloadScope: input.payloadScope,
+      idempotencyKey: input.idempotencyKey
+    });
+    setOfflineQueue((current) => upsertOfflineItem(current, item));
+    void putOfflineQueueItem(item)
+      .then(() => setOfflineSyncStatus(`${input.actionType} queued`))
+      .catch(() => setOfflineSyncStatus("memory fallback"));
+  }
+
+  function syncQueuedOfflineActions() {
+    const syncedAt = nowIso();
+    let syncedCount = 0;
+    const next = offlineQueue.map((item) => {
+      if ((item.status !== "queued" && item.status !== "failed") || item.attempts >= item.max_attempts) {
+        return item;
+      }
+      syncedCount += 1;
+      return markOfflineItemSynced(markOfflineItemSyncing(item, "pwa-local-sync", syncedAt), {
+        statusCode: 202,
+        receiptId: createId("offline_receipt", `${item.id}:${syncedAt}`),
+        syncedAt
+      });
+    });
+    setOfflineQueue(next);
+    persistOfflineQueue(next);
+    setOfflineSyncStatus(`synced ${syncedCount} actions`);
+    setEventLog((current) => [`offline sync flushed: ${syncedCount}`, ...current].slice(0, 6));
+  }
+
+  function recoverOfflineQueue() {
+    const recoveredAt = nowIso();
+    const next = recoverStaleOfflineItems(offlineQueue, { at: recoveredAt, staleAfterMinutes: 15 });
+    const recoveredCount = next.filter(
+      (item, index) => item.updated_at !== offlineQueue[index]?.updated_at
+    ).length;
+    setOfflineQueue(next);
+    persistOfflineQueue(next);
+    setOfflineSyncStatus(`recovered ${recoveredCount} actions`);
+    setEventLog((current) => [`offline recovery checked: ${recoveredCount}`, ...current].slice(0, 6));
+  }
+
+  function clearSyncedOfflineActions() {
+    const next = offlineQueue.filter((item) => item.status !== "synced" && item.status !== "discarded");
+    setOfflineQueue(next);
+    void clearSyncedOfflineQueueItems()
+      .then(() => setOfflineSyncStatus("synced actions cleared"))
+      .catch(() => setOfflineSyncStatus("memory fallback"));
+  }
+
+  function persistOfflineQueue(items: OfflineQueueItem[]) {
+    void Promise.all(items.map((item) => putOfflineQueueItem(item))).catch(() =>
+      setOfflineSyncStatus("memory fallback")
+    );
+  }
 
   function submitAnswer() {
     const prompt = activeForgePrompt;
@@ -727,6 +835,19 @@ export default function App() {
         ...current
       ].slice(0, 6)
     );
+    stageOfflineAction({
+      actionType: "morning_forge_response",
+      endpoint: "/api/morning-forge/complete",
+      method: "POST",
+      payload: {
+        daily_packet_id: scheduled.packet.id,
+        answer_mode: answerMode,
+        transcript_retention: answerMode === "voice" ? "transcript_only" : "none",
+        response: assessmentResponseSyncPayload(response)
+      },
+      payloadScope: answerMode === "voice" ? "voice" : "learning",
+      idempotencyKey: `${demoUser.id}:morning_forge:${prompt.id}:${response.id}`
+    });
     setAnswer("");
     setForgeIndex((index) => (forgeQueue.length > 0 ? (index + 1) % forgeQueue.length : index));
     setForgeStartedAt(Date.now());
@@ -796,6 +917,20 @@ export default function App() {
         })
       );
       setCinemaCacheStatus("ready");
+      stageOfflineAction({
+        actionType: "graphfeed_recall",
+        endpoint: `/api/watch-packets/${activeWatchPacket?.id ?? "local"}/complete`,
+        method: "POST",
+        payload: {
+          watch_packet_id: activeWatchPacket?.id,
+          video_id: activeCinemaVideo.id,
+          recall_passed: recallPassed,
+          graph_progress_awarded: recallPassed,
+          screen_minutes: screenMinutes,
+          response: assessmentResponseSyncPayload(response)
+        },
+        idempotencyKey: `${demoUser.id}:graphfeed:${activeCinemaVideo.id}:${completedAt}`
+      });
     } catch {
       setCinemaCacheStatus("unavailable");
     }
@@ -915,6 +1050,24 @@ export default function App() {
         })
       );
       setWalkCacheStatus("ready");
+      stageOfflineAction({
+        actionType: "walk_mode_completion",
+        endpoint: "/api/walk-mode/complete",
+        method: "POST",
+        payload: {
+          walk_packet_id: activeWalkPacket?.id,
+          prompts_answered: walkResponses.length,
+          skipped_prompt_ids: walkSkippedIds,
+          confusing_prompt_ids: walkConfusingIds,
+          commands: walkCommandLog,
+          voice_used: walkAnswerMode === "voice" || walkCommandLog.length > 0,
+          screen_locked: true,
+          transcript_retention: walkTranscriptDeleted ? "deleted" : "transcript_only",
+          responses: walkResponses.map(assessmentResponseSyncPayload)
+        },
+        payloadScope: walkAnswerMode === "voice" ? "voice" : "learning",
+        idempotencyKey: `${demoUser.id}:walk_mode:${activeWalkPacket?.id ?? "local"}:${completedAt}`
+      });
     } catch {
       setWalkCacheStatus("unavailable");
     }
@@ -964,7 +1117,7 @@ export default function App() {
     setStates((current) => applyPacedReadResultToLocalStates(current, activePacedReadAsset, result));
     try {
       window.localStorage.setItem(
-        "mnemosyne.flashEngine.v1",
+        "mnemosyne.pacedRead.v1",
         JSON.stringify({
           cached_at: completedAt,
           user_id: demoUser.id,
@@ -983,6 +1136,24 @@ export default function App() {
         })
       );
       setPacedReadCacheStatus("ready");
+      stageOfflineAction({
+        actionType: "paced_read_completion",
+        endpoint: "/api/paced-read/complete",
+        method: "POST",
+        payload: {
+          asset_id: activePacedReadAsset.id,
+          paced_read_session_id: pacedReadPlan.id,
+          raw_wpm: result.rawWpm,
+          effective_wpm: result.effectiveWpm,
+          comprehension_score: result.comprehensionScore,
+          retention_score: result.retentionScore,
+          strain_rating: result.strainRating,
+          screen_load_score: result.screenLoadScore,
+          advance_allowed: result.advanceAllowed,
+          concept_ids: activePacedReadAsset.concept_ids
+        },
+        idempotencyKey: `${demoUser.id}:paced_read:${pacedReadPlan.id}:${completedAt}`
+      });
     } catch {
       setPacedReadCacheStatus("unavailable");
     }
@@ -1074,6 +1245,22 @@ export default function App() {
         })
       );
       setLockSleepCacheStatus("ready");
+      stageOfflineAction({
+        actionType: "evening_lock_in_completion",
+        endpoint: "/api/evening-lock-in/complete",
+        method: "POST",
+        payload: {
+          daily_packet_id: scheduled.packet.id,
+          completed_responses: lockResponses,
+          phone_down_ready: phoneDownReady,
+          bound_cue_ids: selectedBoundCueIds,
+          bound_concept_ids: boundCues.map((cue) => cue.concept_id),
+          sleep_packet_id: lockSleepResult.packet.id,
+          audio_plan_id: lockSleepResult.audioPlan.id
+        },
+        payloadScope: lockAnswerMode === "voice" ? "voice" : "sleep",
+        idempotencyKey: `${demoUser.id}:evening_lock_in:${scheduled.packet.id}:${completedAt}`
+      });
     } catch {
       setLockSleepCacheStatus("unavailable");
     }
@@ -1132,6 +1319,22 @@ export default function App() {
         })
       );
       setSleepCacheStatus("playback ready");
+      stageOfflineAction({
+        actionType: "sleep_playback_event",
+        endpoint: "/api/sleep/playback/events",
+        method: "POST",
+        payload: {
+          sleep_packet_id: scheduled.packet.sleep.id,
+          audio_plan_id: scheduled.packet.sleep.audio_plan_id,
+          playback_started_at: sleepPlaybackStartedAt ?? loggedAt,
+          playback_ended_at: loggedAt,
+          stop_condition: sleepStopCondition,
+          sleep_disruption_reported: sleepDisruptionReported,
+          cue_events: cueEvents
+        },
+        payloadScope: "sleep",
+        idempotencyKey: `${demoUser.id}:sleep_playback:${scheduled.packet.sleep.id}:${loggedAt}`
+      });
     } catch {
       setSleepCacheStatus("unavailable");
     }
@@ -1221,6 +1424,23 @@ export default function App() {
         })
       );
       setSleepCacheStatus("recall ready");
+      stageOfflineAction({
+        actionType: "sleep_recall_completion",
+        endpoint: "/api/sleep/recall/complete",
+        method: "POST",
+        payload: {
+          sleep_packet_id: scheduled.packet.sleep.id,
+          controls_revealed: true,
+          cued_concept_ids: sleepCuedConceptIds,
+          control_concept_ids: sleepControlConceptIds,
+          average_cued_correctness: cuedScore,
+          average_control_correctness: controlScore,
+          cue_gain_delta: cueGainDelta,
+          responses: [...scoredCued, ...scoredControls].map(assessmentResponseSyncPayload)
+        },
+        payloadScope: "sleep",
+        idempotencyKey: `${demoUser.id}:sleep_recall:${scheduled.packet.sleep.id}:${completedAt}`
+      });
     } catch {
       setSleepCacheStatus("unavailable");
     }
@@ -1292,6 +1512,20 @@ export default function App() {
     setWearableConnectionStatus((status) => (status === "revoked" ? "connected" : status));
     setWearableSleep(sampleWearableSleep);
     setReadiness((current) => readinessFromWearableSleep(sampleWearableSleep, current));
+    stageOfflineAction({
+      actionType: "wearable_sleep_sync",
+      endpoint: "/api/wearables/sync",
+      method: "POST",
+      payload: {
+        provider: sampleWearableSleep.provider,
+        external_id: sampleWearableSleep.external_id,
+        sleep_quality: sampleWearableSleep.sleep_quality,
+        readiness_delta: sampleWearableSleep.readiness_delta,
+        stage_minutes: sampleWearableSleep.stage_minutes
+      },
+      payloadScope: "health",
+      idempotencyKey: `${demoUser.id}:wearable_sleep:${sampleWearableSleep.external_id}`
+    });
     setEventLog((current) =>
       [
         `wearable sleep synced: ${Math.round(sampleWearableSleep.sleep_quality * 100)}% quality`,
@@ -1512,7 +1746,16 @@ export default function App() {
         rollups={experimentRollups}
       />
     ),
-    workbench: <WorkbenchView />,
+    workbench: (
+      <WorkbenchView
+        offlineSummary={offlineQueueSummary}
+        offlineQueue={offlineQueue}
+        offlineSyncStatus={offlineSyncStatus}
+        onSyncOfflineQueue={syncQueuedOfflineActions}
+        onRecoverOfflineQueue={recoverOfflineQueue}
+        onClearSyncedOfflineQueue={clearSyncedOfflineActions}
+      />
+    ),
     admin: (
       <AdminView
         eventLog={eventLog}
@@ -4174,7 +4417,22 @@ function safePathSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-function WorkbenchView() {
+function WorkbenchView({
+  offlineSummary,
+  offlineQueue,
+  offlineSyncStatus,
+  onSyncOfflineQueue,
+  onRecoverOfflineQueue,
+  onClearSyncedOfflineQueue
+}: {
+  offlineSummary: OfflineQueueSummary;
+  offlineQueue: OfflineQueueItem[];
+  offlineSyncStatus: string;
+  onSyncOfflineQueue: () => void;
+  onRecoverOfflineQueue: () => void;
+  onClearSyncedOfflineQueue: () => void;
+}) {
+  const visibleOfflineItems = offlineQueue.slice(0, 6);
   return (
     <div className="page-grid workbench-grid">
       <section className="metric-strip">
@@ -4182,6 +4440,43 @@ function WorkbenchView() {
         <MetricTile icon={CircleGauge} label="Frontier" value="active" tone="amber" />
         <MetricTile icon={Activity} label="Blocked" value="hold" tone="coral" />
         <MetricTile icon={Moon} label="Sleep" value="safe" tone="indigo" />
+      </section>
+
+      <section className="panel offline-ledger-panel">
+        <PanelTitle icon={Unplug} title="Offline Sync Ledger" meta={offlineSyncStatus} />
+        <div className="case-grid">
+          <MiniStat label="Queued" value={`${offlineSummary.queued}`} />
+          <MiniStat label="Synced" value={`${offlineSummary.synced}`} />
+          <MiniStat label="Retryable" value={`${offlineSummary.retryable}`} />
+          <MiniStat label="Stale" value={`${offlineSummary.stale_syncing_item_ids.length}`} />
+        </div>
+        <div className="action-row">
+          <button className="command primary" onClick={onSyncOfflineQueue}>
+            <Radio size={18} />
+            Sync
+          </button>
+          <button className="command" onClick={onRecoverOfflineQueue}>
+            <RefreshCcw size={18} />
+            Recover
+          </button>
+          <button className="command" onClick={onClearSyncedOfflineQueue}>
+            <ClipboardCheck size={18} />
+            Clear Synced
+          </button>
+        </div>
+        <div className="object-list">
+          {visibleOfflineItems.length > 0 ? (
+            visibleOfflineItems.map((item) => (
+              <ObjectLine
+                key={item.id}
+                label={item.status}
+                value={`${item.action_type} -> ${item.endpoint}`}
+              />
+            ))
+          ) : (
+            <ObjectLine label="queue" value="empty" />
+          )}
+        </div>
       </section>
 
       <section className="panel">
@@ -4564,6 +4859,22 @@ function uniqueResponses(responses: Array<AssessmentResponse | null | undefined>
         .map((response) => [response.id, response])
     ).values()
   ];
+}
+
+function assessmentResponseSyncPayload(response: AssessmentResponse): Record<string, unknown> {
+  return {
+    id: response.id,
+    assessment_item_id: response.assessment_item_id,
+    concept_ids: response.graph_updates.map((update) => update.concept_id),
+    correctness_score: response.correctness_score,
+    semantic_score: response.semantic_score,
+    confidence_reported: response.confidence_reported,
+    latency_ms: response.latency_ms,
+    hint_count: response.hint_count,
+    retries: response.retries,
+    graph_updates: response.graph_updates,
+    failure_modes: response.detected_failure_modes
+  };
 }
 
 function uniqueBadgeTemplates(templates: typeof outcomeBadgeTemplates): typeof outcomeBadgeTemplates {

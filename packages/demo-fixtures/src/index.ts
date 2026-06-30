@@ -121,7 +121,7 @@ function concept(input: {
   cue: string;
   successors?: readonly string[];
   prerequisites?: readonly string[];
-  flashText?: string;
+  pacedReadText?: string;
 }): ConceptNode {
   const prereqEdges = (input.prerequisites ?? []).map((from) => edge(from, input.id));
   const successorEdges = (input.successors ?? []).map((to) => edge(input.id, to));
@@ -130,7 +130,8 @@ function concept(input: {
     `paced_read_${input.id}`,
     `${input.title} recap`,
     [input.id],
-    input.flashText ?? `${input.title}: ${input.definition} Retrieve it, apply it, and name when it breaks.`
+    input.pacedReadText ??
+      `${input.title}: ${input.definition} Retrieve it, apply it, and name when it breaks.`
   );
   return {
     id: input.id,

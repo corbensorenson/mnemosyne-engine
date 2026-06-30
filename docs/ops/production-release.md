@@ -124,6 +124,12 @@ The system should preserve audit events even when downstream analytics or person
 
 `GET /api/reliability/release-gate` returns the first-party reliability release report and audits `reliability_release_gate_checked`. The underlying `@mnemosyne/reliability-core` evaluator covers target request rate, concurrency, p95/p99 latency, error and timeout rates, audit coverage, integrity checks, graph replay verification, and queue-drain budgets for the core learning journeys. See [`reliability-release-gate.md`](./reliability-release-gate.md).
 
+## Offline Sync Gate
+
+Before production release, the PWA must register its service worker, expose a valid manifest, persist learning actions to IndexedDB, attach idempotency keys, avoid secrets in queued payloads, recover stale sync locks, and cover the core daily actions: packet cache, Morning Forge, GraphFeed, Paced Read, WalkMode, Evening Lock-In, SleepCue playback, and SleepCue recall.
+
+`@mnemosyne/offline-core` provides `buildOfflineReleaseGate` for deterministic release checks. The Workbench surface exposes queue state and recovery controls. See [`../offline/pwa-sync.md`](../offline/pwa-sync.md).
+
 ## Release Checklist
 
 - `main` is green.
@@ -133,6 +139,7 @@ The system should preserve audit events even when downstream analytics or person
 - `/api/security/release-gate` passes for the target environment.
 - `/api/accessibility/release-gate` passes for the target environment.
 - `/api/reliability/release-gate` passes for the target environment.
+- `buildOfflineReleaseGate` passes with service worker, manifest, IndexedDB, idempotency, privacy-safe payload, and stale-lock recovery checks.
 - `POST /api/ops/incidents/reports` can create a `mnemosyne-incident-response-v0.1` artifact from the target environment monitoring snapshot.
 - The API HTTP adapter is serving CSP/security headers, CSRF enforcement, bounded JSON parsing, and rate-limit responses in the target environment.
 - Postgres migrations through `0003_job_claim_indexes.sql` are applied and the API is constructed with `createPostgresStore`.

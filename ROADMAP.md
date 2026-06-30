@@ -36,6 +36,7 @@ The repository already has the first foundation:
 - First-party tutor core for rubric semantics, tutor modes, feedback safety gates, and compatible assessment events.
 - First-party security core for CSP headers, rate-limit policies, high-stakes labels, and audit-safety release gates.
 - First-party reliability core for load, latency, error-budget, audit-coverage, integrity, replay, and worker-drain release gates.
+- First-party offline core for PWA action queueing, idempotent sync, stale-lock recovery, and privacy-safe offline release gates.
 - Seed master graph layout, schemas, packs, arbiter policy, source rubric, and release notes.
 - API, scheduler, and audio-renderer service skeletons.
 - First-party ops primitives for queues, job lifecycle, object manifests, and release health gates.
@@ -288,6 +289,7 @@ Current implementation progress:
 - API Morning Forge completion flow scores text/voice-compatible responses, captures confidence, latency, screen minutes, updates graph states, persists assessment responses, completes the session, and records audit/event trails with repair recommendations.
 - API graph replay now exposes `POST /api/graph/user/replay`, rebuilding touched personal graph state from persisted assessment responses plus video, paced-read, and SleepCue recall events, with dry-run support and `user_graph_replayed` audit events.
 - PWA Morning Forge session surface now queues cold retrieval and transfer prompts, captures text or voice-mode answers, tracks confidence and latency, shows repair recommendations, previews frontier/horizon/cue targets, and writes a compact offline packet cache.
+- PWA offline sync now stages daily packets, Morning Forge, GraphFeed, first-party Paced Read, WalkMode, Evening Lock-In, SleepCue playback/recall, and wearable sleep sync actions in an IndexedDB-backed queue with idempotency keys, privacy scopes, stale-lock recovery, and Workbench controls.
 
 Exit criteria:
 

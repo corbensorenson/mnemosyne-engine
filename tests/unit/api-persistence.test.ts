@@ -1027,7 +1027,7 @@ describe("persistence-backed API handlers", () => {
     expect(pacedRead.plan.estimated_effective_wpm).toBeLessThan(pacedRead.plan.raw_wpm);
     expect(pacedRead.summary.comprehension_gate).toBe(pacedReadAsset.comprehension_gate);
 
-    const flashBeforeState = (await store.getUserGraph(demoUser.id)).states.find(
+    const pacedReadBeforeState = (await store.getUserGraph(demoUser.id)).states.find(
       (state) => state.concept_id === "attention_qkv"
     );
     const completedPacedRead = unwrap(
@@ -1048,10 +1048,10 @@ describe("persistence-backed API handlers", () => {
     expect(completedPacedRead.summary.effective_wpm).toBeLessThan(completedPacedRead.summary.raw_wpm);
     expect(completedPacedRead.summary.screen_minutes).toBe(3);
     expect(completedPacedRead.updated_states.map((state) => state.concept_id)).toContain("attention_qkv");
-    const flashAfterState = (await store.getUserGraph(demoUser.id)).states.find(
+    const pacedReadAfterState = (await store.getUserGraph(demoUser.id)).states.find(
       (state) => state.concept_id === "attention_qkv"
     );
-    expect(flashAfterState?.times_seen).toBeGreaterThan(flashBeforeState?.times_seen ?? 0);
+    expect(pacedReadAfterState?.times_seen).toBeGreaterThan(pacedReadBeforeState?.times_seen ?? 0);
 
     const sleep = unwrap(await handlers.generateSleepPacket({ userId: demoUser.id, conservative: true }));
     expect(sleep.summary.controls).toBeGreaterThan(0);
