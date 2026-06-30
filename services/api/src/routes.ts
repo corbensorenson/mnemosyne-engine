@@ -66,6 +66,14 @@ export const apiRoutes: ApiRoute[] = [
   },
   { method: "POST", path: "/api/proposals/:id/ai-review", service: "AI Agent Orchestrator" },
   { method: "POST", path: "/api/proposals/:id/human-override", service: "Admin/Moderation Service" },
+  {
+    method: "POST",
+    path: "/api/creator/ingestions",
+    service: "Creator Studio Service",
+    eventType: "proposal_submitted"
+  },
+  { method: "GET", path: "/api/creator/ingestions", service: "Creator Studio Service" },
+  { method: "GET", path: "/api/creator/ingestions/:id", service: "Creator Studio Service" },
   { method: "GET", path: "/api/packs", service: "Master Graph Service" },
   { method: "POST", path: "/api/challenges", service: "Social Service" },
   { method: "GET", path: "/api/badges", service: "Badge Service" }

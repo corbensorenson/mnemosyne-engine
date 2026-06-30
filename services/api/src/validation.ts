@@ -1,7 +1,11 @@
 import {
   assessmentItemSchema,
+  conceptNodeSchema,
+  flashReadAssetSchema,
   readinessProfileSchema,
+  sleepCueTemplateSchema,
   sourceRefSchema,
+  videoAssetSchema,
   type LearningEvent,
   type Proposal
 } from "@mnemosyne/schema";
@@ -160,6 +164,36 @@ export const humanOverrideRequestSchema = z
     moderatorId: z.string().min(1),
     status: z.enum(["accepted", "accepted_with_modifications", "rejected", "disputed", "reverted"]),
     reason: z.string().min(8)
+  })
+  .strict();
+
+export const creatorIngestionRequestSchema = z
+  .object({
+    creatorId: userIdSchema,
+    title: z.string().min(3),
+    license: z.string().min(2).default("CC-BY-4.0"),
+    notes: z.string().max(2_000).optional(),
+    source: sourceRefSchema.optional(),
+    evidence: z.array(sourceRefSchema).default([]),
+    draft: z
+      .object({
+        concepts: z.array(conceptNodeSchema).default([]),
+        videos: z.array(videoAssetSchema).default([]),
+        assessments: z.array(assessmentItemSchema).default([]),
+        sleepCues: z.array(sleepCueTemplateSchema).default([]),
+        flashreadAssets: z.array(flashReadAssetSchema).default([])
+      })
+      .strict()
+      .refine(
+        (draft) =>
+          draft.concepts.length +
+            draft.videos.length +
+            draft.assessments.length +
+            draft.sleepCues.length +
+            draft.flashreadAssets.length >
+          0,
+        "At least one creator content object is required."
+      )
   })
   .strict();
 

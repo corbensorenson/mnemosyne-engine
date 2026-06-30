@@ -190,6 +190,83 @@ describe("persistence-backed API handlers", () => {
     );
     expect(overridden.status).toBe("accepted");
   });
+
+  it("persists creator ingestion as audited content court proposals", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+    const seedVideo = demoMasterGraph.videos[0];
+    if (!seedVideo) throw new Error("missing seed video");
+
+    await expect(
+      handlers.submitCreatorIngestion({
+        creatorId: demoUser.id,
+        title: "Empty creator draft",
+        draft: {}
+      })
+    ).rejects.toThrow();
+
+    const submitted = unwrap(
+      await handlers.submitCreatorIngestion({
+        creatorId: demoUser.id,
+        title: "Attention walkthrough creator submission",
+        license: "CC-BY-4.0",
+        notes: "Mapped to the existing attention concepts and includes transcript/chapter metadata.",
+        source: {
+          id: "src_creator_attention_walkthrough",
+          title: "Creator transcript and source packet",
+          source_type: "expert",
+          quality_score: 0.84
+        },
+        draft: {
+          videos: [
+            {
+              ...seedVideo,
+              id: "video_creator_attention_walkthrough",
+              source_platform: "creator_upload",
+              external_url: "https://example.com/creator-attention-walkthrough",
+              embed_url: "https://example.com/embed/creator-attention-walkthrough",
+              title: "Attention walkthrough from queries to values",
+              creator: demoUser.handle,
+              status: "submitted"
+            }
+          ]
+        }
+      })
+    );
+
+    expect(submitted.submission.status).toBe("proposal_created");
+    expect(submitted.submission.content.videos).toHaveLength(1);
+    expect(submitted.risk_flags).toHaveLength(0);
+    expect(submitted.proposals).toHaveLength(1);
+    expect(submitted.proposals[0]?.proposal_type).toBe("add_video");
+    expect(submitted.proposals[0]?.affected_object_ids).toContain("video_creator_attention_walkthrough");
+
+    const listed = unwrap(await handlers.listCreatorIngestions(demoUser.id));
+    expect(listed.map((submission) => submission.id)).toContain(submitted.submission.id);
+
+    const fetched = unwrap(await handlers.getCreatorIngestion(demoUser.id, submitted.submission.id));
+    expect(fetched.proposal_ids).toEqual(submitted.submission.proposal_ids);
+
+    const events = await store.listLearningEvents(demoUser.id);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event_type: "proposal_submitted",
+          payload: expect.objectContaining({ creator_ingestion_id: submitted.submission.id })
+        })
+      ])
+    );
+
+    const audits = await store.listAuditEvents(demoUser.id);
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "creator_ingestion_submitted",
+          object_id: submitted.submission.id
+        })
+      ])
+    );
+  });
 });
 
 function unwrap<T>(envelope: Envelope<T>): T {

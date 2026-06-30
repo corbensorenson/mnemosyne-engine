@@ -300,6 +300,22 @@ CREATE TABLE proposals (
   updated_at TIMESTAMPTZ NOT NULL
 );
 
+CREATE TABLE creator_ingestions (
+  id TEXT PRIMARY KEY,
+  creator_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL,
+  license TEXT NOT NULL,
+  notes TEXT,
+  source JSONB,
+  evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
+  content JSONB NOT NULL,
+  risk_flags TEXT[] NOT NULL DEFAULT '{}',
+  proposal_ids TEXT[] NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL
+);
+
 CREATE TABLE proposal_votes (
   proposal_id TEXT NOT NULL REFERENCES proposals(id) ON DELETE CASCADE,
   voter_id TEXT NOT NULL,
@@ -334,4 +350,6 @@ CREATE INDEX idx_learning_events_user_created ON learning_events(user_id, create
 CREATE INDEX idx_audit_events_actor_created ON audit_events(actor_id, created_at DESC);
 CREATE INDEX idx_assessment_responses_user_created ON assessment_responses(user_id, created_at DESC);
 CREATE INDEX idx_proposals_status ON proposals(status);
+CREATE INDEX idx_creator_ingestions_creator_created ON creator_ingestions(creator_id, created_at DESC);
+CREATE INDEX idx_creator_ingestions_status ON creator_ingestions(status);
 CREATE INDEX idx_concepts_domain ON concepts(domain, subdomain);

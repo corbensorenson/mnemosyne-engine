@@ -1,16 +1,22 @@
 import type {
   AssessmentResponse,
+  AssessmentItem,
   AudioPlan,
+  ConceptNode,
   DailyLearningPacket,
+  FlashReadAsset,
   Goal,
   LearningEvent,
   MasterGraph,
   Proposal,
   ReadinessProfile,
   SleepCuePacket,
+  SleepCueTemplate,
+  SourceRef,
   User,
   UserConceptState,
-  UserKnowledgeGraph
+  UserKnowledgeGraph,
+  VideoAsset
 } from "@mnemosyne/schema";
 import { createId, nowIso, todayIsoDate } from "@mnemosyne/shared-utils";
 
@@ -44,6 +50,31 @@ export type KnowledgePackRecord = {
   quality_tier: string;
   graph_version: string;
   installed_for_user_ids: string[];
+};
+
+export type CreatorSubmissionStatus =
+  "submitted" | "needs_evidence" | "queued_for_review" | "proposal_created" | "rejected";
+
+export type CreatorSubmissionRecord = {
+  id: string;
+  creator_id: string;
+  title: string;
+  status: CreatorSubmissionStatus;
+  license: string;
+  notes?: string;
+  source?: SourceRef;
+  evidence: SourceRef[];
+  content: {
+    concepts: ConceptNode[];
+    videos: VideoAsset[];
+    assessments: AssessmentItem[];
+    sleep_cues: SleepCueTemplate[];
+    flashread_assets: FlashReadAsset[];
+  };
+  risk_flags: string[];
+  proposal_ids: string[];
+  created_at: string;
+  updated_at: string;
 };
 
 export type MnemosyneSeedData = {
@@ -96,6 +127,9 @@ export interface MnemosyneStore {
   listProposals(): Promise<Proposal[]>;
   getProposal(proposalId: string): Promise<Proposal | undefined>;
   saveProposal(proposal: Proposal): Promise<Proposal>;
+  listCreatorSubmissions(creatorId?: string): Promise<CreatorSubmissionRecord[]>;
+  getCreatorSubmission(submissionId: string): Promise<CreatorSubmissionRecord | undefined>;
+  saveCreatorSubmission(submission: CreatorSubmissionRecord): Promise<CreatorSubmissionRecord>;
   listPacks(): Promise<KnowledgePackRecord[]>;
   savePack(pack: KnowledgePackRecord): Promise<KnowledgePackRecord>;
   installPack(userId: string, packId: string): Promise<KnowledgePackRecord>;
@@ -122,6 +156,7 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
   private auditEvents: AuditEvent[] = [];
   private sessions = new Map<string, SessionRecord>();
   private proposals = new Map<string, Proposal>();
+  private creatorSubmissions = new Map<string, CreatorSubmissionRecord>();
   private packs = new Map<string, KnowledgePackRecord>();
 
   constructor(seed?: MnemosyneSeedData) {
@@ -272,6 +307,20 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
   async saveProposal(proposal: Proposal): Promise<Proposal> {
     this.proposals.set(proposal.id, proposal);
     return proposal;
+  }
+
+  async listCreatorSubmissions(creatorId?: string): Promise<CreatorSubmissionRecord[]> {
+    const submissions = [...this.creatorSubmissions.values()];
+    return creatorId ? submissions.filter((submission) => submission.creator_id === creatorId) : submissions;
+  }
+
+  async getCreatorSubmission(submissionId: string): Promise<CreatorSubmissionRecord | undefined> {
+    return this.creatorSubmissions.get(submissionId);
+  }
+
+  async saveCreatorSubmission(submission: CreatorSubmissionRecord): Promise<CreatorSubmissionRecord> {
+    this.creatorSubmissions.set(submission.id, submission);
+    return submission;
   }
 
   async listPacks(): Promise<KnowledgePackRecord[]> {

@@ -8,17 +8,26 @@ import {
   selectHorizonConcepts,
   selectKnownDueForReview
 } from "@mnemosyne/graph-core";
-import type { MnemosyneStore, SessionRecord } from "@mnemosyne/persistence-core";
+import type {
+  CreatorSubmissionRecord,
+  CreatorSubmissionStatus,
+  MnemosyneStore,
+  SessionRecord
+} from "@mnemosyne/persistence-core";
 import type {
   AssessmentItem,
   ArbiterVerdict,
+  ConceptNode,
   DailyLearningPacket,
   DeviceCapabilityProfile,
+  FlashReadAsset,
   LearningEvent,
   Proposal,
   ReadinessProfile,
   SleepCuePacket,
-  SourceRef
+  SleepCueTemplate,
+  SourceRef,
+  VideoAsset
 } from "@mnemosyne/schema";
 import { buildDailyLearningPacket } from "@mnemosyne/scheduler-core";
 import { createId, nowIso, todayIsoDate } from "@mnemosyne/shared-utils";
@@ -27,6 +36,7 @@ import { buildWatchPackets, rankVideosForUser } from "@mnemosyne/video-core";
 import {
   assessmentSubmitRequestSchema,
   completeWatchPacketRequestSchema,
+  creatorIngestionRequestSchema,
   generateDailyPacketRequestSchema,
   humanOverrideRequestSchema,
   proposalCreateRequestSchema,
@@ -77,6 +87,22 @@ export type AssessmentSubmitRequest = {
   retries?: number;
 };
 
+type CreatorIngestionRequest = {
+  creatorId: string;
+  title: string;
+  license: string;
+  notes?: string;
+  source?: SourceRef;
+  evidence: SourceRef[];
+  draft: {
+    concepts: ConceptNode[];
+    videos: VideoAsset[];
+    assessments: AssessmentItem[];
+    sleepCues: SleepCueTemplate[];
+    flashreadAssets: FlashReadAsset[];
+  };
+};
+
 type DailyPacketResponse = {
   packet: DailyLearningPacket;
   summary: ReturnType<typeof packetSummary>;
@@ -85,6 +111,12 @@ type DailyPacketResponse = {
 type SleepPacketResponse = {
   packet: SleepCuePacket;
   summary: ReturnType<typeof sleepPacketSummary>;
+};
+
+type CreatorIngestionResponse = {
+  submission: CreatorSubmissionRecord;
+  proposals: Proposal[];
+  risk_flags: string[];
 };
 
 export function createApiHandlers(store: MnemosyneStore) {
@@ -492,6 +524,93 @@ export function createApiHandlers(store: MnemosyneStore) {
       return envelope(updated, audit.id);
     },
 
+    async submitCreatorIngestion(input: unknown): Promise<HandlerEnvelope<CreatorIngestionResponse>> {
+      const request = validateRequest(creatorIngestionRequestSchema, input) as CreatorIngestionRequest;
+      const creator = await requireUser(store, request.creatorId);
+      const submissionId = createId("creator_ingestion");
+      const evidence = mergeSourceRefs(request.source, request.evidence);
+      const riskFlags = triageCreatorDraft(request, evidence);
+      const riskLevel = riskLevelForCreatorSubmission(riskFlags);
+      const proposalDrafts = buildCreatorProposalDrafts(request, submissionId);
+      const proposals: Proposal[] = [];
+
+      for (const proposalDraft of proposalDrafts) {
+        const proposal = createCourtProposal({
+          proposerId: creator.id,
+          proposalType: proposalDraft.proposalType,
+          affectedObjectIds: proposalDraft.affectedObjectIds,
+          diff: proposalDraft.diff,
+          rationale: proposalDraft.rationale,
+          evidenceFor: evidence,
+          riskLevel
+        });
+        proposals.push(await store.saveProposal(proposal));
+        await store.appendLearningEvent({
+          user_id: creator.id,
+          event_type: "proposal_submitted",
+          payload: {
+            proposal_id: proposal.id,
+            creator_ingestion_id: submissionId,
+            proposal_type: proposal.proposal_type,
+            risk_level: proposal.risk_level
+          }
+        });
+      }
+
+      const createdAt = nowIso();
+      const submission = await store.saveCreatorSubmission({
+        id: submissionId,
+        creator_id: creator.id,
+        title: request.title,
+        status: statusForCreatorSubmission(riskFlags, proposals.length),
+        license: request.license,
+        notes: request.notes,
+        source: evidence[0],
+        evidence,
+        content: {
+          concepts: request.draft.concepts,
+          videos: request.draft.videos,
+          assessments: request.draft.assessments,
+          sleep_cues: request.draft.sleepCues,
+          flashread_assets: request.draft.flashreadAssets
+        },
+        risk_flags: riskFlags,
+        proposal_ids: proposals.map((proposal) => proposal.id),
+        created_at: createdAt,
+        updated_at: createdAt
+      });
+      const audit = await store.appendAuditEvent({
+        actor_id: creator.id,
+        action: "creator_ingestion_submitted",
+        object_type: "creator_ingestion",
+        object_id: submission.id,
+        payload: {
+          status: submission.status,
+          risk_flags: riskFlags,
+          proposal_ids: submission.proposal_ids,
+          content_counts: creatorContentCounts(request)
+        }
+      });
+      return envelope({ submission, proposals, risk_flags: riskFlags }, audit.id);
+    },
+
+    async listCreatorIngestions(creatorId: string): Promise<HandlerEnvelope<CreatorSubmissionRecord[]>> {
+      await requireUser(store, creatorId);
+      return envelope(await store.listCreatorSubmissions(creatorId));
+    },
+
+    async getCreatorIngestion(
+      creatorId: string,
+      submissionId: string
+    ): Promise<HandlerEnvelope<CreatorSubmissionRecord>> {
+      await requireUser(store, creatorId);
+      const submission = await store.getCreatorSubmission(submissionId);
+      if (!submission || submission.creator_id !== creatorId) {
+        return notFound<CreatorSubmissionRecord>("creator_ingestion_not_found");
+      }
+      return envelope(submission);
+    },
+
     async listPacks(userId: string) {
       await requireUser(store, userId);
       return envelope(await store.listPacks());
@@ -541,6 +660,151 @@ function normalizeSourceRefs(sources: Array<Partial<SourceRef>> | undefined): So
     url: source.url,
     citation: source.citation
   }));
+}
+
+function mergeSourceRefs(source: SourceRef | undefined, evidence: SourceRef[]): SourceRef[] {
+  const refs = normalizeSourceRefs([...(source ? [source] : []), ...evidence]);
+  return [...new Map(refs.map((ref) => [ref.id, ref])).values()];
+}
+
+type CreatorProposalDraft = {
+  proposalType: Proposal["proposal_type"];
+  affectedObjectIds: string[];
+  diff: Record<string, unknown>;
+  rationale: string;
+};
+
+function buildCreatorProposalDrafts(
+  request: CreatorIngestionRequest,
+  submissionId: string
+): CreatorProposalDraft[] {
+  const drafts: CreatorProposalDraft[] = [];
+  const base = {
+    creator_ingestion_id: submissionId,
+    title: request.title,
+    license: request.license
+  };
+  if (request.draft.concepts.length > 0) {
+    drafts.push({
+      proposalType: "add_concept",
+      affectedObjectIds: request.draft.concepts.map((concept) => concept.id),
+      diff: { ...base, add_concepts: request.draft.concepts },
+      rationale: creatorRationale(
+        request,
+        `Creator submitted ${request.draft.concepts.length} concept node(s) for graph review.`
+      )
+    });
+  }
+  if (request.draft.videos.length > 0) {
+    drafts.push({
+      proposalType: "add_video",
+      affectedObjectIds: request.draft.videos.map((video) => video.id),
+      diff: { ...base, add_videos: request.draft.videos },
+      rationale: creatorRationale(
+        request,
+        `Creator submitted ${request.draft.videos.length} video asset(s) for learning outcome review.`
+      )
+    });
+  }
+  if (request.draft.assessments.length > 0) {
+    drafts.push({
+      proposalType: "add_assessment",
+      affectedObjectIds: request.draft.assessments.map((assessment) => assessment.id),
+      diff: { ...base, add_assessments: request.draft.assessments },
+      rationale: creatorRationale(
+        request,
+        `Creator submitted ${request.draft.assessments.length} assessment item(s) for calibration review.`
+      )
+    });
+  }
+  if (request.draft.sleepCues.length > 0) {
+    drafts.push({
+      proposalType: "modify_sleep_cue",
+      affectedObjectIds: request.draft.sleepCues.map((cue) => cue.id),
+      diff: { ...base, add_sleep_cues: request.draft.sleepCues },
+      rationale: creatorRationale(
+        request,
+        `Creator submitted ${request.draft.sleepCues.length} sleep cue(s) requiring safety review.`
+      )
+    });
+  }
+  if (request.draft.flashreadAssets.length > 0) {
+    drafts.push({
+      proposalType: "change_learning_path",
+      affectedObjectIds: Array.from(
+        new Set(request.draft.flashreadAssets.flatMap((asset) => asset.concept_ids))
+      ),
+      diff: { ...base, add_flashread_assets: request.draft.flashreadAssets },
+      rationale: creatorRationale(
+        request,
+        `Creator submitted ${request.draft.flashreadAssets.length} FlashRead asset(s) for path review.`
+      )
+    });
+  }
+  return drafts;
+}
+
+function triageCreatorDraft(request: CreatorIngestionRequest, evidence: SourceRef[]): string[] {
+  const flags = new Set<string>();
+  if (evidence.length === 0) flags.add("missing_supporting_evidence");
+  if (evidence.length > 0 && averageSourceQuality(evidence) < 0.55) flags.add("weak_evidence_quality");
+  if (request.license.toLowerCase().includes("unknown")) flags.add("unclear_license");
+
+  for (const video of request.draft.videos) {
+    if (!video.transcript_id) flags.add(`missing_transcript:${video.id}`);
+    if (video.misinformation_risk >= 0.5) flags.add(`high_misinformation_risk:${video.id}`);
+    if (video.source_quality_score < 0.45) flags.add(`low_source_quality:${video.id}`);
+    if (video.duration_seconds > 5_400) flags.add(`long_video_needs_chapter_review:${video.id}`);
+  }
+  for (const cue of request.draft.sleepCues) {
+    if (cue.sleep_safety_score < 0.65) flags.add(`sleep_safety_review:${cue.id}`);
+    if (cue.emotional_activation_score > 0.45) flags.add(`sleep_emotional_activation:${cue.id}`);
+  }
+  for (const concept of request.draft.concepts) {
+    if (concept.definitions.length === 0) flags.add(`missing_definition:${concept.id}`);
+    if (concept.assessments.length === 0) flags.add(`missing_assessment:${concept.id}`);
+  }
+  return [...flags];
+}
+
+function riskLevelForCreatorSubmission(riskFlags: string[]): Proposal["risk_level"] {
+  if (
+    riskFlags.some(
+      (flag) =>
+        flag.startsWith("high_misinformation_risk") ||
+        flag.startsWith("sleep_safety_review") ||
+        flag.startsWith("sleep_emotional_activation") ||
+        flag === "unclear_license"
+    )
+  ) {
+    return "high";
+  }
+  return riskFlags.length > 0 ? "medium" : "low";
+}
+
+function statusForCreatorSubmission(riskFlags: string[], proposalCount: number): CreatorSubmissionStatus {
+  if (proposalCount === 0) return "rejected";
+  if (riskFlags.includes("missing_supporting_evidence")) return "needs_evidence";
+  if (riskFlags.length > 0) return "queued_for_review";
+  return "proposal_created";
+}
+
+function creatorRationale(request: CreatorIngestionRequest, summary: string): string {
+  return request.notes ? `${summary} Creator notes: ${request.notes}` : summary;
+}
+
+function creatorContentCounts(request: CreatorIngestionRequest) {
+  return {
+    concepts: request.draft.concepts.length,
+    videos: request.draft.videos.length,
+    assessments: request.draft.assessments.length,
+    sleep_cues: request.draft.sleepCues.length,
+    flashread_assets: request.draft.flashreadAssets.length
+  };
+}
+
+function averageSourceQuality(sources: SourceRef[]): number {
+  return sources.reduce((sum, source) => sum + source.quality_score, 0) / sources.length;
 }
 
 function envelope<T>(data: T, auditEventId?: string): HandlerEnvelope<T> {
