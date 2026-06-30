@@ -646,6 +646,43 @@ input[type="range"] {
   border-radius: 0 8px 8px 0;
 }
 
+.forge-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.segmented-control {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(96px, 1fr));
+  gap: 4px;
+  padding: 4px;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-strong);
+}
+
+.segmented-control button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.segmented-control button.is-active {
+  background: var(--ink);
+  color: var(--paper);
+}
+
 .feedback-band {
   margin-top: 14px;
   display: grid;
@@ -658,12 +695,26 @@ input[type="range"] {
   background: var(--teal-soft);
 }
 
+.repair-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .frontier-list,
 .video-list,
 .pack-grid,
 .lab-grid {
   display: grid;
   gap: 12px;
+}
+
+.forge-side {
+  align-content: start;
+}
+
+.compact-panel {
+  box-shadow: none;
 }
 
 .item-card {
@@ -1136,6 +1187,7 @@ input[type="range"] {
   .guard-grid,
   .sleep-ratio,
   .case-grid,
+  .forge-status-grid,
   .choice-grid,
   .preference-grid,
   .state-grid {

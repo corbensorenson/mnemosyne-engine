@@ -280,6 +280,7 @@ Deliverables:
 Current implementation progress:
 
 - API Morning Forge completion flow scores text/voice-compatible responses, captures confidence, latency, screen minutes, updates graph states, persists assessment responses, completes the session, and records audit/event trails with repair recommendations.
+- PWA Morning Forge session surface now queues cold retrieval and transfer prompts, captures text or voice-mode answers, tracks confidence and latency, shows repair recommendations, previews frontier/horizon/cue targets, and writes a compact offline packet cache.
 
 Exit criteria:
 

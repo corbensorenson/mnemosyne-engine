@@ -30,7 +30,7 @@ import {
   Volume2,
   Wand2
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   applyAssessmentToUserState,
   generateAssessmentForConcept,
@@ -94,7 +94,13 @@ export default function App() {
   const [selectedNodeId, setSelectedNodeId] = useState("attention_qkv");
   const [answer, setAnswer] = useState("");
   const [confidence, setConfidence] = useState(0.66);
+  const [answerMode, setAnswerMode] = useState<"text" | "voice">("text");
+  const [forgeIndex, setForgeIndex] = useState(0);
+  const [forgeStartedAt, setForgeStartedAt] = useState(Date.now());
+  const [forgeResponses, setForgeResponses] = useState(0);
   const [lastResponse, setLastResponse] = useState<AssessmentResponse | null>(null);
+  const [repairTips, setRepairTips] = useState<string[]>([]);
+  const [offlineCacheStatus, setOfflineCacheStatus] = useState("pending");
   const [eventLog, setEventLog] = useState<string[]>([
     "daily packet generated",
     "sleep controls assigned",
@@ -154,19 +160,48 @@ export default function App() {
     [readiness.dusk_mode, scheduled.packet.morning.frontier_items, states]
   );
   const verdict = arbitrateProposal(demoProposals[0]);
+  const forgeQueue = useMemo(
+    () => [
+      ...scheduled.packet.morning.cold_retrieval_items,
+      ...scheduled.packet.evening.transfer_drills.slice(0, 2)
+    ],
+    [scheduled.packet.evening.transfer_drills, scheduled.packet.morning.cold_retrieval_items]
+  );
+  const activeForgePrompt = forgeQueue[forgeIndex % Math.max(forgeQueue.length, 1)];
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        "mnemosyne.dailyPacket.v1",
+        JSON.stringify({
+          cached_at: new Date().toISOString(),
+          packet_id: scheduled.packet.id,
+          date: scheduled.packet.date,
+          user_id: scheduled.packet.user_id,
+          morning_items: scheduled.packet.morning.cold_retrieval_items.length,
+          walk_packets: scheduled.packet.walk_packets.length,
+          sleep_audio_plan_id: scheduled.audioPlan.id
+        })
+      );
+      setOfflineCacheStatus("ready");
+    } catch {
+      setOfflineCacheStatus("unavailable");
+    }
+  }, [scheduled.audioPlan.id, scheduled.packet]);
 
   function submitAnswer() {
-    const prompt =
-      scheduled.packet.morning.cold_retrieval_items[0] ?? scheduled.packet.evening.transfer_drills[0];
+    const prompt = activeForgePrompt;
     if (!prompt || answer.trim().length === 0) return;
     const response = scoreAssessmentResponse({
       userId: demoUser.id,
       item: prompt,
       rawResponse: answer,
       confidence,
-      latencyMs: 24_000
+      latencyMs: Math.max(1_000, Date.now() - forgeStartedAt)
     });
     setLastResponse(response);
+    setRepairTips(repairTipsFor(response));
+    setForgeResponses((count) => count + 1);
     setStates((current) => {
       const next = [...current];
       for (const conceptId of prompt.concept_ids) {
@@ -178,14 +213,27 @@ export default function App() {
       }
       return next;
     });
-    setEventLog((current) => [`assessment scored: ${response.model_feedback}`, ...current].slice(0, 6));
+    setEventLog((current) =>
+      [
+        `${answerMode} assessment scored: ${response.model_feedback}`,
+        `latency captured: ${Math.round(response.latency_ms / 1000)}s`,
+        ...current
+      ].slice(0, 6)
+    );
     setAnswer("");
+    setForgeIndex((index) => (forgeQueue.length > 0 ? (index + 1) % forgeQueue.length : index));
+    setForgeStartedAt(Date.now());
   }
 
   function launchFromOnboarding(config: OnboardingLaunch) {
     setReadiness(config.readiness);
     setStates(config.states);
     setSelectedNodeId(config.targetConceptIds[0] ?? "attention_qkv");
+    setForgeIndex(0);
+    setForgeResponses(0);
+    setRepairTips([]);
+    setLastResponse(null);
+    setForgeStartedAt(Date.now());
     setEventLog((current) =>
       [
         `onboarding completed: ${config.goalTitle}`,
@@ -222,14 +270,25 @@ export default function App() {
     ),
     forge: (
       <ForgeView
-        prompt={scheduled.packet.morning.cold_retrieval_items[0]}
+        packet={scheduled.packet}
+        prompt={activeForgePrompt}
+        promptIndex={forgeQueue.length > 0 ? forgeIndex + 1 : 0}
+        queueLength={forgeQueue.length}
         frontier={scheduled.packet.morning.frontier_items}
+        horizon={scheduled.packet.morning.horizon_items}
+        cuePreview={scheduled.packet.morning.cue_preview_items}
         answer={answer}
         setAnswer={setAnswer}
+        answerMode={answerMode}
+        setAnswerMode={setAnswerMode}
         confidence={confidence}
         setConfidence={setConfidence}
+        latencySeconds={Math.max(1, Math.round((Date.now() - forgeStartedAt) / 1000))}
         submitAnswer={submitAnswer}
         lastResponse={lastResponse}
+        repairTips={repairTips}
+        completedCount={forgeResponses}
+        offlineCacheStatus={offlineCacheStatus}
       />
     ),
     cinema: <CinemaView rankedVideos={rankedVideos} packet={scheduled.packet.optional_watch_packets[0]} />,
@@ -834,38 +893,80 @@ function GraphView({
 }
 
 function ForgeView({
+  packet,
   prompt,
+  promptIndex,
+  queueLength,
   frontier,
+  horizon,
+  cuePreview,
   answer,
   setAnswer,
+  answerMode,
+  setAnswerMode,
   confidence,
   setConfidence,
+  latencySeconds,
   submitAnswer,
-  lastResponse
+  lastResponse,
+  repairTips,
+  completedCount,
+  offlineCacheStatus
 }: {
+  packet: ReturnType<typeof buildDailyLearningPacket>["packet"];
   prompt:
     | ReturnType<typeof buildDailyLearningPacket>["packet"]["morning"]["cold_retrieval_items"][number]
     | undefined;
+  promptIndex: number;
+  queueLength: number;
   frontier: ConceptNode[];
+  horizon: ConceptNode[];
+  cuePreview: ReturnType<typeof buildDailyLearningPacket>["packet"]["morning"]["cue_preview_items"];
   answer: string;
   setAnswer: (value: string) => void;
+  answerMode: "text" | "voice";
+  setAnswerMode: (value: "text" | "voice") => void;
   confidence: number;
   setConfidence: (value: number) => void;
+  latencySeconds: number;
   submitAnswer: () => void;
   lastResponse: AssessmentResponse | null;
+  repairTips: string[];
+  completedCount: number;
+  offlineCacheStatus: string;
 }) {
   return (
     <div className="page-grid forge-grid">
       <section className="panel session-player">
-        <PanelTitle icon={SunMedium} title="Morning Forge" meta="cold retrieval" />
+        <PanelTitle icon={SunMedium} title="Morning Forge" meta={packet.morning.recommended_mode} />
+        <div className="forge-status-grid">
+          <MiniStat label="Prompt" value={`${promptIndex}/${Math.max(queueLength, 1)}`} />
+          <MiniStat label="Latency" value={`${latencySeconds}s`} />
+          <MiniStat label="Completed" value={`${completedCount}`} />
+          <MiniStat label="Offline" value={offlineCacheStatus} />
+        </div>
         <div className="prompt-box">
           <p className="eyebrow">Prompt</p>
           <h2>{prompt?.prompt ?? "No prompt due"}</h2>
         </div>
+        <div className="segmented-control" aria-label="Answer mode">
+          {(["text", "voice"] as const).map((mode) => (
+            <button
+              className={answerMode === mode ? "is-active" : ""}
+              key={mode}
+              onClick={() => setAnswerMode(mode)}
+            >
+              {mode === "voice" ? <AudioLines size={16} /> : <ClipboardCheck size={16} />}
+              <span>{mode}</span>
+            </button>
+          ))}
+        </div>
         <textarea
           value={answer}
           onChange={(event) => setAnswer(event.target.value)}
-          placeholder="Answer before review..."
+          placeholder={
+            answerMode === "voice" ? "Voice transcript appears here..." : "Answer before review..."
+          }
           rows={6}
         />
         <Slider
@@ -879,11 +980,17 @@ function ForgeView({
             <CheckCircle2 size={18} />
             Score
           </button>
-          <button className="command">
+          <button
+            className="command"
+            onClick={() => setAnswerMode(answerMode === "voice" ? "text" : "voice")}
+          >
             <AudioLines size={18} />
-            Voice
+            {answerMode === "voice" ? "Text" : "Voice"}
           </button>
-          <button className="command">
+          <button
+            className="command"
+            onClick={() => setAnswer(answer || "I need a mechanism, an example, and a boundary.")}
+          >
             <Wand2 size={18} />
             Hint
           </button>
@@ -894,9 +1001,17 @@ function ForgeView({
             <span>{lastResponse.model_feedback}</span>
           </div>
         )}
+        {repairTips.length > 0 && (
+          <div className="repair-list">
+            {repairTips.map((tip) => (
+              <ObjectLine key={tip} label="Repair" value={tip} />
+            ))}
+          </div>
+        )}
       </section>
-      <section className="frontier-list">
-        {frontier.map((concept) => (
+      <section className="frontier-list forge-side">
+        <PanelTitle icon={GitBranch} title="Frontier Push" meta={`${frontier.length} nodes`} />
+        {frontier.slice(0, 4).map((concept) => (
           <article className="item-card" key={concept.id}>
             <div className="item-card-header">
               <span className={`domain-dot ${concept.domain}`} />
@@ -906,6 +1021,24 @@ function ForgeView({
             <Progress label="Importance" value={concept.importance} />
           </article>
         ))}
+        <div className="panel compact-panel">
+          <PanelTitle icon={Network} title="Horizon Preview" meta={`${horizon.length} next`} />
+          <div className="tag-row">
+            {horizon.map((concept) => (
+              <span className="tag" key={concept.id}>
+                {concept.title}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="panel compact-panel">
+          <PanelTitle icon={Moon} title="Cue Preview" meta={`${cuePreview.length} cues`} />
+          <div className="object-list">
+            {cuePreview.slice(0, 3).map((cue) => (
+              <ObjectLine key={cue.id} label={cue.cue_type} value={cue.text ?? cue.concept_id} />
+            ))}
+          </div>
+        </div>
       </section>
     </div>
   );
@@ -1531,4 +1664,25 @@ function Ratio({ label, value, color }: { label: string; value: number; color: s
 
 function avg(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
+}
+
+function repairTipsFor(response: AssessmentResponse): string[] {
+  const failures = new Set(response.detected_failure_modes);
+  const tips: string[] = [];
+  if (failures.has("false_confidence") || failures.has("dangerous_misconception")) {
+    tips.push("Repair prerequisite before advancing.");
+  }
+  if (failures.has("missing_core_claim")) {
+    tips.push("Use one worked example, then repeat cold retrieval.");
+  }
+  if (failures.has("slow_fragile_recall")) {
+    tips.push("Repeat tomorrow with a lower latency target.");
+  }
+  if (failures.has("hint_dependent")) {
+    tips.push("Remove hints on the next attempt.");
+  }
+  if (failures.has("shallow_transfer")) {
+    tips.push("Add a different-context transfer drill.");
+  }
+  return tips.length > 0 ? tips : ["Advance one frontier item and keep normal review cadence."];
 }
