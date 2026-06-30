@@ -715,6 +715,79 @@ describe("persistence-backed API handlers", () => {
     );
   });
 
+  it("assigns matched experiments and personalizes scheduling from observed outcomes", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+    const initialPacket = unwrap(await handlers.generateDailyPacket({ userId: demoUser.id }));
+
+    const assigned = unwrap(
+      await handlers.assignExperiments({
+        userId: demoUser.id,
+        maxPairsPerExperiment: 2
+      })
+    );
+
+    expect(
+      assigned.experiments.filter((experiment) => experiment.experiment_type === "technique")
+    ).toHaveLength(3);
+    expect(assigned.experiments.some((experiment) => experiment.experiment_type === "sleep_cue")).toBe(true);
+    expect(assigned.assignments.some((assignment) => assignment.condition_id === "sparse_reactivation")).toBe(
+      true
+    );
+    expect(assigned.assignments.some((assignment) => assignment.condition_id === "matched_control")).toBe(
+      true
+    );
+    expect(await store.listExperimentAssignments(demoUser.id)).toHaveLength(assigned.assignments.length);
+
+    const watchPacket = initialPacket.packet.optional_watch_packets.find(
+      (packet) => packet.video_ids.length > 0
+    );
+    const videoId = watchPacket?.video_ids[0];
+    if (!watchPacket || !videoId) throw new Error("missing watch packet for experiment outcome");
+
+    unwrap(
+      await handlers.completeWatchPacket({
+        userId: demoUser.id,
+        watchPacketId: watchPacket.id,
+        videoIds: [videoId],
+        recallPassed: false,
+        screenMinutes: 72
+      })
+    );
+
+    const dashboard = unwrap(await handlers.getPersonalizationProfile(demoUser.id));
+    expect(dashboard.profile.modality_response.video_score).toBeLessThan(0.42);
+    expect(dashboard.profile.scheduler_adjustments.optional_watch_budgets).toEqual([12, 8, 5]);
+    expect(dashboard.profile.scheduler_adjustments.rationale).toContain(
+      "bounded video underperformed recall controls"
+    );
+
+    const personalizedPacket = unwrap(await handlers.generateDailyPacket({ userId: demoUser.id }));
+    expect(
+      personalizedPacket.packet.optional_watch_packets.map((packet) => packet.total_time_budget_minutes)
+    ).toEqual([12, 8, 5]);
+
+    const audits = await store.listAuditEvents(demoUser.id);
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "experiments_assigned",
+          payload: expect.objectContaining({
+            assignment_count: assigned.assignments.length
+          })
+        }),
+        expect.objectContaining({
+          action: "daily_packet_generated",
+          payload: expect.objectContaining({
+            personalized_constraints: expect.objectContaining({
+              optionalWatchBudgets: [12, 8, 5]
+            })
+          })
+        })
+      ])
+    );
+  });
+
   it("completes private-default onboarding from empty user state to first packet", async () => {
     const store = createMemoryStore();
     await seedDemoStore(store);

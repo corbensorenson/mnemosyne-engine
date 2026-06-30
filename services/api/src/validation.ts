@@ -353,6 +353,13 @@ export const wearableSyncRequestSchema = z
   })
   .strict();
 
+export const experimentAssignmentRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    maxPairsPerExperiment: z.number().int().positive().max(8).optional()
+  })
+  .strict();
+
 export const proposalCreateRequestSchema = z
   .object({
     proposerId: z.union([z.string().min(1), z.literal("ai_agent")]),

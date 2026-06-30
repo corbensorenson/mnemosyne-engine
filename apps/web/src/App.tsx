@@ -59,6 +59,7 @@ import type {
   AssessmentResponse,
   ConceptNode,
   FlashReadAsset,
+  LearningEvent,
   Proposal,
   ReadinessProfile,
   UserConceptState,
@@ -67,7 +68,19 @@ import type {
 } from "@mnemosyne/schema";
 import { clamp, createId, humanMinutes, nowIso, round, unique } from "@mnemosyne/shared-utils";
 import { buildSleepCuePacket } from "@mnemosyne/sleep-core";
-import { createTechniqueExperiment, recommendTechniques, techniqueRegistry } from "@mnemosyne/technique-lab";
+import {
+  assignExperiments,
+  buildPersonalizationProfile,
+  createDefaultExperimentSuite,
+  createTechniqueExperiment,
+  personalizeSessionConstraints,
+  recommendTechniques,
+  rollupExperimentOutcomes,
+  techniqueRegistry,
+  type ExperimentAssignment,
+  type ExperimentOutcomeRollup,
+  type PersonalizationProfile
+} from "@mnemosyne/technique-lab";
 import { rankVideosForUser } from "@mnemosyne/video-core";
 import {
   defaultReadiness,
@@ -229,6 +242,88 @@ export default function App() {
   ]);
 
   const userGraph = useMemo(() => ({ userId: demoUser.id, states }), [states]);
+  const baselineConstraints = useMemo(() => personalizeSessionConstraints(readiness), [readiness]);
+  const baseScheduled = useMemo(
+    () =>
+      buildDailyLearningPacket({
+        user: demoUser,
+        userGraph,
+        masterGraph: demoMasterGraph,
+        goals: demoGoals,
+        readiness,
+        constraints: baselineConstraints
+      }),
+    [baselineConstraints, readiness, userGraph]
+  );
+  const experimentSuite = useMemo(() => createDefaultExperimentSuite(), []);
+  const experimentResponses = useMemo(
+    () =>
+      uniqueResponses([
+        lastResponse,
+        cinemaResult?.response ?? null,
+        ...walkResponses,
+        walkLastResponse,
+        lockLastResponse
+      ]),
+    [cinemaResult?.response, lastResponse, lockLastResponse, walkLastResponse, walkResponses]
+  );
+  const experimentEvents = useMemo(
+    () =>
+      buildLocalExperimentEvents({
+        cinemaResult,
+        walkCompletedAt,
+        walkResponses,
+        sleepRecallResult,
+        sleepCuedConceptIds: baseScheduled.packet.sleep.reactivate_concept_ids,
+        sleepControlConceptIds: baseScheduled.packet.sleep.control_concept_ids
+      }),
+    [
+      baseScheduled.packet.sleep.control_concept_ids,
+      baseScheduled.packet.sleep.reactivate_concept_ids,
+      cinemaResult,
+      sleepRecallResult,
+      walkCompletedAt,
+      walkResponses
+    ]
+  );
+  const experimentAssignments = useMemo(
+    () =>
+      assignExperiments({
+        userId: demoUser.id,
+        states,
+        experiments: experimentSuite,
+        sleepPacket: baseScheduled.packet.sleep
+      }),
+    [baseScheduled.packet.sleep, experimentSuite, states]
+  );
+  const experimentRollups = useMemo(
+    () =>
+      rollupExperimentOutcomes({
+        experiments: experimentSuite,
+        assignments: experimentAssignments,
+        responses: experimentResponses,
+        events: experimentEvents,
+        states
+      }),
+    [experimentAssignments, experimentEvents, experimentResponses, experimentSuite, states]
+  );
+  const personalizationProfile = useMemo(
+    () =>
+      buildPersonalizationProfile({
+        userId: demoUser.id,
+        experiments: experimentSuite,
+        assignments: experimentAssignments,
+        responses: experimentResponses,
+        events: experimentEvents,
+        states,
+        rollups: experimentRollups
+      }),
+    [experimentAssignments, experimentEvents, experimentResponses, experimentRollups, experimentSuite, states]
+  );
+  const personalizedConstraints = useMemo(
+    () => personalizeSessionConstraints(readiness, personalizationProfile),
+    [personalizationProfile, readiness]
+  );
   const scheduled = useMemo(
     () =>
       buildDailyLearningPacket({
@@ -237,14 +332,9 @@ export default function App() {
         masterGraph: demoMasterGraph,
         goals: demoGoals,
         readiness,
-        constraints: {
-          morningScreenBudget: readiness.screen_budget_minutes > 20 ? 10 : 4,
-          optionalWatchBudgets: [30, 18, 8],
-          eveningScreenPolicy: readiness.dusk_mode ? "audio_only" : "minimal_visual",
-          conservativeSleep: readiness.sleep_quality < 0.5 || readiness.fatigue > 0.7
-        }
+        constraints: personalizedConstraints
       }),
-    [readiness, userGraph]
+    [personalizedConstraints, readiness, userGraph]
   );
   const snapshot = useMemo(() => buildGraphSnapshot(demoMasterGraph, userGraph), [userGraph]);
   const rankedVideos = useMemo(
@@ -1212,7 +1302,14 @@ export default function App() {
     ),
     packs: <PacksView />,
     court: <CourtView verdict={verdict} />,
-    lab: <LabView techniques={recommendedTechniques} />,
+    lab: (
+      <LabView
+        techniques={recommendedTechniques}
+        assignments={experimentAssignments}
+        profile={personalizationProfile}
+        rollups={experimentRollups}
+      />
+    ),
     workbench: <WorkbenchView />,
     admin: <AdminView eventLog={eventLog} />
   }[activeTab];
@@ -3208,24 +3305,112 @@ type CourtCommentPreview = {
   text: string;
 };
 
-function LabView({ techniques }: { techniques: typeof techniqueRegistry }) {
+function LabView({
+  techniques,
+  assignments,
+  profile,
+  rollups
+}: {
+  techniques: typeof techniqueRegistry;
+  assignments: ExperimentAssignment[];
+  profile: PersonalizationProfile;
+  rollups: ExperimentOutcomeRollup[];
+}) {
+  const activeRollups = rollups.flatMap((rollup) =>
+    rollup.condition_rollups
+      .filter(
+        (condition) => condition.condition_id !== "control" && condition.condition_id !== "matched_control"
+      )
+      .map((condition) => ({ ...condition, title: rollup.title, experimentType: rollup.experiment_type }))
+  );
+  const visibleAssignments = assignments.slice(0, 8);
   return (
-    <div className="lab-grid">
-      {techniques.map((technique) => {
-        const experiment = createTechniqueExperiment(technique);
-        return (
-          <article className="item-card technique-card" key={technique.id}>
-            <FlaskConical size={22} />
-            <h3>{technique.name}</h3>
-            <p>{technique.description}</p>
-            <div className="tag-row">
-              <span className="tag">{technique.category}</span>
-              <span className="tag">{technique.evidence_level}</span>
-              <span className="tag">{experiment.assignment_strategy}</span>
-            </div>
+    <div className="page-grid lab-dashboard">
+      <section className="panel lab-overview">
+        <PanelTitle icon={FlaskConical} title="Personalization Lab" meta="within-user controls" />
+        <div className="case-grid">
+          <MiniStat label="Experiments" value={`${profile.tracked_experiment_count}`} />
+          <MiniStat label="Assignments" value={`${profile.active_assignment_count}`} />
+          <MiniStat label="Recommended" value={`${profile.recommended_technique_ids.length}`} />
+          <MiniStat label="Held" value={`${profile.suppressed_technique_ids.length}`} />
+        </div>
+        <div className="scheduler-adjustment">
+          <ObjectLine
+            label="Morning screen"
+            value={`${profile.scheduler_adjustments.morning_screen_budget_minutes} min`}
+          />
+          <ObjectLine
+            label="Watch budgets"
+            value={profile.scheduler_adjustments.optional_watch_budgets.join(" / ")}
+          />
+          <ObjectLine label="Evening" value={profile.scheduler_adjustments.evening_screen_policy} />
+          <ObjectLine label="Mode bias" value={profile.scheduler_adjustments.recommended_mode_bias} />
+        </div>
+        <div className="tag-row">
+          {profile.scheduler_adjustments.rationale.map((item) => (
+            <span className="tag" key={item}>
+              {item}
+            </span>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={CircleGauge} title="Response Profile" meta="rolling" />
+        <Progress label="Voice" value={profile.modality_response.voice_score} />
+        <Progress label="Text" value={profile.modality_response.text_score} />
+        <Progress label="Walking" value={profile.modality_response.walking_score} />
+        <Progress label="Video" value={profile.modality_response.video_score} />
+        <Progress label="Flash" value={profile.modality_response.flash_score} />
+        <ObjectLine
+          label="Sleep cue gain"
+          value={`${Math.round(profile.sleep_cue_response.cue_gain_delta * 100)} pts`}
+        />
+      </section>
+
+      <section className="panel lab-rollups">
+        <PanelTitle icon={BarChart3} title="Effect Rollups" meta={`${activeRollups.length} active`} />
+        {activeRollups.map((rollup) => (
+          <article className="lab-rollup" key={`${rollup.title}-${rollup.condition_id}`}>
+            <header>
+              <span>{rollup.experimentType}</span>
+              <strong>{rollup.recommendation.replaceAll("_", " ")}</strong>
+            </header>
+            <h3>{rollup.technique_id ?? rollup.condition_id}</h3>
+            <Progress label="Effect vs control" value={clamp(0.5 + rollup.effect_vs_control)} />
+            <ObjectLine label="Observations" value={`${rollup.observations}`} />
           </article>
-        );
-      })}
+        ))}
+      </section>
+
+      <section className="panel lab-assignments">
+        <PanelTitle icon={GitBranch} title="Matched Assignments" meta={`${assignments.length} units`} />
+        {visibleAssignments.map((assignment) => (
+          <ObjectLine
+            key={assignment.id}
+            label={assignment.unit_id}
+            value={`${assignment.condition_id} -> ${assignment.matched_control_unit_id ?? "none"}`}
+          />
+        ))}
+      </section>
+
+      <section className="lab-grid lab-techniques">
+        {techniques.map((technique) => {
+          const experiment = createTechniqueExperiment(technique);
+          return (
+            <article className="item-card technique-card" key={technique.id}>
+              <FlaskConical size={22} />
+              <h3>{technique.name}</h3>
+              <p>{technique.description}</p>
+              <div className="tag-row">
+                <span className="tag">{technique.category}</span>
+                <span className="tag">{technique.evidence_level}</span>
+                <span className="tag">{experiment.assignment_strategy}</span>
+              </div>
+            </article>
+          );
+        })}
+      </section>
     </div>
   );
 }
@@ -3660,6 +3845,72 @@ function toCourtCommentPreview(entry: Record<string, unknown>, index: number): C
 
 function courtCommentString(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim().length > 0 ? value : fallback;
+}
+
+function uniqueResponses(responses: Array<AssessmentResponse | null | undefined>): AssessmentResponse[] {
+  return [
+    ...new Map(
+      responses
+        .filter((response): response is AssessmentResponse => Boolean(response))
+        .map((response) => [response.id, response])
+    ).values()
+  ];
+}
+
+function buildLocalExperimentEvents(input: {
+  cinemaResult: GraphFeedRecallResult | null;
+  walkCompletedAt: string | null;
+  walkResponses: AssessmentResponse[];
+  sleepRecallResult: SleepRecallResult | null;
+  sleepCuedConceptIds: string[];
+  sleepControlConceptIds: string[];
+}): LearningEvent[] {
+  const events: LearningEvent[] = [];
+  if (input.cinemaResult) {
+    events.push({
+      id: createId("learning_event", `local-video:${input.cinemaResult.completedAt}`),
+      user_id: demoUser.id,
+      event_type: "video_watched",
+      payload: {
+        video_ids: [input.cinemaResult.videoId],
+        recall_passed: input.cinemaResult.recallPassed,
+        screen_minutes: input.cinemaResult.screenMinutes,
+        screen_load_multiplier: input.cinemaResult.recallPassed ? 0.42 : 0.8
+      },
+      created_at: input.cinemaResult.completedAt
+    });
+  }
+  if (input.walkCompletedAt && input.walkResponses.length > 0) {
+    events.push({
+      id: createId("learning_event", `local-walk:${input.walkCompletedAt}`),
+      user_id: demoUser.id,
+      event_type: "walk_recall_completed",
+      payload: {
+        average_correctness: avg(input.walkResponses.map((response) => response.correctness_score)),
+        voice_used: true,
+        screen_locked: true
+      },
+      created_at: input.walkCompletedAt
+    });
+  }
+  if (input.sleepRecallResult) {
+    events.push({
+      id: createId("learning_event", `local-sleep:${input.sleepRecallResult.completedAt}`),
+      user_id: demoUser.id,
+      event_type: "graph_updated",
+      payload: {
+        action: "sleep_cue_recall_completed",
+        average_cued_correctness: input.sleepRecallResult.cuedScore,
+        average_control_correctness: input.sleepRecallResult.controlScore,
+        cue_gain_delta: input.sleepRecallResult.cueGainDelta,
+        cued_concept_ids: input.sleepCuedConceptIds,
+        control_concept_ids: input.sleepControlConceptIds,
+        screen_minutes: 2
+      },
+      created_at: input.sleepRecallResult.completedAt
+    });
+  }
+  return events;
 }
 
 function rankFlashAssets(

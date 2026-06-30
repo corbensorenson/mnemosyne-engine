@@ -38,6 +38,7 @@ import type {
   ConceptNode,
   DailyLearningPacket,
   DeviceCapabilityProfile,
+  Experiment,
   FlashReadAsset,
   Goal,
   LearningEvent,
@@ -54,6 +55,16 @@ import type {
 import { buildDailyLearningPacket } from "@mnemosyne/scheduler-core";
 import { clamp, createId, nowIso, todayIsoDate, unique } from "@mnemosyne/shared-utils";
 import { buildSleepCuePacket } from "@mnemosyne/sleep-core";
+import {
+  assignExperiments,
+  buildPersonalizationProfile,
+  createDefaultExperimentSuite,
+  personalizeSessionConstraints,
+  rollupExperimentOutcomes,
+  type ExperimentAssignment,
+  type ExperimentOutcomeRollup,
+  type PersonalizationProfile
+} from "@mnemosyne/technique-lab";
 import { buildWatchPackets, rankVideosForUser } from "@mnemosyne/video-core";
 import {
   assessmentSubmitRequestSchema,
@@ -62,6 +73,7 @@ import {
   createGoalRequestSchema,
   creatorIngestionRequestSchema,
   eveningLockInCompleteRequestSchema,
+  experimentAssignmentRequestSchema,
   flashReadCompleteRequestSchema,
   flashReadGenerateRequestSchema,
   generateDailyPacketRequestSchema,
@@ -103,6 +115,18 @@ export type HandlerEnvelope<T> =
 export type GenerateDailyPacketRequest = {
   userId: string;
   readiness?: ReadinessProfile;
+};
+
+type ExperimentAssignmentRequest = {
+  userId: string;
+  maxPairsPerExperiment?: number;
+};
+
+type ExperimentDashboardResponse = {
+  experiments: Experiment[];
+  assignments: ExperimentAssignment[];
+  rollups: ExperimentOutcomeRollup[];
+  profile: PersonalizationProfile;
 };
 
 export type SessionEventRequest = {
@@ -632,6 +656,32 @@ export function createApiHandlers(store: MnemosyneStore) {
       if (request.readiness) await store.saveReadiness(request.userId, request.readiness);
       const scheduled = await generateAndPersistDailyPacket(store, request.userId, readiness);
       return envelope(scheduled, scheduled.audit.id);
+    },
+
+    async assignExperiments(input: unknown): Promise<HandlerEnvelope<ExperimentDashboardResponse>> {
+      const request = validateRequest(
+        experimentAssignmentRequestSchema,
+        input
+      ) as ExperimentAssignmentRequest;
+      const dashboard = await buildExperimentDashboard(store, request.userId, request.maxPairsPerExperiment);
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "experiments_assigned",
+        object_type: "personalization_profile",
+        object_id: request.userId,
+        payload: {
+          experiment_ids: dashboard.experiments.map((experiment) => experiment.id),
+          assignment_count: dashboard.assignments.length,
+          recommended_technique_ids: dashboard.profile.recommended_technique_ids,
+          scheduler_adjustments: dashboard.profile.scheduler_adjustments
+        }
+      });
+      return envelope(dashboard, audit.id);
+    },
+
+    async getPersonalizationProfile(userId: string): Promise<HandlerEnvelope<ExperimentDashboardResponse>> {
+      const dashboard = await buildExperimentDashboard(store, userId);
+      return envelope(dashboard);
     },
 
     async startSession(input: unknown) {
@@ -2315,18 +2365,15 @@ async function generateAndPersistDailyPacket(
     store.getMasterGraph(),
     store.listGoals(userId)
   ]);
+  const profile = (await store.getPersonalizationProfile(userId)) as PersonalizationProfile | undefined;
+  const constraints = personalizeSessionConstraints(readiness, profile);
   const scheduled = buildDailyLearningPacket({
     user,
     userGraph,
     masterGraph,
     goals,
     readiness,
-    constraints: {
-      morningScreenBudget: readiness.screen_budget_minutes > 20 ? 10 : 4,
-      optionalWatchBudgets: [30, 18, 8],
-      eveningScreenPolicy: readiness.dusk_mode ? "audio_only" : "minimal_visual",
-      conservativeSleep: readiness.sleep_quality < 0.5 || readiness.fatigue > 0.7
-    }
+    constraints
   });
 
   await store.saveDailyPacket(scheduled.packet);
@@ -2338,7 +2385,8 @@ async function generateAndPersistDailyPacket(
       daily_packet_id: scheduled.packet.id,
       date: scheduled.packet.date,
       generated: true,
-      source
+      source,
+      scheduler_adjustments: profile?.scheduler_adjustments
     }
   });
   const audit = await store.appendAuditEvent({
@@ -2346,10 +2394,70 @@ async function generateAndPersistDailyPacket(
     action: "daily_packet_generated",
     object_type: "daily_packet",
     object_id: scheduled.packet.id,
-    payload: { ...packetSummary(scheduled.packet), source }
+    payload: {
+      ...packetSummary(scheduled.packet),
+      source,
+      personalized_constraints: constraints,
+      personalization_profile_generated_at: profile?.generated_at
+    }
   });
 
   return { ...scheduled, summary: packetSummary(scheduled.packet), learningEvent, audit };
+}
+
+async function buildExperimentDashboard(
+  store: MnemosyneStore,
+  userId: string,
+  maxPairsPerExperiment?: number
+): Promise<ExperimentDashboardResponse> {
+  await requireUser(store, userId);
+  const experiments = await ensureDefaultExperiments(store);
+  const [userGraph, responses, events, packet, existingAssignments] = await Promise.all([
+    store.getUserGraph(userId),
+    store.listAssessmentResponses(userId),
+    store.listLearningEvents(userId),
+    store.getDailyPacket(userId),
+    store.listExperimentAssignments(userId)
+  ]);
+  const assignments = assignExperiments({
+    userId,
+    states: userGraph.states,
+    experiments,
+    sleepPacket: packet?.sleep,
+    existingAssignments: existingAssignments as ExperimentAssignment[],
+    maxPairsPerExperiment
+  });
+  for (const assignment of assignments) await store.saveExperimentAssignment(assignment);
+  const rollups = rollupExperimentOutcomes({
+    experiments,
+    assignments,
+    responses,
+    events,
+    states: userGraph.states
+  });
+  const profile = buildPersonalizationProfile({
+    userId,
+    experiments,
+    assignments,
+    responses,
+    events,
+    states: userGraph.states,
+    rollups
+  });
+  await store.savePersonalizationProfile(profile);
+  return { experiments, assignments, rollups, profile };
+}
+
+async function ensureDefaultExperiments(store: MnemosyneStore): Promise<Experiment[]> {
+  const existing = await store.listExperiments();
+  const byId = new Map(existing.map((experiment) => [experiment.id, experiment]));
+  for (const experiment of createDefaultExperimentSuite()) {
+    if (!byId.has(experiment.id)) {
+      const saved = await store.saveExperiment(experiment);
+      byId.set(saved.id, saved);
+    }
+  }
+  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function notFound<T = never>(code: string): HandlerEnvelope<T> {

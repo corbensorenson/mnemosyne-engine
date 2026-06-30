@@ -706,7 +706,8 @@ input[type="range"] {
 .frontier-list,
 .video-list,
 .pack-grid,
-.lab-grid {
+.lab-grid,
+.lab-dashboard {
   display: grid;
   gap: 12px;
 }
@@ -1685,6 +1686,49 @@ input[type="range"] {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.lab-dashboard {
+  grid-template-columns: 1.2fr 0.8fr;
+}
+
+.lab-techniques {
+  grid-column: 1 / -1;
+}
+
+.scheduler-adjustment,
+.lab-rollups,
+.lab-assignments {
+  display: grid;
+  gap: 10px;
+}
+
+.scheduler-adjustment {
+  margin: 14px 0;
+}
+
+.lab-rollup {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.lab-rollup header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.lab-rollup h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
 .pack-card,
 .technique-card {
   min-height: 190px;
@@ -1799,6 +1843,7 @@ input[type="range"] {
   .sleep-grid,
   .stats-grid,
   .court-grid,
+  .lab-dashboard,
   .admin-grid,
   .workbench-grid,
   .walk-layout {
@@ -1865,6 +1910,7 @@ input[type="range"] {
   .metric-strip,
   .pack-grid,
   .lab-grid,
+  .lab-dashboard,
   .service-grid,
   .guard-grid,
   .checklist-grid,

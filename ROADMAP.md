@@ -416,6 +416,12 @@ Deliverables:
 - Outcome rollups.
 - Personalization dashboard.
 
+Current implementation progress:
+
+- First-party Technique Lab experiment engine seeds three technique experiments plus a sparse SleepCue protocol, assigns deterministic within-user matched treatment/control units, rolls up correctness, latency, calibration, screen efficiency, and cue-gain outcomes, and emits scheduler adjustment recommendations.
+- API Technique Lab flow persists experiments, matched assignments, personalization profiles, and audits assignment decisions; daily packet generation now consumes saved response profiles to adjust Morning screen budget, GraphFeed watch budgets, evening screen policy, and conservative sleep mode.
+- PWA Lab surface shows the personalization profile, modality response scores, sleep cue gain, effect-vs-control rollups, matched assignment ledger, and the scheduler changes generated from observed local outcomes.
+
 Exit criteria:
 
 - At least three techniques and one sleep cue protocol can be compared against controls.

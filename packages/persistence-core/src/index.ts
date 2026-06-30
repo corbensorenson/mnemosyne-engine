@@ -4,6 +4,7 @@ import type {
   AudioPlan,
   ConceptNode,
   DailyLearningPacket,
+  Experiment,
   FlashReadAsset,
   Goal,
   LearningEvent,
@@ -77,6 +78,45 @@ export type CreatorSubmissionRecord = {
   updated_at: string;
 };
 
+export type ExperimentAssignmentRecord = {
+  id: string;
+  user_id: string;
+  experiment_id: string;
+  unit_id: string;
+  unit_kind: "concept" | "cue";
+  condition_id: string;
+  technique_id?: string;
+  matched_control_unit_id?: string;
+  assigned_at: string;
+  rationale: string[];
+};
+
+export type PersonalizationProfileRecord = {
+  user_id: string;
+  generated_at: string;
+  tracked_experiment_count: number;
+  active_assignment_count: number;
+  technique_response: Array<{
+    technique_id: string;
+    experiment_id: string;
+    observations: number;
+    effect_vs_control: number;
+    recommendation: string;
+  }>;
+  sleep_cue_response: Record<string, unknown>;
+  modality_response: Record<string, unknown>;
+  recommended_technique_ids: string[];
+  suppressed_technique_ids: string[];
+  scheduler_adjustments: {
+    morning_screen_budget_minutes: number;
+    optional_watch_budgets: number[];
+    evening_screen_policy: "audio_only" | "minimal_visual" | "visual_required";
+    conservative_sleep: boolean;
+    recommended_mode_bias: "walk" | "audio_visual" | "desk";
+    rationale: string[];
+  };
+};
+
 export type MnemosyneSeedData = {
   user: User;
   goals: Goal[];
@@ -133,6 +173,12 @@ export interface MnemosyneStore {
   listPacks(): Promise<KnowledgePackRecord[]>;
   savePack(pack: KnowledgePackRecord): Promise<KnowledgePackRecord>;
   installPack(userId: string, packId: string): Promise<KnowledgePackRecord>;
+  listExperiments(): Promise<Experiment[]>;
+  saveExperiment(experiment: Experiment): Promise<Experiment>;
+  listExperimentAssignments(userId?: string): Promise<ExperimentAssignmentRecord[]>;
+  saveExperimentAssignment(assignment: ExperimentAssignmentRecord): Promise<ExperimentAssignmentRecord>;
+  getPersonalizationProfile(userId: string): Promise<PersonalizationProfileRecord | undefined>;
+  savePersonalizationProfile(profile: PersonalizationProfileRecord): Promise<PersonalizationProfileRecord>;
 }
 
 export class InMemoryMnemosyneStore implements MnemosyneStore {
@@ -158,6 +204,9 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
   private proposals = new Map<string, Proposal>();
   private creatorSubmissions = new Map<string, CreatorSubmissionRecord>();
   private packs = new Map<string, KnowledgePackRecord>();
+  private experiments = new Map<string, Experiment>();
+  private experimentAssignments = new Map<string, ExperimentAssignmentRecord>();
+  private personalizationProfiles = new Map<string, PersonalizationProfileRecord>();
 
   constructor(seed?: MnemosyneSeedData) {
     if (!seed) return;
@@ -339,6 +388,41 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
     const updated = { ...pack, installed_for_user_ids };
     this.packs.set(pack.id, updated);
     return updated;
+  }
+
+  async listExperiments(): Promise<Experiment[]> {
+    return [...this.experiments.values()];
+  }
+
+  async saveExperiment(experiment: Experiment): Promise<Experiment> {
+    this.experiments.set(experiment.id, experiment);
+    return experiment;
+  }
+
+  async listExperimentAssignments(userId?: string): Promise<ExperimentAssignmentRecord[]> {
+    const assignments = [...this.experimentAssignments.values()];
+    return userId ? assignments.filter((assignment) => assignment.user_id === userId) : assignments;
+  }
+
+  async saveExperimentAssignment(
+    assignment: ExperimentAssignmentRecord
+  ): Promise<ExperimentAssignmentRecord> {
+    this.experimentAssignments.set(
+      `${assignment.user_id}:${assignment.experiment_id}:${assignment.unit_kind}:${assignment.unit_id}`,
+      assignment
+    );
+    return assignment;
+  }
+
+  async getPersonalizationProfile(userId: string): Promise<PersonalizationProfileRecord | undefined> {
+    return this.personalizationProfiles.get(userId);
+  }
+
+  async savePersonalizationProfile(
+    profile: PersonalizationProfileRecord
+  ): Promise<PersonalizationProfileRecord> {
+    this.personalizationProfiles.set(profile.user_id, profile);
+    return profile;
   }
 }
 

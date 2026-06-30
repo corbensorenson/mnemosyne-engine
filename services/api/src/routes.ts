@@ -107,6 +107,13 @@ export const apiRoutes: ApiRoute[] = [
   { method: "POST", path: "/api/wearables/sync", service: "Wearable Integration Service" },
   {
     method: "POST",
+    path: "/api/experiments/assign",
+    service: "Technique Lab Service",
+    eventType: "graph_updated"
+  },
+  { method: "GET", path: "/api/personalization/profile", service: "Technique Lab Service" },
+  {
+    method: "POST",
     path: "/api/proposals",
     service: "Content Court Service",
     eventType: "proposal_submitted"
