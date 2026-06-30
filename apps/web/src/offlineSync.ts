@@ -95,7 +95,18 @@ function isDomainWritableSessionCompletionItem(item: OfflineQueueItem): boolean 
     typeof item.payload.dailyPacketId === "string" &&
     typeof item.payload.walkPacketId === "string" &&
     hasAssessmentResponses;
-  return isMorningForge || isWalkMode;
+  const isEveningLockIn =
+    item.action_type === "evening_lock_in_completion" &&
+    item.method === "POST" &&
+    item.endpoint === "/api/evening-lock-in/complete" &&
+    typeof item.payload.userId === "string" &&
+    typeof item.payload.dailyPacketId === "string" &&
+    Array.isArray(item.payload.recallResponses) &&
+    Array.isArray(item.payload.transferResponses) &&
+    Array.isArray(item.payload.boundCueIds) &&
+    typeof item.payload.phoneDownChecklist === "object" &&
+    item.payload.phoneDownChecklist !== null;
+  return isMorningForge || isWalkMode || isEveningLockIn;
 }
 
 function domainReceiptId(

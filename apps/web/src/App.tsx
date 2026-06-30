@@ -234,6 +234,9 @@ type SessionAssessmentSyncInput = {
   entryMode: AnswerMode;
   transcript?: string;
 };
+type EveningAssessmentSyncInput = SessionAssessmentSyncInput & {
+  phase: EveningPromptPhase;
+};
 type BackendStatus = "local" | "connecting" | "connected" | "error";
 
 export default function App() {
@@ -290,6 +293,7 @@ export default function App() {
   const [lockIndex, setLockIndex] = useState(0);
   const [lockStartedAt, setLockStartedAt] = useState(Date.now());
   const [lockResponses, setLockResponses] = useState(0);
+  const [lockSyncResponses, setLockSyncResponses] = useState<EveningAssessmentSyncInput[]>([]);
   const [lockLastResponse, setLockLastResponse] = useState<AssessmentResponse | null>(null);
   const [lockRepairTips, setLockRepairTips] = useState<string[]>([]);
   const [boundCueIds, setBoundCueIds] = useState<string[]>([]);
@@ -1324,16 +1328,27 @@ export default function App() {
   function submitLockInAnswer() {
     const prompt = activeLockPrompt;
     if (!prompt || lockAnswer.trim().length === 0) return;
+    const submittedAnswer = lockAnswer;
+    const latencyMs = Math.max(1_000, Date.now() - lockStartedAt);
+    const responseInput: EveningAssessmentSyncInput = {
+      phase: prompt.phase,
+      item: prompt.item,
+      rawResponse: submittedAnswer,
+      confidence: lockConfidence,
+      latencyMs,
+      entryMode: lockAnswerMode
+    };
     const response = scoreAssessmentResponse({
       userId: activeUser.id,
       item: prompt.item,
-      rawResponse: lockAnswer,
+      rawResponse: submittedAnswer,
       confidence: lockConfidence,
-      latencyMs: Math.max(1_000, Date.now() - lockStartedAt)
+      latencyMs
     });
     setLockLastResponse(response);
     setLockRepairTips(repairTipsFor(response));
     setLockResponses((count) => count + 1);
+    setLockSyncResponses((current) => [...current, responseInput]);
     setLockCompletedAt(null);
     setLockSleepCacheStatus("pending");
     setStates((current) => {
@@ -1378,6 +1393,14 @@ export default function App() {
 
   function completeLockIn() {
     const completedAt = new Date().toISOString();
+    const recallResponses = lockSyncResponses
+      .filter((response) => response.phase !== "transfer")
+      .map(({ phase: _phase, ...response }) => response);
+    const transferResponses = lockSyncResponses
+      .filter((response) => response.phase === "transfer")
+      .map(({ phase: _phase, ...response }) => response);
+    const voiceUsed =
+      lockAnswerMode === "voice" || lockSyncResponses.some((response) => response.entryMode === "voice");
     try {
       window.localStorage.setItem(
         "mnemosyne.eveningLockIn.v1",
@@ -1403,15 +1426,21 @@ export default function App() {
         endpoint: "/api/evening-lock-in/complete",
         method: "POST",
         payload: {
-          daily_packet_id: scheduled.packet.id,
-          completed_responses: lockResponses,
-          phone_down_ready: phoneDownReady,
-          bound_cue_ids: selectedBoundCueIds,
-          bound_concept_ids: boundCues.map((cue) => cue.concept_id),
-          sleep_packet_id: lockSleepResult.packet.id,
-          audio_plan_id: lockSleepResult.audioPlan.id
+          userId: activeUser.id,
+          dailyPacketId: scheduled.packet.id,
+          packetDate: scheduled.packet.date,
+          recallResponses,
+          transferResponses,
+          boundCueIds: selectedBoundCueIds,
+          phoneDownChecklist,
+          screenMinutes: round(
+            lockSyncResponses.reduce((sum, response) => sum + response.latencyMs, 0) / 60_000,
+            2
+          ),
+          voiceUsed,
+          completedAt
         },
-        payloadScope: lockAnswerMode === "voice" ? "voice" : "sleep",
+        payloadScope: voiceUsed ? "voice" : "sleep",
         idempotencyKey: `${activeUser.id}:evening_lock_in:${scheduled.packet.id}:${completedAt}`
       });
     } catch {
@@ -1636,6 +1665,7 @@ export default function App() {
     setWalkTranscriptDeleted(true);
     setLockIndex(0);
     setLockResponses(0);
+    setLockSyncResponses([]);
     setLockRepairTips([]);
     setLockLastResponse(null);
     setLockSleepCacheStatus("pending");

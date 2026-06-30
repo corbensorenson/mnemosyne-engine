@@ -146,4 +146,82 @@ describe("web offline sync transport", () => {
       })
     );
   });
+
+  it("routes backend-compatible Evening Lock-In queue items to the domain completion endpoint", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "evening_lock_in_completion",
+      endpoint: "/api/evening-lock-in/complete",
+      method: "POST",
+      payload: {
+        userId: "user_demo",
+        dailyPacketId: "daily_packet_demo",
+        packetDate: "2026-06-30",
+        recallResponses: [
+          {
+            item: prompt,
+            rawResponse: "A recall answer before bed.",
+            confidence: 0.7,
+            latencyMs: 16_000,
+            entryMode: "voice"
+          }
+        ],
+        transferResponses: [
+          {
+            item: prompt,
+            rawResponse: "A transfer example before bed.",
+            confidence: 0.66,
+            latencyMs: 24_000,
+            entryMode: "text"
+          }
+        ],
+        boundCueIds: ["cue_sleep_1"],
+        phoneDownChecklist: {
+          notificationsSilenced: true,
+          screenDimmingEnabled: true,
+          chargerReady: true,
+          alarmSet: true
+        },
+        screenMinutes: 1.2,
+        voiceUsed: true,
+        completedAt: "2026-06-30T21:15:00.000Z"
+      },
+      idempotencyKey: "evening-domain-write"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787/", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/evening-lock-in/complete",
+        body: item.payload,
+        directDomainWrite: true
+      })
+    );
+  });
+
+  it("keeps legacy Evening Lock-In payloads on the offline receipt route", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "evening_lock_in_completion",
+      endpoint: "/api/evening-lock-in/complete",
+      method: "POST",
+      payload: {
+        daily_packet_id: "daily_packet_demo",
+        completed_responses: 2,
+        bound_cue_ids: ["cue_legacy"]
+      },
+      idempotencyKey: "legacy-evening-receipt"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/offline/actions/sync",
+        body: { item },
+        directDomainWrite: false
+      })
+    );
+  });
 });
