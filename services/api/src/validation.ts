@@ -196,6 +196,7 @@ export const outcomeDashboardRequestSchema = z
   .strict();
 
 const queueNameSchema = z.enum([
+  "scheduler",
   "ingestion",
   "ai",
   "audio_render",

@@ -6,7 +6,7 @@ Mnemosyne treats background work and stored artifacts as first-party product sta
 
 `@mnemosyne/ops-core` owns the durable contract:
 
-- queue names: `ingestion`, `ai`, `audio_render`, `notification`, `analytics`, `export`, `moderation`
+- queue names: `scheduler`, `ingestion`, `ai`, `audio_render`, `notification`, `analytics`, `export`, `moderation`
 - job lifecycle: `queued`, `running`, `completed`, `failed`, `dead_lettered`, `cancelled`
 - job safety: idempotency keys, `run_after`, priority, attempts, max attempts, worker locks, results, and last errors
 - object buckets: `audio`, `transcript`, `import`, `generated_asset`, `export`, `evidence`, `backup`
@@ -21,6 +21,18 @@ The ops package is intentionally storage-agnostic. Redis workers, Postgres table
 - SHA-256 and byte-size verification on writes and reads
 - JSON sidecar manifests generated from the same `ObjectManifest` contract used by ops health
 - `POST /api/objects/store` for API-mediated writes that persist both object bytes and the manifest
+
+`@mnemosyne/worker-core` provides the first runnable queue adapter:
+
+- leases the highest-priority runnable job whose queue/type has a registered handler
+- starts, completes, fails, retries, or dead-letters jobs through the same `JobRecord` lifecycle as the API
+- emits job audit events with worker id, queue, type, status, attempts, result keys, and errors
+- supports bounded single-run, batch, and polling-loop execution for service processes
+- passes optional object storage into handlers so generated artifacts can be persisted without a vendor API
+
+The scheduler service registers `scheduler:generate_daily_packet`. The handler loads the user, goals, readiness, master graph, personal graph, and personalization profile from `MnemosyneStore`, saves the daily packet, sleep packet, and audio plan, then queues `audio_render:render_sleep_audio`.
+
+The audio renderer service registers `audio_render:render_sleep_audio`. The handler builds the deterministic render manifest, stores it as a first-party object when object storage is configured, updates the audio plan render status, and leaves failures for the worker runtime to retry or dead-letter.
 
 ## API Surface
 
@@ -57,4 +69,4 @@ The next production step is to map this contract onto:
 - Postgres tables for canonical job and object-manifest records
 - Redis streams or sorted sets for runnable queue indexes
 - managed object storage for audio, transcripts, imports, generated assets, evidence files, backups, and privacy exports, using the same manifest and integrity behavior as the local adapter
-- worker binaries for scheduler, audio rendering, analytics rollups, notifications, and moderation
+- worker binaries for analytics rollups, notifications, moderation, ingestion, export, and AI jobs following the same `@mnemosyne/worker-core` handler contract

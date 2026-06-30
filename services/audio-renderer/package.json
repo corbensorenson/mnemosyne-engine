@@ -5,7 +5,8 @@
   "license": "MIT",
   "dependencies": {
     "@mnemosyne/audio-core": "*",
-    "@mnemosyne/schema": "*"
+    "@mnemosyne/schema": "*",
+    "@mnemosyne/worker-core": "*"
   },
   "exports": {
     ".": {

@@ -1,6 +1,7 @@
 import { createId, nowIso, round, stableHash } from "@mnemosyne/shared-utils";
 
 export const queueNames = [
+  "scheduler",
   "ingestion",
   "ai",
   "audio_render",

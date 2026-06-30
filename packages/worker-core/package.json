@@ -1,14 +1,13 @@
 {
-  "name": "@mnemosyne/scheduler-service",
+  "name": "@mnemosyne/worker-core",
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
   "dependencies": {
     "@mnemosyne/ops-core": "*",
     "@mnemosyne/persistence-core": "*",
-    "@mnemosyne/scheduler-core": "*",
-    "@mnemosyne/schema": "*",
-    "@mnemosyne/worker-core": "*"
+    "@mnemosyne/shared-utils": "*",
+    "@mnemosyne/storage-core": "*"
   },
   "exports": {
     ".": {
