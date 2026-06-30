@@ -33,6 +33,7 @@ The repository already has the first foundation:
 - PWA shell with Today, Graph, Forge, Cinema, Walk, Lock-In, Sleep, Stats, Packs, Court, Lab, and Admin surfaces.
 - Shared schemas for graph, user state, sessions, video, sleep, governance, experiments, and events.
 - Core packages for graph analysis, scheduling, assessment scoring, sleep packets, audio timelines, video ranking, the first-party Paced Read engine, Technique Lab, and Content Court.
+- First-party tutor core for rubric semantics, tutor modes, feedback safety gates, and compatible assessment events.
 - Seed master graph layout, schemas, packs, arbiter policy, source rubric, and release notes.
 - API, scheduler, and audio-renderer service skeletons.
 - First-party ops primitives for queues, job lifecycle, object manifests, and release health gates.
@@ -378,6 +379,8 @@ Current implementation progress:
 
 - PWA WalkMode now runs a first-party prompt/listen/score/hint/skip/mark-confusing/complete state machine with screen-locked phone controls, text fallback, voice transcript entry, command log, repair feedback, local cache, and transcript deletion controls.
 - First-party WalkMode completion persists voice and text answers through the same assessment response path, logs compatible `assessment_answered` events, records `walk_recall_completed`, marks confusing prompts for repair, and supports deleted transcript retention.
+- First-party `@mnemosyne/tutor-core` now scores rubric semantics, supports Socratic, Examiner, Calm Coach, Debate Opponent, Language Partner, Debugger, Oral Board, Walk Coach, and Sleep Prep Guide modes, and runs deterministic answer-leakage, hallucination-language, high-stakes advice, over-teaching, and assessment-compatibility release gates.
+- API `POST /api/tutor/turn` persists tutor-scored turns as compatible assessment responses, updates graph state only when the tutor release gate passes, records `assessment_answered`, and audits `tutor_turn_scored` with the safety evaluation.
 
 Exit criteria:
 

@@ -125,6 +125,14 @@ import {
   type ExperimentOutcomeRollup,
   type PersonalizationProfile
 } from "@mnemosyne/technique-lab";
+import {
+  buildAssessmentResponseFromTutorTurn,
+  buildTutorTurn,
+  evaluateTutorReleaseGate,
+  type TutorMode,
+  type TutorReleaseGate,
+  type TutorTurnPlan
+} from "@mnemosyne/tutor-core";
 import { buildWatchPackets, rankVideosForUser } from "@mnemosyne/video-core";
 import {
   assessmentSubmitRequestSchema,
@@ -160,6 +168,7 @@ import {
   sleepPacketRequestSchema,
   sleepRecallCompleteRequestSchema,
   startSessionRequestSchema,
+  tutorTurnRequestSchema,
   updatePreferencesRequestSchema,
   validateRequest,
   videoRecommendationRequestSchema,
@@ -254,6 +263,28 @@ export type AssessmentSubmitRequest = {
   latencyMs: number;
   hintCount?: number;
   retries?: number;
+};
+
+type TutorTurnRequest = {
+  userId: string;
+  mode: TutorMode;
+  item: AssessmentItem;
+  rawResponse: string;
+  confidence?: number;
+  latencyMs: number;
+  hintCount?: number;
+  retries?: number;
+  entryMode: "text" | "voice";
+  transcript?: string;
+  transcriptRetention: "deleted" | "transcript_only" | "retained";
+  highStakesDomain: boolean;
+};
+
+type TutorTurnResponse = {
+  turn: TutorTurnPlan;
+  assessment_response: AssessmentResponse;
+  updated_states: UserConceptState[];
+  release_gate: TutorReleaseGate;
 };
 
 type MorningForgeResponseInput = {
@@ -1217,6 +1248,93 @@ export function createApiHandlers(store: MnemosyneStore) {
       });
 
       return envelope({ response, event });
+    },
+
+    async scoreTutorTurn(input: unknown): Promise<HandlerEnvelope<TutorTurnResponse>> {
+      const request = validateRequest(tutorTurnRequestSchema, input) as TutorTurnRequest;
+      await requireUser(store, request.userId);
+      const turn = buildTutorTurn({
+        userId: request.userId,
+        mode: request.mode,
+        item: request.item,
+        rawResponse: request.rawResponse,
+        confidence: request.confidence,
+        latencyMs: request.latencyMs,
+        hintCount: request.hintCount,
+        retries: request.retries,
+        transcriptPolicy: request.transcriptRetention,
+        highStakesDomain: request.highStakesDomain
+      });
+      const releaseGate = evaluateTutorReleaseGate([turn]);
+      const response = buildAssessmentResponseFromTutorTurn({
+        userId: request.userId,
+        item: request.item,
+        rawResponse: request.rawResponse,
+        turn,
+        latencyMs: request.latencyMs,
+        hintCount: request.hintCount,
+        retries: request.retries
+      });
+      const savedResponse = await store.saveAssessmentResponse(
+        releaseGate.passed ? response : { ...response, graph_updates: [] }
+      );
+
+      const graph = await store.getUserGraph(request.userId);
+      const updatedGraph = releaseGate.passed
+        ? await store.saveUserConceptStates(
+            request.userId,
+            applyResponseToStates(graph.states, savedResponse, request.userId)
+          )
+        : graph;
+      const updatedStates = updatedGraph.states.filter((state) =>
+        request.item.concept_ids.includes(state.concept_id)
+      );
+      const event = await store.appendLearningEvent({
+        user_id: request.userId,
+        event_type: "assessment_answered",
+        payload: {
+          assessment_item_id: request.item.id,
+          response_id: savedResponse.id,
+          tutor_turn_id: turn.id,
+          tutor_mode: turn.mode,
+          tutor_intent: turn.intent,
+          entry_mode: request.entryMode,
+          voice_used: request.entryMode === "voice",
+          transcript_stored: request.transcriptRetention !== "deleted" && Boolean(request.transcript),
+          transcript:
+            request.transcriptRetention === "deleted" || !request.transcript ? undefined : request.transcript,
+          correctness_score: savedResponse.correctness_score,
+          semantic_score: savedResponse.semantic_score,
+          detected_failure_modes: savedResponse.detected_failure_modes,
+          release_gate_passed: releaseGate.passed,
+          graph_progress_awarded: releaseGate.passed
+        }
+      });
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "tutor_turn_scored",
+        object_type: "assessment_item",
+        object_id: request.item.id,
+        payload: {
+          tutor_turn_id: turn.id,
+          response_id: savedResponse.id,
+          mode: turn.mode,
+          intent: turn.intent,
+          safety_evaluation: turn.safety_evaluation,
+          release_gate: releaseGate,
+          event_id: event.id
+        }
+      });
+
+      return envelope(
+        {
+          turn,
+          assessment_response: savedResponse,
+          updated_states: updatedStates,
+          release_gate: releaseGate
+        },
+        audit.id
+      );
     },
 
     async completeMorningForge(input: unknown): Promise<HandlerEnvelope<MorningForgeCompletionResponse>> {

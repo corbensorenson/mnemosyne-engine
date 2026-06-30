@@ -56,6 +56,7 @@ Track:
 - object manifest encryption and SHA-256 coverage
 - daily packet generation failures
 - assessment scoring failures
+- tutor release-gate failures and high-stakes review escalations
 - audio render failures
 - sleep playback event ingestion failures
 - wearable sync and revoke failures
@@ -100,6 +101,7 @@ Exercise:
 - onboarding completion
 - daily packet generation
 - Morning Forge completion
+- tutor turn scoring
 - WalkMode completion
 - Evening Lock-In completion
 - SleepCue playback event ingestion

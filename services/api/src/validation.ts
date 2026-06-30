@@ -328,6 +328,35 @@ export const assessmentSubmitRequestSchema = z
   })
   .strict();
 
+const tutorModeSchema = z.enum([
+  "socratic",
+  "examiner",
+  "calm_coach",
+  "debate_opponent",
+  "language_partner",
+  "debugger",
+  "oral_board",
+  "walk_coach",
+  "sleep_prep_guide"
+]);
+
+export const tutorTurnRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    mode: tutorModeSchema.default("socratic"),
+    item: assessmentItemSchema,
+    rawResponse: z.string().min(1),
+    confidence: z.number().min(0).max(1).optional(),
+    latencyMs: z.number().int().nonnegative(),
+    hintCount: z.number().int().nonnegative().optional(),
+    retries: z.number().int().nonnegative().optional(),
+    entryMode: z.enum(["text", "voice"]).default("text"),
+    transcript: z.string().optional(),
+    transcriptRetention: z.enum(["deleted", "transcript_only", "retained"]).default("deleted"),
+    highStakesDomain: z.boolean().default(false)
+  })
+  .strict();
+
 const sessionAssessmentResponseSchema = z
   .object({
     item: assessmentItemSchema,

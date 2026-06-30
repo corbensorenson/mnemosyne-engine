@@ -39,7 +39,7 @@ export const apiRoutes: ApiRoute[] = [
   },
   {
     method: "POST",
-    path: "/api/sessions/:id/voice-response",
+    path: "/api/tutor/turn",
     service: "Tutor Service",
     eventType: "assessment_answered"
   },

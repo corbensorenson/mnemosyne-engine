@@ -326,6 +326,73 @@ describe("persistence-backed API handlers", () => {
     expect(after?.false_confidence_risk).toBeGreaterThan(before?.false_confidence_risk ?? 0);
   });
 
+  it("scores tutor turns with first-party semantic guardrails and compatible graph updates", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+    const concept = demoMasterGraph.concepts.find((item) => item.id === "ai_vectors");
+    if (!concept) throw new Error("missing demo concept");
+    const item = generateAssessmentForConcept(concept, "free_recall");
+    const beforeState = (await store.getUserGraph(demoUser.id)).states.find(
+      (state) => state.concept_id === concept.id
+    );
+
+    const result = unwrap(
+      await handlers.scoreTutorTurn({
+        userId: demoUser.id,
+        mode: "socratic",
+        item,
+        rawResponse: [
+          ...item.rubric.must_include,
+          item.rubric.acceptable_aliases[0],
+          "because boundary"
+        ].join(" "),
+        confidence: 0.82,
+        latencyMs: 11_000,
+        entryMode: "voice",
+        transcript: "private tutor transcript",
+        transcriptRetention: "transcript_only"
+      })
+    );
+
+    expect(result.turn.mode).toBe("socratic");
+    expect(result.turn.safety_evaluation.release_gate_passed).toBe(true);
+    expect(result.release_gate.passed).toBe(true);
+    expect(result.assessment_response.correctness_score).toBeGreaterThan(0.7);
+    expect(result.updated_states.find((state) => state.concept_id === concept.id)?.times_seen).toBe(
+      (beforeState?.times_seen ?? 0) + 1
+    );
+
+    const events = await store.listLearningEvents(demoUser.id);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event_type: "assessment_answered",
+          payload: expect.objectContaining({
+            tutor_turn_id: result.turn.id,
+            tutor_mode: "socratic",
+            voice_used: true,
+            transcript_stored: true,
+            graph_progress_awarded: true
+          })
+        })
+      ])
+    );
+
+    const audits = await store.listAuditEvents(demoUser.id);
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "tutor_turn_scored",
+          object_id: item.id,
+          payload: expect.objectContaining({
+            tutor_turn_id: result.turn.id,
+            release_gate: expect.objectContaining({ passed: true })
+          })
+        })
+      ])
+    );
+  });
+
   it("completes Morning Forge sessions with scoring, graph updates, and audit trail", async () => {
     const store = await createSeededStore();
     const handlers = createApiHandlers(store);

@@ -18,6 +18,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/video-core`: bounded GraphFeed ranking and watch packet generation.
 - `packages/paced-reader-core`: graph-aware chunking and effective WPM calculations.
 - `packages/technique-lab`: evidence registry and experiment templates for learning techniques.
+- `packages/tutor-core`: first-party rubric semantics, tutor modes, and safety gates for feedback.
 - `packages/social-core`: outcome-safe badges, challenges, privacy-aware dashboards, and contributor reputation.
 - `packages/wearables-core`: optional wearable connection, token envelope, sleep normalization, readiness, and native-edge planning primitives.
 - `packages/content-court`: proposal, voting, AI arbitration, and moderation primitives.
