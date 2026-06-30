@@ -15,6 +15,8 @@ npm run docker:up
 - `GET /readyz`
 - all `/api/*` routes from the first-party HTTP adapter
 
+Release-gate routes include `/api/security/release-gate`, `/api/accessibility/release-gate`, and `/api/ops/monitoring`.
+
 `GET /healthz` is a cheap liveness check. `GET /readyz` verifies the configured `MnemosyneStore` and object-storage adapter before returning `200`; dependency failures return `503 service_not_ready` with per-component status details.
 
 ## Environment

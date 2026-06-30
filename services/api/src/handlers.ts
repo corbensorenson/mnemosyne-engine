@@ -3,6 +3,7 @@ import {
   generateAssessmentForConcept,
   scoreAssessmentResponse
 } from "@mnemosyne/assessment-core";
+import { buildAccessibilityReleaseGate, type AccessibilityReleaseGate } from "@mnemosyne/accessibility-core";
 import {
   authorizeAction,
   buildSecurityPosture,
@@ -169,6 +170,7 @@ import {
 import { buildWatchPackets, rankVideosForUser } from "@mnemosyne/video-core";
 import {
   assessmentSubmitRequestSchema,
+  accessibilityReleaseGateRequestSchema,
   authAuthorizationRequestSchema,
   authSessionIssueRequestSchema,
   authTokenVerifyRequestSchema,
@@ -677,6 +679,11 @@ type SecurityReleaseGateRequest = {
   userId: string;
   environment: "local" | "staging" | "production";
   reportUri?: string;
+};
+
+type AccessibilityReleaseGateRequest = {
+  userId: string;
+  environment: "local" | "staging" | "production";
 };
 
 type OpsMonitoringRequest = {
@@ -1552,6 +1559,31 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
         },
         audit.id
       );
+    },
+
+    async getAccessibilityReleaseGate(input: unknown): Promise<HandlerEnvelope<AccessibilityReleaseGate>> {
+      const request = validateRequest(
+        accessibilityReleaseGateRequestSchema,
+        input
+      ) as AccessibilityReleaseGateRequest;
+      await requireUser(store, request.userId);
+      const releaseGate = buildAccessibilityReleaseGate({ environment: request.environment });
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "accessibility_release_gate_checked",
+        object_type: "accessibility_release_gate",
+        object_id: request.environment,
+        payload: {
+          passed: releaseGate.passed,
+          score: releaseGate.score,
+          surface_count: releaseGate.surface_count,
+          failing_surface_ids: releaseGate.failing_surface_ids,
+          failed_criteria: releaseGate.summaries
+            .filter((summary) => !summary.passed)
+            .map((summary) => summary.criterion)
+        }
+      });
+      return envelope(releaseGate, audit.id);
     },
 
     async completeOnboarding(input: unknown): Promise<HandlerEnvelope<OnboardingResponse>> {

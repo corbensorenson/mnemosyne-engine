@@ -387,7 +387,7 @@ describe("persistence-backed API handlers", () => {
     }
   });
 
-  it("labels high-stakes proposal content and exposes security release gates", async () => {
+  it("labels high-stakes proposal content and exposes release gates", async () => {
     const store = await createSeededStore();
     const handlers = createApiHandlers(store);
 
@@ -400,6 +400,17 @@ describe("persistence-backed API handlers", () => {
     expect(security.headers["Content-Security-Policy"]).toContain("default-src 'self'");
     expect(security.release_gate.passed).toBe(true);
     expect(security.rate_limit_policy_count).toBeGreaterThan(0);
+
+    const accessibility = unwrap(
+      await handlers.getAccessibilityReleaseGate({
+        userId: demoUser.id,
+        environment: "production"
+      })
+    );
+    expect(accessibility.passed).toBe(true);
+    expect(accessibility.score).toBe(1);
+    expect(accessibility.surface_count).toBeGreaterThanOrEqual(17);
+    expect(accessibility.surfaces.map((surface) => surface.surface_id)).toContain("admin");
 
     const submitted = unwrap(
       await handlers.createProposal({
@@ -456,6 +467,10 @@ describe("persistence-backed API handlers", () => {
         expect.objectContaining({
           action: "security_release_gate_checked",
           payload: expect.objectContaining({ csp_present: true })
+        }),
+        expect.objectContaining({
+          action: "accessibility_release_gate_checked",
+          payload: expect.objectContaining({ passed: true, score: 1 })
         }),
         expect.objectContaining({
           action: "proposal_submitted",

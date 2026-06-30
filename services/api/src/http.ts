@@ -351,6 +351,12 @@ function createHttpRoutes(handlers: ReturnType<typeof createApiHandlers>): Route
         reportUri: optionalQuery(context, "reportUri")
       })
     ),
+    route("GET", "/api/accessibility/release-gate", (context) =>
+      handlers.getAccessibilityReleaseGate({
+        userId: requiredQuery(context, "userId"),
+        environment: optionalQuery(context, "environment") ?? "production"
+      })
+    ),
     route("POST", "/api/proposals", (context) => handlers.createProposal(context.body), {
       rateLimitKey: "proposal_create"
     }),

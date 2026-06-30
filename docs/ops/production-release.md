@@ -100,6 +100,8 @@ Before production release:
 - text scaling checked at mobile and desktop widths
 - no horizontal document overflow at phone width
 
+`GET /api/accessibility/release-gate` returns the first-party accessibility release report and audits `accessibility_release_gate_checked`. See [`../accessibility/release-gate.md`](../accessibility/release-gate.md).
+
 ## Load and Reliability Gate
 
 Exercise:
@@ -127,6 +129,7 @@ The system should preserve audit events even when downstream analytics or person
 - GitHub license detection reports MIT.
 - `README.md`, `ROADMAP.md`, `SECURITY.md`, and docs are current.
 - `/api/security/release-gate` passes for the target environment.
+- `/api/accessibility/release-gate` passes for the target environment.
 - `POST /api/ops/incidents/reports` can create a `mnemosyne-incident-response-v0.1` artifact from the target environment monitoring snapshot.
 - The API HTTP adapter is serving CSP/security headers, CSRF enforcement, bounded JSON parsing, and rate-limit responses in the target environment.
 - Postgres migrations through `0003_job_claim_indexes.sql` are applied and the API is constructed with `createPostgresStore`.

@@ -8,6 +8,7 @@
     "migrate": "tsx src/migrate.ts"
   },
   "dependencies": {
+    "@mnemosyne/accessibility-core": "*",
     "@mnemosyne/assessment-core": "*",
     "@mnemosyne/audio-renderer-service": "*",
     "@mnemosyne/auth-core": "*",

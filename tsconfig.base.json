@@ -20,6 +20,7 @@
     "paths": {
       "@mnemosyne/schema": ["packages/schema/src/index.ts"],
       "@mnemosyne/shared-utils": ["packages/shared-utils/src/index.ts"],
+      "@mnemosyne/accessibility-core": ["packages/accessibility-core/src/index.ts"],
       "@mnemosyne/auth-core": ["packages/auth-core/src/index.ts"],
       "@mnemosyne/notification-core": ["packages/notification-core/src/index.ts"],
       "@mnemosyne/outcome-core": ["packages/outcome-core/src/index.ts"],

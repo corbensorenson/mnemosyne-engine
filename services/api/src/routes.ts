@@ -142,6 +142,7 @@ export const apiRoutes: ApiRoute[] = [
     service: "System Backup Restore Drill Service"
   },
   { method: "GET", path: "/api/security/release-gate", service: "Security Service" },
+  { method: "GET", path: "/api/accessibility/release-gate", service: "Accessibility Service" },
   {
     method: "POST",
     path: "/api/proposals",

@@ -359,6 +359,13 @@ export const securityReleaseGateRequestSchema = z
   })
   .strict();
 
+export const accessibilityReleaseGateRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    environment: z.enum(["local", "staging", "production"]).default("production")
+  })
+  .strict();
+
 export const opsMonitoringRequestSchema = z
   .object({
     userId: userIdSchema,
