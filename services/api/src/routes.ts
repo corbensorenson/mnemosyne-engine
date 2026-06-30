@@ -73,14 +73,14 @@ export const apiRoutes: ApiRoute[] = [
   },
   {
     method: "POST",
-    path: "/api/flashread/generate",
-    service: "FlashRead Service",
+    path: "/api/flash/generate",
+    service: "Flash Engine",
     eventType: "session_started"
   },
   {
     method: "POST",
-    path: "/api/flashread/complete",
-    service: "FlashRead Service",
+    path: "/api/flash/complete",
+    service: "Flash Engine",
     eventType: "flashread_completed"
   },
   { method: "POST", path: "/api/sleep/packet/generate", service: "SleepCue Service", eventType: "cue_bound" },

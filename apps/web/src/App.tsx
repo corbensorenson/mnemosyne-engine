@@ -12,6 +12,7 @@ import {
   FlaskConical,
   Footprints,
   Gavel,
+  Gauge,
   GitBranch,
   Headphones,
   Home,
@@ -21,8 +22,10 @@ import {
   Play,
   Radio,
   RefreshCcw,
+  Rewind,
   Search,
   ShieldCheck,
+  SkipForward,
   Sparkles,
   SunMedium,
   Trophy,
@@ -38,12 +41,19 @@ import {
 } from "@mnemosyne/assessment-core";
 import { estimateCueDensity } from "@mnemosyne/audio-core";
 import { arbitrateProposal, computeBridgingPriority } from "@mnemosyne/content-court";
+import {
+  buildFlashReadSession,
+  scoreFlashReadCompletion,
+  type FlashReadDisplayUnit,
+  type FlashReadSessionPlan
+} from "@mnemosyne/flashread-core";
 import { buildGraphSnapshot } from "@mnemosyne/graph-core";
 import { buildDailyLearningPacket } from "@mnemosyne/scheduler-core";
 import type {
   AssessmentItem,
   AssessmentResponse,
   ConceptNode,
+  FlashReadAsset,
   ReadinessProfile,
   UserConceptState
 } from "@mnemosyne/schema";
@@ -67,6 +77,7 @@ type TabId =
   | "graph"
   | "forge"
   | "cinema"
+  | "flash"
   | "walk"
   | "lock"
   | "sleep"
@@ -83,6 +94,7 @@ const tabs: Array<{ id: TabId; label: string; icon: typeof Home }> = [
   { id: "graph", label: "Graph", icon: Network },
   { id: "forge", label: "Forge", icon: SunMedium },
   { id: "cinema", label: "Cinema", icon: Video },
+  { id: "flash", label: "Flash", icon: Gauge },
   { id: "walk", label: "Walk", icon: Footprints },
   { id: "lock", label: "Lock-In", icon: Headphones },
   { id: "sleep", label: "Sleep", icon: Moon },
@@ -111,6 +123,13 @@ type SleepRecallResult = {
   cueGainDelta: number;
   cuedConceptIds: string[];
   controlConceptIds: string[];
+};
+type FlashEngineResult = ReturnType<typeof scoreFlashReadCompletion> & {
+  completedAt: string;
+  rawWpm: number;
+  comprehensionScore: number;
+  retentionScore: number;
+  strainRating: number;
 };
 
 export default function App() {
@@ -151,6 +170,20 @@ export default function App() {
   const [sleepDisruptionReported, setSleepDisruptionReported] = useState(false);
   const [sleepRecallResult, setSleepRecallResult] = useState<SleepRecallResult | null>(null);
   const [sleepCacheStatus, setSleepCacheStatus] = useState("pending");
+  const [flashAssetId, setFlashAssetId] = useState(
+    demoMasterGraph.flashReads.find((asset) => asset.concept_ids.includes("attention_qkv"))?.id ??
+      demoMasterGraph.flashReads[0]?.id ??
+      ""
+  );
+  const [flashDisplayUnit, setFlashDisplayUnit] = useState<FlashReadDisplayUnit>("phrase");
+  const [flashRequestedWpm, setFlashRequestedWpm] = useState(420);
+  const [flashChunkIndex, setFlashChunkIndex] = useState(0);
+  const [flashPlaying, setFlashPlaying] = useState(false);
+  const [flashComprehension, setFlashComprehension] = useState(0.78);
+  const [flashRetention, setFlashRetention] = useState(0.72);
+  const [flashStrain, setFlashStrain] = useState(0.24);
+  const [flashResult, setFlashResult] = useState<FlashEngineResult | null>(null);
+  const [flashCacheStatus, setFlashCacheStatus] = useState("pending");
   const [eventLog, setEventLog] = useState<string[]>([
     "daily packet generated",
     "sleep controls assigned",
@@ -188,6 +221,25 @@ export default function App() {
       }),
     [readiness, scheduled.packet.morning.frontier_items, scheduled.packet.morning.horizon_items, states]
   );
+  const flashAssets = useMemo(
+    () =>
+      rankFlashAssets(
+        demoMasterGraph.flashReads,
+        states,
+        scheduled.packet.morning.frontier_items.map((concept) => concept.id),
+        scheduled.packet.morning.horizon_items.map((concept) => concept.id)
+      ),
+    [scheduled.packet.morning.frontier_items, scheduled.packet.morning.horizon_items, states]
+  );
+  const activeFlashAsset =
+    flashAssets.find((asset) => asset.id === flashAssetId) ?? flashAssets[0] ?? demoMasterGraph.flashReads[0];
+  const flashPlan = useMemo(
+    () =>
+      activeFlashAsset ? buildFlashReadSession(activeFlashAsset, flashDisplayUnit, flashRequestedWpm) : null,
+    [activeFlashAsset, flashDisplayUnit, flashRequestedWpm]
+  );
+  const activeFlashChunk = flashPlan?.chunks[flashChunkIndex] ?? "";
+  const flashProgress = flashPlan ? clamp((flashChunkIndex + 1) / Math.max(flashPlan.chunks.length, 1)) : 0;
   const selectedNode =
     demoMasterGraph.concepts.find((concept) => concept.id === selectedNodeId) ?? demoMasterGraph.concepts[0];
   const selectedState = states.find((state) => state.concept_id === selectedNode.id);
@@ -309,6 +361,28 @@ export default function App() {
     }
   }, [scheduled.audioPlan.id, scheduled.packet]);
 
+  useEffect(() => {
+    setFlashChunkIndex(0);
+    setFlashPlaying(false);
+    setFlashResult(null);
+    setFlashCacheStatus("pending");
+  }, [flashPlan?.id]);
+
+  useEffect(() => {
+    if (!flashPlaying || !flashPlan) return;
+    if (flashChunkIndex >= flashPlan.chunks.length - 1) {
+      setFlashPlaying(false);
+      return;
+    }
+    const currentChunk = flashPlan.chunks[flashChunkIndex] ?? "";
+    const wordsInChunk = currentChunk.split(/\s+/).filter(Boolean).length || 1;
+    const delayMs = Math.max(180, Math.round((wordsInChunk / flashPlan.raw_wpm) * 60_000));
+    const timer = window.setTimeout(() => {
+      setFlashChunkIndex((index) => Math.min(index + 1, flashPlan.chunks.length - 1));
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [flashChunkIndex, flashPlan, flashPlaying]);
+
   function submitAnswer() {
     const prompt = activeForgePrompt;
     if (!prompt || answer.trim().length === 0) return;
@@ -343,6 +417,65 @@ export default function App() {
     setAnswer("");
     setForgeIndex((index) => (forgeQueue.length > 0 ? (index + 1) % forgeQueue.length : index));
     setForgeStartedAt(Date.now());
+  }
+
+  function selectFlashAsset(assetId: string) {
+    const asset = flashAssets.find((candidate) => candidate.id === assetId);
+    setFlashAssetId(assetId);
+    if (asset?.concept_ids[0]) setSelectedNodeId(asset.concept_ids[0]);
+  }
+
+  function completeFlashSession() {
+    if (!activeFlashAsset || !flashPlan) return;
+    const completedAt = new Date().toISOString();
+    const scored = scoreFlashReadCompletion({
+      rawWpm: flashPlan.raw_wpm,
+      comprehensionScore: flashComprehension,
+      retentionScore: flashRetention,
+      strainRating: flashStrain
+    });
+    const result: FlashEngineResult = {
+      ...scored,
+      completedAt,
+      rawWpm: flashPlan.raw_wpm,
+      comprehensionScore: flashComprehension,
+      retentionScore: flashRetention,
+      strainRating: flashStrain
+    };
+    setFlashPlaying(false);
+    setFlashResult(result);
+    setStates((current) => applyFlashResultToLocalStates(current, activeFlashAsset, result));
+    try {
+      window.localStorage.setItem(
+        "mnemosyne.flashEngine.v1",
+        JSON.stringify({
+          cached_at: completedAt,
+          user_id: demoUser.id,
+          asset_id: activeFlashAsset.id,
+          session_id: flashPlan.id,
+          display_unit: flashPlan.display_unit,
+          chunk_count: flashPlan.chunks.length,
+          raw_wpm: result.rawWpm,
+          effective_wpm: result.effectiveWpm,
+          comprehension_score: result.comprehensionScore,
+          retention_score: result.retentionScore,
+          strain_rating: result.strainRating,
+          screen_load_score: result.screenLoadScore,
+          advance_allowed: result.advanceAllowed,
+          concept_ids: activeFlashAsset.concept_ids
+        })
+      );
+      setFlashCacheStatus("ready");
+    } catch {
+      setFlashCacheStatus("unavailable");
+    }
+    setEventLog((current) =>
+      [
+        `local flash completed: ${result.effectiveWpm} effective wpm`,
+        result.advanceAllowed ? "flash gate advanced graph state" : "flash gate held graph progress",
+        ...current
+      ].slice(0, 6)
+    );
   }
 
   function submitLockInAnswer() {
@@ -662,6 +795,38 @@ export default function App() {
       />
     ),
     cinema: <CinemaView rankedVideos={rankedVideos} packet={scheduled.packet.optional_watch_packets[0]} />,
+    flash: (
+      <FlashView
+        assets={flashAssets}
+        activeAsset={activeFlashAsset}
+        plan={flashPlan}
+        chunk={activeFlashChunk}
+        chunkIndex={flashChunkIndex}
+        progress={flashProgress}
+        playing={flashPlaying}
+        setPlaying={setFlashPlaying}
+        selectAsset={selectFlashAsset}
+        displayUnit={flashDisplayUnit}
+        setDisplayUnit={setFlashDisplayUnit}
+        requestedWpm={flashRequestedWpm}
+        setRequestedWpm={setFlashRequestedWpm}
+        previousChunk={() => setFlashChunkIndex((index) => Math.max(0, index - 1))}
+        nextChunk={() =>
+          setFlashChunkIndex((index) => Math.min((flashPlan?.chunks.length ?? 1) - 1, index + 1))
+        }
+        restart={() => setFlashChunkIndex(0)}
+        comprehension={flashComprehension}
+        setComprehension={setFlashComprehension}
+        retention={flashRetention}
+        setRetention={setFlashRetention}
+        strain={flashStrain}
+        setStrain={setFlashStrain}
+        completeSession={completeFlashSession}
+        result={flashResult}
+        cacheStatus={flashCacheStatus}
+        concepts={demoMasterGraph.concepts}
+      />
+    ),
     walk: <WalkView prompts={scheduled.packet.walk_packets[0]?.prompts ?? []} />,
     lock: (
       <LockInView
@@ -978,7 +1143,7 @@ function OnboardingView({ onComplete }: { onComplete: (config: OnboardingLaunch)
                 icon={AudioLines}
               />
               <ToggleCard label="Walking" checked={walking} onChange={setWalking} icon={Footprints} />
-              <ToggleCard label="FlashRead" checked={flashread} onChange={setFlashread} icon={BookOpen} />
+              <ToggleCard label="Flash" checked={flashread} onChange={setFlashread} icon={BookOpen} />
               <ToggleCard
                 label="Research consent"
                 checked={researchConsent}
@@ -1504,6 +1669,192 @@ function CinemaView({
             <strong>{Math.round(score * 100)}</strong>
           </article>
         ))}
+      </section>
+    </div>
+  );
+}
+
+function FlashView({
+  assets,
+  activeAsset,
+  plan,
+  chunk,
+  chunkIndex,
+  progress,
+  playing,
+  setPlaying,
+  selectAsset,
+  displayUnit,
+  setDisplayUnit,
+  requestedWpm,
+  setRequestedWpm,
+  previousChunk,
+  nextChunk,
+  restart,
+  comprehension,
+  setComprehension,
+  retention,
+  setRetention,
+  strain,
+  setStrain,
+  completeSession,
+  result,
+  cacheStatus,
+  concepts
+}: {
+  assets: FlashReadAsset[];
+  activeAsset: FlashReadAsset | undefined;
+  plan: FlashReadSessionPlan | null;
+  chunk: string;
+  chunkIndex: number;
+  progress: number;
+  playing: boolean;
+  setPlaying: (value: boolean) => void;
+  selectAsset: (assetId: string) => void;
+  displayUnit: FlashReadDisplayUnit;
+  setDisplayUnit: (unit: FlashReadDisplayUnit) => void;
+  requestedWpm: number;
+  setRequestedWpm: (wpm: number) => void;
+  previousChunk: () => void;
+  nextChunk: () => void;
+  restart: () => void;
+  comprehension: number;
+  setComprehension: (value: number) => void;
+  retention: number;
+  setRetention: (value: number) => void;
+  strain: number;
+  setStrain: (value: number) => void;
+  completeSession: () => void;
+  result: FlashEngineResult | null;
+  cacheStatus: string;
+  concepts: ConceptNode[];
+}) {
+  const displayUnits: FlashReadDisplayUnit[] = ["word", "phrase", "clause", "concept"];
+  const activeConcepts = activeAsset?.concept_ids.map((id) => conceptTitle(concepts, id)) ?? [];
+  const gateState = result ? (result.advanceAllowed ? "passed" : "held") : "armed";
+  return (
+    <div className="page-grid flash-grid">
+      <section className="panel session-player flash-reader">
+        <PanelTitle icon={Gauge} title="Flash Engine" meta="local" />
+        <div className="forge-status-grid flash-status-grid">
+          <MiniStat label="Chunk" value={`${plan ? chunkIndex + 1 : 0}/${plan?.chunks.length ?? 0}`} />
+          <MiniStat label="Raw" value={`${plan?.raw_wpm ?? requestedWpm} wpm`} />
+          <MiniStat
+            label="Effective"
+            value={result ? `${result.effectiveWpm} wpm` : `${plan?.estimated_effective_wpm ?? 0} est`}
+          />
+          <MiniStat label="Gate" value={gateState} />
+        </div>
+        <div className="flash-stage" aria-live={playing ? "polite" : "off"}>
+          <p className="eyebrow">{activeAsset?.title ?? "No flash asset"}</p>
+          <div className="flash-chunk">{chunk || "Select a graph asset to begin."}</div>
+          <div className="flash-progress-track" aria-label="Flash progress">
+            <i style={{ width: `${progress * 100}%` }} />
+          </div>
+        </div>
+        <div className="reader-controls">
+          <IconButton title="Restart" icon={RefreshCcw} onClick={restart} />
+          <IconButton title="Previous chunk" icon={Rewind} onClick={previousChunk} />
+          <button className="command primary" onClick={() => setPlaying(!playing)}>
+            {playing ? <Pause size={18} /> : <Play size={18} />}
+            {playing ? "Pause" : "Play"}
+          </button>
+          <IconButton title="Next chunk" icon={SkipForward} onClick={nextChunk} />
+        </div>
+        <div className="segmented-control flash-unit-control" aria-label="Display unit">
+          {displayUnits.map((unit) => (
+            <button
+              className={displayUnit === unit ? "is-active" : ""}
+              key={unit}
+              onClick={() => setDisplayUnit(unit)}
+            >
+              <span>{unit}</span>
+            </button>
+          ))}
+        </div>
+        <Slider
+          label="Raw speed"
+          value={(requestedWpm - 120) / 960}
+          onChange={(value) => setRequestedWpm(Math.round((120 + value * 960) / 10) * 10)}
+          suffix={`${requestedWpm} wpm`}
+        />
+        <div className="flash-gate">
+          <ObjectLine label="Gate" value={activeAsset?.comprehension_gate ?? "none"} />
+          <Slider
+            label="Comprehension"
+            value={comprehension}
+            onChange={setComprehension}
+            suffix={`${Math.round(comprehension * 100)}%`}
+          />
+          <Slider
+            label="Retention"
+            value={retention}
+            onChange={setRetention}
+            suffix={`${Math.round(retention * 100)}%`}
+          />
+          <Slider
+            label="Strain"
+            value={strain}
+            onChange={setStrain}
+            suffix={`${Math.round(strain * 100)}%`}
+          />
+          <div className="action-row">
+            <button className="command primary" onClick={completeSession}>
+              <BadgeCheck size={18} />
+              Complete Gate
+            </button>
+            <button className="command" onClick={() => setPlaying(false)}>
+              <Pause size={18} />
+              Hold
+            </button>
+          </div>
+        </div>
+        {result && (
+          <div className={`feedback-band flash-result ${result.advanceAllowed ? "is-passed" : "is-held"}`}>
+            <strong>{result.effectiveWpm}</strong>
+            <span>
+              {result.advanceAllowed
+                ? "effective WPM accepted into graph progress"
+                : "effective WPM logged without advancing graph progress"}
+            </span>
+          </div>
+        )}
+      </section>
+      <section className="flash-side">
+        <div className="panel">
+          <PanelTitle icon={Network} title="Graph Assets" meta={`${assets.length} local`} />
+          <div className="flash-asset-list">
+            {assets.map((asset) => (
+              <button
+                className={`flash-asset-card ${activeAsset?.id === asset.id ? "is-selected" : ""}`}
+                key={asset.id}
+                onClick={() => selectAsset(asset.id)}
+              >
+                <strong>{asset.title}</strong>
+                <span>{asset.concept_ids.map((id) => conceptTitle(concepts, id)).join(" + ")}</span>
+                <small>
+                  {asset.recommended_wpm} wpm - load {Math.round(asset.cognitive_load_score * 100)}%
+                </small>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="panel">
+          <PanelTitle icon={ShieldCheck} title="Runtime" meta="first-party" />
+          <div className="case-grid">
+            <MiniStat label="Playback" value="browser" />
+            <MiniStat label="Network" value="none" />
+            <MiniStat label="Cache" value={cacheStatus} />
+            <MiniStat label="Display" value={displayUnit} />
+          </div>
+          <div className="tag-row">
+            {activeConcepts.map((title) => (
+              <span className="tag" key={title}>
+                {title}
+              </span>
+            ))}
+          </div>
+        </div>
       </section>
     </div>
   );
@@ -2409,6 +2760,92 @@ function Ratio({ label, value, color }: { label: string; value: number; color: s
       <span>{label}</span>
     </div>
   );
+}
+
+function rankFlashAssets(
+  assets: FlashReadAsset[],
+  states: UserConceptState[],
+  frontierIds: string[],
+  horizonIds: string[]
+): FlashReadAsset[] {
+  const mastery = new Map(states.map((state) => [state.concept_id, state.mastery]));
+  const frontier = new Set(frontierIds);
+  const horizon = new Set(horizonIds);
+  return [...assets].sort((left, right) => {
+    const score = (asset: FlashReadAsset) => {
+      const weakness = avg(asset.concept_ids.map((id) => 1 - (mastery.get(id) ?? 0.05)));
+      const frontierHit = asset.concept_ids.some((id) => frontier.has(id)) ? 0.34 : 0;
+      const horizonHit = asset.concept_ids.some((id) => horizon.has(id)) ? 0.16 : 0;
+      const loadFit = 1 - asset.cognitive_load_score;
+      const reviewFit = asset.mode === "review" || asset.mode === "learn" ? 0.18 : 0;
+      return weakness * 0.42 + frontierHit + horizonHit + loadFit * 0.22 + reviewFit;
+    };
+    return score(right) - score(left);
+  });
+}
+
+function applyFlashResultToLocalStates(
+  states: UserConceptState[],
+  asset: FlashReadAsset,
+  result: FlashEngineResult
+): UserConceptState[] {
+  const next = [...states];
+  for (const conceptId of asset.concept_ids) {
+    const index = next.findIndex((state) => state.concept_id === conceptId);
+    const state = index >= 0 ? next[index] : emptyState(conceptId);
+    const failures = new Set(state.failure_modes.filter((mode) => mode !== "none"));
+    if (result.advanceAllowed) {
+      failures.delete("flash_comprehension_missed");
+      failures.delete("flash_strain");
+      failures.delete("flash_gate_held");
+    } else {
+      failures.add("flash_gate_held");
+      if (result.comprehensionScore < 0.72) failures.add("flash_comprehension_missed");
+      if (result.strainRating > 0.55) failures.add("flash_strain");
+    }
+    const updated: UserConceptState = {
+      ...state,
+      mastery: result.advanceAllowed
+        ? clamp(state.mastery + result.comprehensionScore * 0.055 + result.retentionScore * 0.02)
+        : state.mastery,
+      recall_strength: result.advanceAllowed
+        ? clamp(state.recall_strength + result.retentionScore * 0.06)
+        : state.recall_strength,
+      transfer_score: result.advanceAllowed
+        ? clamp(state.transfer_score + result.comprehensionScore * 0.025)
+        : state.transfer_score,
+      answer_latency_ms: Math.max(4_000, Math.round((state.answer_latency_ms ?? 24_000) * 0.96)),
+      false_confidence_risk: result.advanceAllowed
+        ? clamp(state.false_confidence_risk * 0.92)
+        : clamp(state.false_confidence_risk + 0.05),
+      failure_modes: failures.size > 0 ? Array.from(failures) : ["none"],
+      last_seen_at: result.completedAt,
+      last_correct_at: result.advanceAllowed ? result.completedAt : state.last_correct_at,
+      times_seen: state.times_seen + 1,
+      times_recalled: state.times_recalled + (result.advanceAllowed ? 1 : 0),
+      times_failed: state.times_failed + (result.advanceAllowed ? 0 : 1),
+      modality_response_profile: {
+        ...state.modality_response_profile,
+        flash_effective_wpm: result.effectiveWpm,
+        flash_screen_load: result.screenLoadScore,
+        flash_strain: result.strainRating
+      },
+      status: flashStatusFor(result, state),
+      updated_at: result.completedAt
+    };
+    if (index >= 0) next[index] = updated;
+    else next.push(updated);
+  }
+  return next;
+}
+
+function flashStatusFor(result: FlashEngineResult, state: UserConceptState): UserConceptState["status"] {
+  if (!result.advanceAllowed) return state.mastery < 0.42 ? "fragile" : state.status;
+  const strength = state.mastery * 0.5 + state.recall_strength * 0.32 + state.transfer_score * 0.18;
+  if (strength > 0.78) return "fluent";
+  if (strength > 0.62) return "known";
+  if (strength > 0.38) return "learning";
+  return "fragile";
 }
 
 function applyResponseToLocalStates(

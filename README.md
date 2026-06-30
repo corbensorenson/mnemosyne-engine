@@ -1,6 +1,6 @@
 # Mnemosyne Engine
 
-Mnemosyne Engine is a TypeScript-first foundation for a universal learning operating system: personal knowledge graphs, daily graph scheduling, voice-first sessions, bounded video, FlashRead, content governance, technique experiments, and sleep-protective targeted reactivation.
+Mnemosyne Engine is a TypeScript-first foundation for a universal learning operating system: personal knowledge graphs, daily graph scheduling, voice-first sessions, bounded video, a first-party Flash reading engine, content governance, technique experiments, and sleep-protective targeted reactivation.
 
 This repository is MIT licensed so the code can be used, forked, modified, and commercialized with minimal friction.
 

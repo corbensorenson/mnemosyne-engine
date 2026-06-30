@@ -134,6 +134,7 @@ button {
 .session-row h3,
 .case-file h2,
 .prompt-box h2,
+.flash-chunk,
 .dusk-meter h2,
 .launch-panel h2 {
   margin: 0;
@@ -618,6 +619,7 @@ input[type="range"] {
 
 .forge-grid,
 .cinema-grid,
+.flash-grid,
 .lock-grid,
 .sleep-grid,
 .stats-grid,
@@ -827,6 +829,124 @@ input[type="range"] {
   place-items: center;
   align-content: center;
   gap: 6px;
+}
+
+.flash-reader {
+  align-content: start;
+}
+
+.flash-status-grid {
+  margin-bottom: 12px;
+}
+
+.flash-stage {
+  min-height: 280px;
+  display: grid;
+  align-content: center;
+  gap: 18px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #152722;
+  color: var(--paper);
+}
+
+.flash-stage .eyebrow {
+  color: rgba(247, 244, 237, 0.72);
+}
+
+.flash-chunk {
+  min-height: 132px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  font-size: 2.3rem;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+
+.flash-progress-track {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(247, 244, 237, 0.18);
+  overflow: hidden;
+}
+
+.flash-progress-track i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--teal);
+}
+
+.reader-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 12px 0;
+}
+
+.flash-unit-control {
+  grid-template-columns: repeat(4, minmax(76px, 1fr));
+  width: 100%;
+  margin: 0 0 12px;
+}
+
+.flash-gate {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(247, 244, 237, 0.55);
+}
+
+.flash-result.is-passed {
+  border-color: var(--green);
+  background: #e7f3e9;
+}
+
+.flash-result.is-held {
+  border-color: var(--coral);
+  background: var(--coral-soft);
+}
+
+.flash-side {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.flash-asset-list {
+  display: grid;
+  gap: 8px;
+}
+
+.flash-asset-card {
+  min-height: 98px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  text-align: left;
+}
+
+.flash-asset-card span,
+.flash-asset-card small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.flash-asset-card.is-selected {
+  border-color: var(--teal);
+  background: var(--teal-soft);
 }
 
 .walk-layout {
@@ -1358,6 +1478,7 @@ input[type="range"] {
   .graph-grid,
   .forge-grid,
   .cinema-grid,
+  .flash-grid,
   .lock-grid,
   .sleep-grid,
   .stats-grid,
@@ -1438,9 +1559,11 @@ input[type="range"] {
   .result-columns,
   .case-grid,
   .forge-status-grid,
+  .flash-status-grid,
   .choice-grid,
   .preference-grid,
-  .state-grid {
+  .state-grid,
+  .flash-unit-control {
     grid-template-columns: 1fr;
   }
 
