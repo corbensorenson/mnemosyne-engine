@@ -50,6 +50,12 @@ export const apiRoutes: ApiRoute[] = [
     service: "Assessment Service",
     eventType: "graph_updated"
   },
+  {
+    method: "POST",
+    path: "/api/evening-lock-in/complete",
+    service: "SleepCue Service",
+    eventType: "cue_bound"
+  },
   { method: "GET", path: "/api/graph/master", service: "Master Graph Service" },
   { method: "GET", path: "/api/graph/user", service: "Personal Graph Service" },
   { method: "GET", path: "/api/videos/recommended", service: "VideoGraph Service" },

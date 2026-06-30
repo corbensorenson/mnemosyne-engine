@@ -21,6 +21,7 @@ import type {
 import type {
   AssessmentItem,
   AssessmentResponse,
+  AudioPlan,
   ArbiterVerdict,
   ConceptNode,
   DailyLearningPacket,
@@ -48,6 +49,7 @@ import {
   completeWatchPacketRequestSchema,
   createGoalRequestSchema,
   creatorIngestionRequestSchema,
+  eveningLockInCompleteRequestSchema,
   generateDailyPacketRequestSchema,
   humanOverrideRequestSchema,
   morningForgeCompleteRequestSchema,
@@ -117,6 +119,25 @@ type MorningForgeCompleteRequest = {
   packetDate?: string;
   sessionId?: string;
   responses: MorningForgeResponseInput[];
+  screenMinutes: number;
+  voiceUsed: boolean;
+  completedAt?: string;
+};
+
+type EveningLockInCompleteRequest = {
+  userId: string;
+  dailyPacketId: string;
+  packetDate?: string;
+  sessionId?: string;
+  recallResponses: MorningForgeResponseInput[];
+  transferResponses: MorningForgeResponseInput[];
+  boundCueIds: string[];
+  phoneDownChecklist: {
+    notificationsSilenced: boolean;
+    screenDimmingEnabled: boolean;
+    chargerReady: boolean;
+    alarmSet: boolean;
+  };
   screenMinutes: number;
   voiceUsed: boolean;
   completedAt?: string;
@@ -233,6 +254,27 @@ type MorningForgeCompletionResponse = {
     average_confidence: number;
     screen_minutes: number;
     voice_used: boolean;
+  };
+};
+
+type EveningLockInCompletionResponse = {
+  session: SessionRecord;
+  responses: AssessmentResponse[];
+  updated_states: UserConceptState[];
+  bound_cues: SleepCueTemplate[];
+  sleep_packet: SleepCuePacket;
+  audio_plan: AudioPlan;
+  repair_recommendations: string[];
+  summary: {
+    recall_answered: number;
+    transfer_answered: number;
+    average_correctness: number;
+    average_confidence: number;
+    screen_minutes: number;
+    phone_down_ready: boolean;
+    bound_cues: number;
+    voice_used: boolean;
+    audio_plan_duration_seconds: number;
   };
 };
 
@@ -640,6 +682,198 @@ export function createApiHandlers(store: MnemosyneStore) {
           session: completedSession,
           responses,
           updated_states: updatedStates,
+          repair_recommendations: repairRecommendations,
+          summary
+        },
+        audit.id
+      );
+    },
+
+    async completeEveningLockIn(input: unknown): Promise<HandlerEnvelope<EveningLockInCompletionResponse>> {
+      const request = validateRequest(
+        eveningLockInCompleteRequestSchema,
+        input
+      ) as EveningLockInCompleteRequest;
+      await requireUser(store, request.userId);
+      const packet = await store.getDailyPacket(request.userId, request.packetDate ?? todayIsoDate());
+      if (!packet || packet.id !== request.dailyPacketId) {
+        return notFound<EveningLockInCompletionResponse>("daily_packet_not_found");
+      }
+
+      let session = request.sessionId ? await store.getSession(request.sessionId) : undefined;
+      if (
+        request.sessionId &&
+        (!session ||
+          session.user_id !== request.userId ||
+          session.session_type !== "evening_lock_in" ||
+          session.daily_packet_id !== request.dailyPacketId)
+      ) {
+        return notFound<EveningLockInCompletionResponse>("session_not_found");
+      }
+
+      const eventIds = session?.event_ids ? [...session.event_ids] : [];
+      if (!session) {
+        session = {
+          id: createId("session"),
+          user_id: request.userId,
+          daily_packet_id: request.dailyPacketId,
+          session_type: "evening_lock_in",
+          status: "running",
+          started_at: nowIso(),
+          event_ids: []
+        };
+        await store.saveSession(session);
+        const startEvent = await store.appendLearningEvent({
+          user_id: request.userId,
+          event_type: "session_started",
+          payload: {
+            session_id: session.id,
+            daily_packet_id: request.dailyPacketId,
+            session_type: "evening_lock_in",
+            source: "evening_lock_in_completion"
+          }
+        });
+        eventIds.push(startEvent.id);
+      }
+
+      let states = (await store.getUserGraph(request.userId)).states;
+      const responses: AssessmentResponse[] = [];
+      const responseGroups: Array<{
+        phase: "recall" | "transfer";
+        items: MorningForgeResponseInput[];
+      }> = [
+        { phase: "recall", items: request.recallResponses },
+        { phase: "transfer", items: request.transferResponses }
+      ];
+
+      for (const group of responseGroups) {
+        for (const responseInput of group.items) {
+          const response = scoreAssessmentResponse({
+            userId: request.userId,
+            item: responseInput.item,
+            rawResponse: responseInput.rawResponse,
+            confidence: responseInput.confidence,
+            latencyMs: responseInput.latencyMs,
+            hintCount: responseInput.hintCount,
+            retries: responseInput.retries
+          });
+          const savedResponse = await store.saveAssessmentResponse(response);
+          responses.push(savedResponse);
+          states = applyResponseToStates(states, savedResponse, request.userId);
+          const event = await store.appendLearningEvent({
+            user_id: request.userId,
+            event_type: "assessment_answered",
+            payload: {
+              session_id: session.id,
+              daily_packet_id: request.dailyPacketId,
+              assessment_phase: group.phase,
+              assessment_item_id: responseInput.item.id,
+              response_id: savedResponse.id,
+              correctness_score: savedResponse.correctness_score,
+              confidence_reported: savedResponse.confidence_reported,
+              latency_ms: savedResponse.latency_ms,
+              entry_mode: responseInput.entryMode,
+              voice_used: responseInput.entryMode === "voice" || request.voiceUsed,
+              transcript_stored: Boolean(responseInput.transcript),
+              detected_failure_modes: savedResponse.detected_failure_modes
+            }
+          });
+          eventIds.push(event.id);
+        }
+      }
+
+      const updatedGraph = await store.saveUserConceptStates(request.userId, states);
+      const touchedConceptIds = new Set(conceptIdsFromResponses(responses));
+      const updatedStates = updatedGraph.states.filter((state) => touchedConceptIds.has(state.concept_id));
+      const boundCues = resolveBoundCues(packet, request.boundCueIds);
+      const boundConceptIds = uniqueStrings(boundCues.map((cue) => cue.concept_id));
+      const planningContext = await buildPlanningContext(store, request.userId);
+      const sleepResult = buildSleepCuePacket({
+        user: planningContext.user,
+        concepts: planningContext.masterGraph.concepts,
+        states: updatedGraph.states,
+        knownIds: uniqueStrings([
+          ...planningContext.knownIds,
+          ...conceptIdsFromInputs(request.recallResponses)
+        ]),
+        frontierIds: uniqueStrings([
+          ...planningContext.frontierIds,
+          ...conceptIdsFromInputs(request.transferResponses),
+          ...boundConceptIds
+        ]),
+        horizonIds: planningContext.horizonIds,
+        readiness: planningContext.readiness,
+        conservative:
+          packet.evening.screen_policy === "audio_only" ||
+          planningContext.readiness.dusk_mode ||
+          planningContext.readiness.fatigue > 0.7
+      });
+      await store.saveSleepCuePacket(sleepResult.packet);
+      await store.saveAudioPlan(sleepResult.audioPlan);
+
+      const summary = eveningLockInSummary(responses, request, boundCues, sleepResult.audioPlan);
+      const cueEvent = await store.appendLearningEvent({
+        user_id: request.userId,
+        event_type: "cue_bound",
+        payload: {
+          session_id: session.id,
+          daily_packet_id: request.dailyPacketId,
+          sleep_packet_id: sleepResult.packet.id,
+          audio_plan_id: sleepResult.audioPlan.id,
+          bound_cue_ids: boundCues.map((cue) => cue.id),
+          bound_concept_ids: boundConceptIds,
+          phone_down_ready: summary.phone_down_ready,
+          ...sleepPacketSummary(sleepResult.packet)
+        }
+      });
+      eventIds.push(cueEvent.id);
+
+      const completionEvent = await store.appendLearningEvent({
+        user_id: request.userId,
+        event_type: "graph_updated",
+        payload: {
+          session_id: session.id,
+          daily_packet_id: request.dailyPacketId,
+          action: "evening_lock_in_completed",
+          updated_concept_ids: [...touchedConceptIds],
+          sleep_packet_id: sleepResult.packet.id,
+          audio_plan_id: sleepResult.audioPlan.id,
+          ...summary
+        }
+      });
+      eventIds.push(completionEvent.id);
+
+      const completedSession = await store.saveSession({
+        ...session,
+        status: "completed",
+        completed_at: request.completedAt ?? nowIso(),
+        event_ids: Array.from(new Set(eventIds))
+      });
+      const repairRecommendations = repairRecommendationsFor(responses);
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "evening_lock_in_completed",
+        object_type: "session",
+        object_id: completedSession.id,
+        payload: {
+          daily_packet_id: request.dailyPacketId,
+          response_ids: responses.map((response) => response.id),
+          bound_cue_ids: boundCues.map((cue) => cue.id),
+          sleep_packet_id: sleepResult.packet.id,
+          audio_plan_id: sleepResult.audioPlan.id,
+          repair_recommendations: repairRecommendations,
+          ...summary
+        }
+      });
+
+      return envelope(
+        {
+          session: completedSession,
+          responses,
+          updated_states: updatedStates,
+          bound_cues: boundCues,
+          sleep_packet: sleepResult.packet,
+          audio_plan: sleepResult.audioPlan,
           repair_recommendations: repairRecommendations,
           summary
         },
@@ -1058,6 +1292,63 @@ function morningForgeSummary(
     screen_minutes: request.screenMinutes,
     voice_used: request.voiceUsed || request.responses.some((response) => response.entryMode === "voice")
   };
+}
+
+function eveningLockInSummary(
+  responses: AssessmentResponse[],
+  request: EveningLockInCompleteRequest,
+  boundCues: SleepCueTemplate[],
+  audioPlan: AudioPlan
+): EveningLockInCompletionResponse["summary"] {
+  const responseInputs = [...request.recallResponses, ...request.transferResponses];
+  return {
+    recall_answered: request.recallResponses.length,
+    transfer_answered: request.transferResponses.length,
+    average_correctness: average(responses.map((response) => response.correctness_score)),
+    average_confidence: average(responses.map((response) => response.confidence_reported ?? 0.5)),
+    screen_minutes: request.screenMinutes,
+    phone_down_ready: phoneDownReady(request.phoneDownChecklist),
+    bound_cues: boundCues.length,
+    voice_used: request.voiceUsed || responseInputs.some((response) => response.entryMode === "voice"),
+    audio_plan_duration_seconds: audioPlan.duration_seconds
+  };
+}
+
+function phoneDownReady(checklist: EveningLockInCompleteRequest["phoneDownChecklist"]): boolean {
+  return (
+    checklist.notificationsSilenced &&
+    checklist.screenDimmingEnabled &&
+    checklist.chargerReady &&
+    checklist.alarmSet
+  );
+}
+
+function resolveBoundCues(packet: DailyLearningPacket, requestedCueIds: string[]): SleepCueTemplate[] {
+  const requested = new Set(requestedCueIds);
+  const candidates = packet.evening.sleep_cue_binding_items;
+  if (requested.size === 0) return candidates.slice(0, 4);
+  const matched = candidates.filter((cue) => requested.has(cue.id));
+  return matched.length > 0 ? matched : candidates.slice(0, 4);
+}
+
+function conceptIdsFromInputs(inputs: MorningForgeResponseInput[]): string[] {
+  return uniqueStrings(inputs.flatMap((input) => input.item.concept_ids));
+}
+
+function conceptIdsFromResponses(responses: AssessmentResponse[]): string[] {
+  return uniqueStrings(
+    responses.flatMap((response) =>
+      response.graph_updates.map((update) =>
+        typeof update.concept_id === "string" ? update.concept_id : undefined
+      )
+    )
+  );
+}
+
+function uniqueStrings(values: Array<string | undefined | null>): string[] {
+  return Array.from(
+    new Set(values.filter((value): value is string => typeof value === "string" && value.length > 0))
+  );
 }
 
 function repairRecommendationsFor(responses: AssessmentResponse[]): string[] {

@@ -172,6 +172,109 @@ describe("persistence-backed API handlers", () => {
     );
   });
 
+  it("completes Evening Lock-In with recall scoring, cue binding, and sleep packet generation", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+    const generated = unwrap(await handlers.generateDailyPacket({ userId: demoUser.id }));
+    const recallItems = generated.packet.evening.recall_items.slice(0, 2);
+    const transferItems = generated.packet.evening.transfer_drills.slice(0, 1);
+    const cueItems = generated.packet.evening.sleep_cue_binding_items.slice(0, 3);
+    expect(recallItems.length).toBeGreaterThan(0);
+    expect(transferItems.length).toBeGreaterThan(0);
+    expect(cueItems.length).toBeGreaterThan(0);
+
+    const started = unwrap(
+      await handlers.startSession({
+        userId: demoUser.id,
+        dailyPacketId: generated.packet.id,
+        sessionType: "evening_lock_in"
+      })
+    );
+
+    const completed = unwrap(
+      await handlers.completeEveningLockIn({
+        userId: demoUser.id,
+        dailyPacketId: generated.packet.id,
+        packetDate: generated.packet.date,
+        sessionId: started.session.id,
+        screenMinutes: 2,
+        voiceUsed: true,
+        recallResponses: recallItems.map((item, index) => ({
+          item,
+          rawResponse: index === 0 ? (item.expected_answer ?? item.prompt) : "I can recall the gist slowly.",
+          confidence: index === 0 ? 0.74 : 0.48,
+          latencyMs: index === 0 ? 16_000 : 44_000,
+          entryMode: "voice",
+          transcript: "I can explain the retrieval prompt aloud."
+        })),
+        transferResponses: transferItems.map((item) => ({
+          item,
+          rawResponse: item.expected_answer ?? "I would transfer this idea into a new example.",
+          confidence: 0.66,
+          latencyMs: 31_000,
+          entryMode: "voice"
+        })),
+        boundCueIds: cueItems.map((cue) => cue.id),
+        phoneDownChecklist: {
+          notificationsSilenced: true,
+          screenDimmingEnabled: true,
+          chargerReady: true,
+          alarmSet: true
+        }
+      })
+    );
+
+    expect(completed.session.status).toBe("completed");
+    expect(completed.session.completed_at).toBeDefined();
+    expect(completed.responses).toHaveLength(recallItems.length + transferItems.length);
+    expect(completed.updated_states.length).toBeGreaterThan(0);
+    expect(completed.bound_cues.map((cue) => cue.id)).toEqual(cueItems.map((cue) => cue.id));
+    expect(completed.sleep_packet.audio_plan_id).toBe(completed.audio_plan.id);
+    expect(completed.summary.recall_answered).toBe(recallItems.length);
+    expect(completed.summary.transfer_answered).toBe(transferItems.length);
+    expect(completed.summary.phone_down_ready).toBe(true);
+    expect(completed.summary.voice_used).toBe(true);
+    expect(completed.summary.bound_cues).toBe(cueItems.length);
+
+    const tonight = unwrap(
+      await handlers.getTonightSleepPacket(demoUser.id, completed.sleep_packet.night_date)
+    );
+    expect(tonight.packet.id).toBe(completed.sleep_packet.id);
+
+    const render = unwrap(
+      await handlers.renderSleepAudio({
+        userId: demoUser.id,
+        audioPlanId: completed.sleep_packet.audio_plan_id,
+        outputFormat: "m4a"
+      })
+    );
+    expect(render.chapters.length).toBeGreaterThan(0);
+
+    const events = await store.listLearningEvents(demoUser.id);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event_type: "cue_bound",
+          payload: expect.objectContaining({ sleep_packet_id: completed.sleep_packet.id })
+        }),
+        expect.objectContaining({
+          event_type: "graph_updated",
+          payload: expect.objectContaining({ action: "evening_lock_in_completed" })
+        })
+      ])
+    );
+
+    const audits = await store.listAuditEvents(demoUser.id);
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "evening_lock_in_completed",
+          object_id: started.session.id
+        })
+      ])
+    );
+  });
+
   it("supports video packet, sleep packet, audio render, wearable, and governance API flows", async () => {
     const store = await createSeededStore();
     const handlers = createApiHandlers(store);

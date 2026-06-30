@@ -299,6 +299,10 @@ Deliverables:
 - Sleep cue binding flow.
 - Phone-down ritual and local reminder.
 
+Current implementation progress:
+
+- API Evening Lock-In completion flow scores recall and transfer responses, records phone-down readiness and cue bindings, completes the session, and generates a fresh SleepCue packet plus audio plan from evening bindings and graph state.
+
 Exit criteria:
 
 - Evening session can be completed with minimal screen interaction.
