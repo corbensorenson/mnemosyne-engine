@@ -257,6 +257,7 @@ Deliverables:
 Current implementation progress:
 
 - API onboarding completion flow creates a private-default user, saves the first goal, installs selected packs, seeds baseline graph states, generates diagnostic assessment items, and persists the first daily packet with audit and event records.
+- PWA onboarding surface starts first-run users in a goal, pack, modality, privacy, device capability, and diagnostic setup flow before handing off to the first daily packet.
 
 Exit criteria:
 

@@ -134,7 +134,8 @@ button {
 .session-row h3,
 .case-file h2,
 .prompt-box h2,
-.dusk-meter h2 {
+.dusk-meter h2,
+.launch-panel h2 {
   margin: 0;
   letter-spacing: 0;
 }
@@ -194,6 +195,10 @@ button {
 
 .today-grid {
   grid-template-columns: minmax(0, 1.6fr) minmax(300px, 0.8fr);
+}
+
+.onboarding-grid {
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
 }
 
 .metric-strip {
@@ -266,6 +271,148 @@ button {
 .panel {
   padding: 16px;
   min-width: 0;
+}
+
+.onboarding-hero {
+  grid-row: span 2;
+}
+
+.onboarding-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.step-dot {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.step-dot.is-active {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+.step-dot.is-done {
+  background: var(--teal-soft);
+  color: var(--ink);
+}
+
+.wizard-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.choice-grid,
+.preference-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.choice-card,
+.toggle-card {
+  min-height: 132px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  text-align: left;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.choice-card.is-selected,
+.toggle-card.is-on {
+  border-color: var(--teal);
+  background: var(--teal-soft);
+}
+
+.choice-card strong,
+.toggle-card span {
+  line-height: 1.25;
+}
+
+.choice-card > span:not(.tag) {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.pack-grid.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.pack-choice {
+  min-height: 150px;
+}
+
+.form-field {
+  display: grid;
+  gap: 8px;
+}
+
+.form-field span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.form-field input,
+.form-field textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  padding: 11px 12px;
+}
+
+.form-field textarea {
+  resize: vertical;
+}
+
+.toggle-card {
+  min-height: 92px;
+  cursor: pointer;
+  position: relative;
+}
+
+.toggle-card input {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  accent-color: var(--teal);
+}
+
+.launch-panel {
+  min-height: 300px;
+  display: grid;
+  align-content: center;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--teal-soft);
+}
+
+.launch-panel h2 {
+  font-size: 1.45rem;
+}
+
+.wizard-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
 }
 
 .panel-title {
@@ -911,6 +1058,7 @@ input[type="range"] {
   }
 
   .today-grid,
+  .onboarding-grid,
   .graph-grid,
   .forge-grid,
   .cinema-grid,
@@ -925,6 +1073,8 @@ input[type="range"] {
   }
 
   .metric-strip,
+  .choice-grid,
+  .preference-grid,
   .pack-grid,
   .lab-grid,
   .service-grid {
@@ -986,6 +1136,8 @@ input[type="range"] {
   .guard-grid,
   .sleep-ratio,
   .case-grid,
+  .choice-grid,
+  .preference-grid,
   .state-grid {
     grid-template-columns: 1fr;
   }

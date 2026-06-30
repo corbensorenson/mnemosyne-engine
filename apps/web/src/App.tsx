@@ -31,7 +31,11 @@ import {
   Wand2
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { applyAssessmentToUserState, scoreAssessmentResponse } from "@mnemosyne/assessment-core";
+import {
+  applyAssessmentToUserState,
+  generateAssessmentForConcept,
+  scoreAssessmentResponse
+} from "@mnemosyne/assessment-core";
 import { estimateCueDensity } from "@mnemosyne/audio-core";
 import { arbitrateProposal, computeBridgingPriority } from "@mnemosyne/content-court";
 import { buildGraphSnapshot } from "@mnemosyne/graph-core";
@@ -51,6 +55,7 @@ import {
 } from "@mnemosyne/demo-fixtures";
 
 type TabId =
+  | "onboarding"
   | "today"
   | "graph"
   | "forge"
@@ -66,6 +71,7 @@ type TabId =
   | "admin";
 
 const tabs: Array<{ id: TabId; label: string; icon: typeof Home }> = [
+  { id: "onboarding", label: "Onboard", icon: Sparkles },
   { id: "today", label: "Today", icon: Home },
   { id: "graph", label: "Graph", icon: Network },
   { id: "forge", label: "Forge", icon: SunMedium },
@@ -82,7 +88,7 @@ const tabs: Array<{ id: TabId; label: string; icon: typeof Home }> = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabId>("today");
+  const [activeTab, setActiveTab] = useState<TabId>("onboarding");
   const [readiness, setReadiness] = useState<ReadinessProfile>(defaultReadiness);
   const [states, setStates] = useState<UserConceptState[]>(initialUserStates);
   const [selectedNodeId, setSelectedNodeId] = useState("attention_qkv");
@@ -176,7 +182,23 @@ export default function App() {
     setAnswer("");
   }
 
+  function launchFromOnboarding(config: OnboardingLaunch) {
+    setReadiness(config.readiness);
+    setStates(config.states);
+    setSelectedNodeId(config.targetConceptIds[0] ?? "attention_qkv");
+    setEventLog((current) =>
+      [
+        `onboarding completed: ${config.goalTitle}`,
+        `${config.packCount} packs installed`,
+        `${config.diagnosticCount} diagnostics queued`,
+        ...current
+      ].slice(0, 6)
+    );
+    setActiveTab("today");
+  }
+
   const page = {
+    onboarding: <OnboardingView onComplete={launchFromOnboarding} />,
     today: (
       <TodayView
         readiness={readiness}
@@ -275,6 +297,313 @@ export default function App() {
       </main>
     </div>
   );
+}
+
+type GoalTemplateId = "ai" | "travel" | "python";
+
+type OnboardingLaunch = {
+  goalTitle: string;
+  packCount: number;
+  diagnosticCount: number;
+  targetConceptIds: string[];
+  readiness: ReadinessProfile;
+  states: UserConceptState[];
+};
+
+const onboardingGoalTemplates: Record<
+  GoalTemplateId,
+  {
+    title: string;
+    description: string;
+    domains: string[];
+    conceptIds: string[];
+    packs: string[];
+  }
+> = {
+  ai: {
+    title: "AI systems interview readiness",
+    description: "Vectors, attention, and transformer blocks with durable recall and transfer.",
+    domains: ["ai", "math"],
+    conceptIds: ["ai_vectors", "attention_qkv", "transformer_blocks"],
+    packs: ["pack_ai_systems", "pack_linear_algebra"]
+  },
+  travel: {
+    title: "Mexico trip readiness",
+    description: "Travel Spanish plus cultural context for restaurants, transit, and daily situations.",
+    domains: ["language", "history"],
+    conceptIds: ["spanish_restaurant", "spanish_directions", "mexico_etiquette"],
+    packs: ["pack_spanish_travel", "pack_world_history"]
+  },
+  python: {
+    title: "Python debugging fluency",
+    description: "Functions, variables, and debugging loops for practical project work.",
+    domains: ["coding"],
+    conceptIds: ["python_variables", "python_functions", "python_debugging"],
+    packs: ["pack_python_basics"]
+  }
+};
+
+const onboardingPacks = [
+  { id: "pack_ai_systems", title: "AI Systems", domain: "ai", quality: "expert reviewed" },
+  { id: "pack_linear_algebra", title: "Linear Algebra", domain: "math", quality: "community" },
+  { id: "pack_spanish_travel", title: "Spanish Travel", domain: "language", quality: "tested" },
+  { id: "pack_python_basics", title: "Python Basics", domain: "coding", quality: "tested" },
+  { id: "pack_world_history", title: "World History", domain: "history", quality: "community" }
+];
+
+function OnboardingView({ onComplete }: { onComplete: (config: OnboardingLaunch) => void }) {
+  const [step, setStep] = useState(0);
+  const [templateId, setTemplateId] = useState<GoalTemplateId>("ai");
+  const template = onboardingGoalTemplates[templateId];
+  const [goalTitle, setGoalTitle] = useState(template.title);
+  const [goalDescription, setGoalDescription] = useState(template.description);
+  const [selectedPacks, setSelectedPacks] = useState<string[]>(template.packs);
+  const [morningMinutes, setMorningMinutes] = useState(30);
+  const [eveningMinutes, setEveningMinutes] = useState(30);
+  const [voiceFirst, setVoiceFirst] = useState(true);
+  const [walking, setWalking] = useState(true);
+  const [flashread, setFlashread] = useState(true);
+  const [researchConsent, setResearchConsent] = useState(false);
+
+  const targetConcepts = useMemo(
+    () =>
+      demoMasterGraph.concepts
+        .filter(
+          (concept) => template.conceptIds.includes(concept.id) || template.domains.includes(concept.domain)
+        )
+        .slice(0, 8),
+    [template]
+  );
+  const diagnostics = useMemo(
+    () =>
+      targetConcepts
+        .slice(0, 5)
+        .map((concept, index) =>
+          generateAssessmentForConcept(concept, index % 3 === 2 ? "transfer" : "free_recall")
+        ),
+    [targetConcepts]
+  );
+  const readiness: ReadinessProfile = {
+    ...defaultReadiness,
+    available_minutes_morning: morningMinutes,
+    available_minutes_evening: eveningMinutes,
+    screen_budget_minutes: voiceFirst ? 28 : 42,
+    voice_ok: voiceFirst,
+    dusk_mode: true,
+    notes: "Initialized from onboarding."
+  };
+  const estimatedMinutes = 3 + diagnostics.length + selectedPacks.length;
+  const steps = ["Goal", "Packs", "Preferences", "Diagnostics", "Launch"];
+
+  function selectTemplate(id: GoalTemplateId) {
+    const next = onboardingGoalTemplates[id];
+    setTemplateId(id);
+    setGoalTitle(next.title);
+    setGoalDescription(next.description);
+    setSelectedPacks(next.packs);
+  }
+
+  function togglePack(id: string) {
+    setSelectedPacks((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+    );
+  }
+
+  function finish() {
+    onComplete({
+      goalTitle,
+      packCount: selectedPacks.length,
+      diagnosticCount: diagnostics.length,
+      targetConceptIds: targetConcepts.map((concept) => concept.id),
+      readiness,
+      states: buildOnboardingPreviewStates(targetConcepts)
+    });
+  }
+
+  return (
+    <div className="page-grid onboarding-grid">
+      <section className="panel onboarding-hero">
+        <PanelTitle icon={Sparkles} title="First Packet Setup" meta={`${estimatedMinutes} min`} />
+        <div className="onboarding-steps" aria-label="Onboarding steps">
+          {steps.map((label, index) => (
+            <button
+              key={label}
+              className={`step-dot ${step === index ? "is-active" : ""} ${step > index ? "is-done" : ""}`}
+              onClick={() => setStep(index)}
+              aria-label={label}
+            >
+              {index + 1}
+            </button>
+          ))}
+        </div>
+        {step === 0 && (
+          <div className="wizard-stack">
+            <div className="choice-grid">
+              {(Object.keys(onboardingGoalTemplates) as GoalTemplateId[]).map((id) => (
+                <button
+                  className={`choice-card ${templateId === id ? "is-selected" : ""}`}
+                  key={id}
+                  onClick={() => selectTemplate(id)}
+                >
+                  <GitBranch size={20} />
+                  <strong>{onboardingGoalTemplates[id].title}</strong>
+                  <span>{onboardingGoalTemplates[id].domains.join(" + ")}</span>
+                </button>
+              ))}
+            </div>
+            <label className="form-field">
+              <span>Goal title</span>
+              <input value={goalTitle} onChange={(event) => setGoalTitle(event.target.value)} />
+            </label>
+            <label className="form-field">
+              <span>Goal brief</span>
+              <textarea
+                value={goalDescription}
+                onChange={(event) => setGoalDescription(event.target.value)}
+                rows={4}
+              />
+            </label>
+          </div>
+        )}
+        {step === 1 && (
+          <div className="pack-grid compact">
+            {onboardingPacks.map((pack) => (
+              <button
+                className={`choice-card pack-choice ${selectedPacks.includes(pack.id) ? "is-selected" : ""}`}
+                key={pack.id}
+                onClick={() => togglePack(pack.id)}
+              >
+                <BookOpen size={20} />
+                <strong>{pack.title}</strong>
+                <span>{pack.domain}</span>
+                <span className="tag">{pack.quality}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {step === 2 && (
+          <div className="wizard-stack">
+            <Slider
+              label="Morning"
+              value={morningMinutes / 60}
+              onChange={(value) => setMorningMinutes(Math.max(10, Math.round(value * 60)))}
+              suffix={`${morningMinutes}m`}
+            />
+            <Slider
+              label="Evening"
+              value={eveningMinutes / 60}
+              onChange={(value) => setEveningMinutes(Math.max(10, Math.round(value * 60)))}
+              suffix={`${eveningMinutes}m`}
+            />
+            <div className="preference-grid">
+              <ToggleCard
+                label="Voice first"
+                checked={voiceFirst}
+                onChange={setVoiceFirst}
+                icon={AudioLines}
+              />
+              <ToggleCard label="Walking" checked={walking} onChange={setWalking} icon={Footprints} />
+              <ToggleCard label="FlashRead" checked={flashread} onChange={setFlashread} icon={BookOpen} />
+              <ToggleCard
+                label="Research consent"
+                checked={researchConsent}
+                onChange={setResearchConsent}
+                icon={FlaskConical}
+              />
+            </div>
+          </div>
+        )}
+        {step === 3 && (
+          <div className="object-list">
+            {diagnostics.map((item, index) => (
+              <ObjectLine key={item.id} label={`D${index + 1}`} value={item.prompt} />
+            ))}
+          </div>
+        )}
+        {step === 4 && (
+          <div className="launch-panel">
+            <CheckCircle2 size={32} />
+            <h2>{goalTitle}</h2>
+            <div className="case-grid">
+              <MiniStat label="Packs" value={`${selectedPacks.length}`} />
+              <MiniStat label="Diagnostics" value={`${diagnostics.length}`} />
+              <MiniStat label="Private" value="default" />
+              <MiniStat label="Voice" value={voiceFirst ? "on" : "off"} />
+            </div>
+          </div>
+        )}
+        <div className="wizard-actions">
+          <button className="command" onClick={() => setStep(Math.max(0, step - 1))}>
+            Back
+          </button>
+          {step < steps.length - 1 ? (
+            <button className="command primary" onClick={() => setStep(Math.min(steps.length - 1, step + 1))}>
+              Next
+            </button>
+          ) : (
+            <button className="command primary" onClick={finish}>
+              <CheckCircle2 size={18} />
+              Start
+            </button>
+          )}
+        </div>
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={ShieldCheck} title="Defaults" meta="private" />
+        <div className="object-list">
+          <ObjectLine label="Sharing" value="private" />
+          <ObjectLine label="Voice" value={voiceFirst ? "transcript only after consent" : "off"} />
+          <ObjectLine label="Health" value="derived readiness only" />
+          <ObjectLine label="Research" value={researchConsent ? "allowed" : "off"} />
+        </div>
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={Database} title="Detected Device" meta="browser" />
+        <div className="case-grid">
+          <MiniStat label="Push" value="prompt" />
+          <MiniStat label="Audio" value="ready" />
+          <MiniStat label="Mic" value={voiceFirst ? "check" : "skip"} />
+          <MiniStat label="Offline" value="cache" />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ToggleCard({
+  label,
+  checked,
+  onChange,
+  icon: Icon
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  icon: typeof Home;
+}) {
+  return (
+    <label className={`toggle-card ${checked ? "is-on" : ""}`}>
+      <Icon size={18} />
+      <span>{label}</span>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+    </label>
+  );
+}
+
+function buildOnboardingPreviewStates(concepts: ConceptNode[]): UserConceptState[] {
+  const targets = concepts.slice(0, 8).map((concept) => ({
+    ...emptyState(concept.id),
+    mastery: 0.18,
+    recall_strength: 0.12,
+    transfer_score: 0.1,
+    status: "previewed" as const
+  }));
+  const existing = initialUserStates.filter(
+    (state) => !targets.some((target) => target.concept_id === state.concept_id)
+  );
+  return [...targets, ...existing].slice(0, 14);
 }
 
 function TodayView({
