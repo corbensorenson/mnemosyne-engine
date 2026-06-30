@@ -439,6 +439,12 @@ Deliverables:
 - Creator upload/link flow.
 - Contributor reputation and moderation queue.
 
+Current implementation progress:
+
+- First-party Social core scores retention duels, boss fights, screen-efficiency challenges, walk recall, same-video recall, SleepCue gain, and creator-quality challenges using durable outcome metrics only; raw app time and raw video time are explicitly blocked by challenge validation and anti-gaming policy.
+- API social flow now supports privacy-aware dashboards, challenge creation/listing, outcome badge evaluation/persistence, and contributor reputation based on accepted or merged Content Court contributions, evidence quality, disputes, and outcome-positive release notes.
+- PWA Social surface shows share level, visible badge/challenge counts, anti-gaming guardrails, outcome badges, challenge scoreboards, and creator reputation without exposing private graph details.
+
 Exit criteria:
 
 - Social features reward retention, transfer, consistency, screen efficiency, sleep integrity, or contribution quality.

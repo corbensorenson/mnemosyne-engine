@@ -480,6 +480,25 @@ export const creatorIngestionRequestSchema = z
   })
   .strict();
 
+export const challengeCreateRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    title: z.string().min(3),
+    challengeType: z.enum([
+      "retention_duel",
+      "boss_fight",
+      "screen_efficiency",
+      "walk_recall",
+      "same_video_recall",
+      "sleep_cue_gain",
+      "creator_quality"
+    ]),
+    participantIds: z.array(z.string().min(1)).default([]),
+    shareLevel: z.enum(["badges_only", "friends", "public"]).default("friends"),
+    endsAt: z.string().optional()
+  })
+  .strict();
+
 export function validateRequest<TSchema extends z.ZodTypeAny>(
   schema: TSchema,
   input: unknown

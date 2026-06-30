@@ -623,6 +623,7 @@ input[type="range"] {
 .lock-grid,
 .sleep-grid,
 .stats-grid,
+.social-grid,
 .court-grid,
 .admin-grid,
 .workbench-grid {
@@ -707,7 +708,10 @@ input[type="range"] {
 .video-list,
 .pack-grid,
 .lab-grid,
-.lab-dashboard {
+.lab-dashboard,
+.badge-grid,
+.challenge-list,
+.guardrail-list {
   display: grid;
   gap: 12px;
 }
@@ -1729,6 +1733,70 @@ input[type="range"] {
   font-size: 1rem;
 }
 
+.badge-grid,
+.challenge-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.badge-card,
+.challenge-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.badge-card.locked {
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.badge-card h3,
+.challenge-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.badge-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.challenge-card header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.score-row,
+.guardrail-line {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.guardrail-line {
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.score-row {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel);
+}
+
 .pack-card,
 .technique-card {
   min-height: 190px;
@@ -1842,6 +1910,7 @@ input[type="range"] {
   .lock-grid,
   .sleep-grid,
   .stats-grid,
+  .social-grid,
   .court-grid,
   .lab-dashboard,
   .admin-grid,
@@ -1911,6 +1980,8 @@ input[type="range"] {
   .pack-grid,
   .lab-grid,
   .lab-dashboard,
+  .badge-grid,
+  .challenge-list,
   .service-grid,
   .guard-grid,
   .checklist-grid,

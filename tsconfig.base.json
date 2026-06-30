@@ -25,6 +25,7 @@
       "@mnemosyne/sleep-core": ["packages/sleep-core/src/index.ts"],
       "@mnemosyne/video-core": ["packages/video-core/src/index.ts"],
       "@mnemosyne/flashread-core": ["packages/flashread-core/src/index.ts"],
+      "@mnemosyne/social-core": ["packages/social-core/src/index.ts"],
       "@mnemosyne/technique-lab": ["packages/technique-lab/src/index.ts"],
       "@mnemosyne/content-court": ["packages/content-court/src/index.ts"],
       "@mnemosyne/persistence-core": ["packages/persistence-core/src/index.ts"],

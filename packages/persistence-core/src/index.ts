@@ -117,6 +117,46 @@ export type PersonalizationProfileRecord = {
   };
 };
 
+export type SocialChallengeRecord = {
+  id: string;
+  creator_id: string;
+  title: string;
+  challenge_type:
+    | "retention_duel"
+    | "boss_fight"
+    | "screen_efficiency"
+    | "walk_recall"
+    | "same_video_recall"
+    | "sleep_cue_gain"
+    | "creator_quality";
+  participant_ids: string[];
+  share_level: "badges_only" | "friends" | "public";
+  scoring_metric: string;
+  anti_gaming_policy: string[];
+  status: "open" | "active" | "completed" | "archived";
+  scoreboard: Array<{
+    user_id: string;
+    display_name: string;
+    score: number;
+    rank: number;
+    evidence: string[];
+  }>;
+  created_at: string;
+  ends_at?: string;
+};
+
+export type AwardedBadgeRecord = {
+  id: string;
+  user_id: string;
+  badge_id: string;
+  title: string;
+  category: string;
+  rarity: string;
+  awarded_at: string;
+  score: number;
+  evidence: string[];
+};
+
 export type MnemosyneSeedData = {
   user: User;
   goals: Goal[];
@@ -179,6 +219,10 @@ export interface MnemosyneStore {
   saveExperimentAssignment(assignment: ExperimentAssignmentRecord): Promise<ExperimentAssignmentRecord>;
   getPersonalizationProfile(userId: string): Promise<PersonalizationProfileRecord | undefined>;
   savePersonalizationProfile(profile: PersonalizationProfileRecord): Promise<PersonalizationProfileRecord>;
+  listSocialChallenges(userId?: string): Promise<SocialChallengeRecord[]>;
+  saveSocialChallenge(challenge: SocialChallengeRecord): Promise<SocialChallengeRecord>;
+  listAwardedBadges(userId: string): Promise<AwardedBadgeRecord[]>;
+  saveAwardedBadge(badge: AwardedBadgeRecord): Promise<AwardedBadgeRecord>;
 }
 
 export class InMemoryMnemosyneStore implements MnemosyneStore {
@@ -207,6 +251,8 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
   private experiments = new Map<string, Experiment>();
   private experimentAssignments = new Map<string, ExperimentAssignmentRecord>();
   private personalizationProfiles = new Map<string, PersonalizationProfileRecord>();
+  private socialChallenges = new Map<string, SocialChallengeRecord>();
+  private awardedBadges = new Map<string, AwardedBadgeRecord>();
 
   constructor(seed?: MnemosyneSeedData) {
     if (!seed) return;
@@ -423,6 +469,25 @@ export class InMemoryMnemosyneStore implements MnemosyneStore {
   ): Promise<PersonalizationProfileRecord> {
     this.personalizationProfiles.set(profile.user_id, profile);
     return profile;
+  }
+
+  async listSocialChallenges(userId?: string): Promise<SocialChallengeRecord[]> {
+    const challenges = [...this.socialChallenges.values()];
+    return userId ? challenges.filter((challenge) => challenge.participant_ids.includes(userId)) : challenges;
+  }
+
+  async saveSocialChallenge(challenge: SocialChallengeRecord): Promise<SocialChallengeRecord> {
+    this.socialChallenges.set(challenge.id, challenge);
+    return challenge;
+  }
+
+  async listAwardedBadges(userId: string): Promise<AwardedBadgeRecord[]> {
+    return [...this.awardedBadges.values()].filter((badge) => badge.user_id === userId);
+  }
+
+  async saveAwardedBadge(badge: AwardedBadgeRecord): Promise<AwardedBadgeRecord> {
+    this.awardedBadges.set(`${badge.user_id}:${badge.badge_id}`, badge);
+    return badge;
   }
 }
 

@@ -56,6 +56,18 @@ import { buildDailyLearningPacket } from "@mnemosyne/scheduler-core";
 import { clamp, createId, nowIso, todayIsoDate, unique } from "@mnemosyne/shared-utils";
 import { buildSleepCuePacket } from "@mnemosyne/sleep-core";
 import {
+  buildSocialDashboard,
+  createChallenge as createSocialChallenge,
+  evaluateBadges,
+  outcomeBadgeTemplates,
+  scoreChallenge,
+  type AwardedBadge,
+  type ChallengeType,
+  type SocialChallenge,
+  type SocialDashboard,
+  type SocialEvidence
+} from "@mnemosyne/social-core";
+import {
   assignExperiments,
   buildPersonalizationProfile,
   createDefaultExperimentSuite,
@@ -68,6 +80,7 @@ import {
 import { buildWatchPackets, rankVideosForUser } from "@mnemosyne/video-core";
 import {
   assessmentSubmitRequestSchema,
+  challengeCreateRequestSchema,
   completeOnboardingRequestSchema,
   completeWatchPacketRequestSchema,
   createGoalRequestSchema,
@@ -128,6 +141,17 @@ type ExperimentDashboardResponse = {
   rollups: ExperimentOutcomeRollup[];
   profile: PersonalizationProfile;
 };
+
+type ChallengeCreateRequest = {
+  userId: string;
+  title: string;
+  challengeType: ChallengeType;
+  participantIds: string[];
+  shareLevel: "badges_only" | "friends" | "public";
+  endsAt?: string;
+};
+
+type SocialDashboardResponse = SocialDashboard;
 
 export type SessionEventRequest = {
   userId: string;
@@ -2057,6 +2081,74 @@ export function createApiHandlers(store: MnemosyneStore) {
       return envelope(pack, audit.id);
     },
 
+    async getSocialDashboard(userId: string): Promise<HandlerEnvelope<SocialDashboardResponse>> {
+      const dashboard = await buildSocialDashboardFor(store, userId);
+      return envelope(dashboard);
+    },
+
+    async listBadges(userId: string): Promise<HandlerEnvelope<AwardedBadge[]>> {
+      const evidence = await buildSocialEvidenceFor(store, userId);
+      const badges = await refreshAwardedBadges(store, userId, evidence);
+      return envelope(badges);
+    },
+
+    async listChallenges(userId: string): Promise<HandlerEnvelope<SocialChallenge[]>> {
+      const evidence = await buildSocialEvidenceFor(store, userId);
+      const evidenceByUser = new Map([[userId, evidence]]);
+      const challenges = await Promise.all(
+        (await store.listSocialChallenges(userId)).map((challenge) =>
+          store.saveSocialChallenge(scoreChallenge(challenge as SocialChallenge, evidenceByUser))
+        )
+      );
+      return envelope(challenges as SocialChallenge[]);
+    },
+
+    async createChallenge(input: unknown): Promise<HandlerEnvelope<SocialChallenge>> {
+      const request = validateRequest(challengeCreateRequestSchema, input) as ChallengeCreateRequest;
+      const creator = await requireUser(store, request.userId);
+      const participantIds = Array.from(new Set([request.userId, ...request.participantIds]));
+      const evidenceEntries: Array<[string, SocialEvidence]> = [];
+      for (const participantId of participantIds) {
+        const participant = await store.getUser(participantId);
+        if (!participant) continue;
+        evidenceEntries.push([participantId, await buildSocialEvidenceFor(store, participantId)]);
+      }
+      const challenge = createSocialChallenge({
+        creator,
+        title: request.title,
+        challengeType: request.challengeType,
+        participantIds,
+        shareLevel: request.shareLevel,
+        endsAt: request.endsAt,
+        evidenceByUser: new Map(evidenceEntries)
+      });
+      const saved = await store.saveSocialChallenge(challenge);
+      await store.appendLearningEvent({
+        user_id: request.userId,
+        event_type: "content_reviewed",
+        payload: {
+          action: "challenge_created",
+          challenge_id: saved.id,
+          challenge_type: saved.challenge_type,
+          scoring_metric: saved.scoring_metric,
+          raw_time_rewards_blocked: true
+        }
+      });
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "challenge_created",
+        object_type: "social_challenge",
+        object_id: saved.id,
+        payload: {
+          challenge_type: saved.challenge_type,
+          participant_ids: saved.participant_ids,
+          scoring_metric: saved.scoring_metric,
+          anti_gaming_policy: saved.anti_gaming_policy
+        }
+      });
+      return envelope(saved as SocialChallenge, audit.id);
+    },
+
     async listProposals() {
       return envelope(await store.listProposals());
     }
@@ -2067,6 +2159,55 @@ async function requireUser(store: MnemosyneStore, userId: string) {
   const user = await store.getUser(userId);
   if (!user) throw new Error(`Unknown user: ${userId}`);
   return user;
+}
+
+async function buildSocialDashboardFor(
+  store: MnemosyneStore,
+  userId: string
+): Promise<SocialDashboardResponse> {
+  const evidence = await buildSocialEvidenceFor(store, userId);
+  await refreshAwardedBadges(store, userId, evidence);
+  const evidenceByUser = new Map([[userId, evidence]]);
+  const challenges = await Promise.all(
+    (await store.listSocialChallenges(userId)).map((challenge) =>
+      store.saveSocialChallenge(scoreChallenge(challenge as SocialChallenge, evidenceByUser))
+    )
+  );
+  return buildSocialDashboard({
+    evidence,
+    badgeTemplates: outcomeBadgeTemplates,
+    challenges: challenges as SocialChallenge[]
+  });
+}
+
+async function buildSocialEvidenceFor(store: MnemosyneStore, userId: string): Promise<SocialEvidence> {
+  const user = await requireUser(store, userId);
+  const [userGraph, events, proposals, submissions] = await Promise.all([
+    store.getUserGraph(userId),
+    store.listLearningEvents(userId),
+    store.listProposals(),
+    store.listCreatorSubmissions(userId)
+  ]);
+  return {
+    user,
+    states: userGraph.states,
+    events,
+    proposals,
+    creatorSubmissionCount: submissions.length
+  };
+}
+
+async function refreshAwardedBadges(
+  store: MnemosyneStore,
+  userId: string,
+  evidence: SocialEvidence
+): Promise<AwardedBadge[]> {
+  const existing = new Map((await store.listAwardedBadges(userId)).map((badge) => [badge.badge_id, badge]));
+  const earned = evaluateBadges({ userId, templates: outcomeBadgeTemplates, evidence });
+  for (const badge of earned) {
+    if (!existing.has(badge.badge_id)) await store.saveAwardedBadge(badge);
+  }
+  return earned;
 }
 
 function applyResponseToStates(

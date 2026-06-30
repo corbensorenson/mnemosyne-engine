@@ -132,7 +132,9 @@ export const apiRoutes: ApiRoute[] = [
   { method: "GET", path: "/api/creator/ingestions", service: "Creator Studio Service" },
   { method: "GET", path: "/api/creator/ingestions/:id", service: "Creator Studio Service" },
   { method: "GET", path: "/api/packs", service: "Master Graph Service" },
-  { method: "POST", path: "/api/challenges", service: "Social Service" },
+  { method: "GET", path: "/api/social/dashboard", service: "Social Service" },
+  { method: "GET", path: "/api/challenges", service: "Social Service" },
+  { method: "POST", path: "/api/challenges", service: "Social Service", eventType: "content_reviewed" },
   { method: "GET", path: "/api/badges", service: "Badge Service" }
 ];
 

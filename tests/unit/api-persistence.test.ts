@@ -935,6 +935,141 @@ describe("persistence-backed API handlers", () => {
       ])
     );
   });
+
+  it("scores social challenges and badges from durable outcomes instead of raw activity", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+    const graph = await store.getUserGraph(demoUser.id);
+    await store.saveUserConceptStates(
+      demoUser.id,
+      graph.states.map((state) => ({
+        ...state,
+        recall_strength: Math.max(state.recall_strength, 0.72),
+        transfer_score: Math.max(state.transfer_score, 0.64),
+        modality_response_profile: {
+          ...state.modality_response_profile,
+          video_screen_efficiency: 0.78
+        }
+      }))
+    );
+    await store.appendLearningEvent({
+      user_id: demoUser.id,
+      event_type: "video_watched",
+      payload: {
+        video_ids: ["video_attention_walkthrough"],
+        recall_passed: true,
+        screen_minutes: 5,
+        screen_load_multiplier: 0.18
+      }
+    });
+    await store.appendLearningEvent({
+      user_id: demoUser.id,
+      event_type: "walk_recall_completed",
+      payload: { average_correctness: 0.86, screen_locked: true, voice_used: true }
+    });
+    await store.appendLearningEvent({
+      user_id: demoUser.id,
+      event_type: "graph_updated",
+      payload: {
+        action: "sleep_cue_recall_completed",
+        cue_gain_delta: 0.08,
+        average_cued_correctness: 0.84,
+        average_control_correctness: 0.76
+      }
+    });
+
+    const created = unwrap(
+      await handlers.createProposal({
+        proposerId: demoUser.id,
+        proposalType: "modify_definition",
+        affectedObjectIds: ["attention_qkv"],
+        diff: {
+          before: "queries compare with keys to weight values",
+          after: "queries and keys score relevance before values are blended"
+        },
+        rationale: "Creator quality test contribution improves attention wording.",
+        evidenceFor: [
+          {
+            id: "src_creator_quality",
+            title: "Expert-reviewed creator packet",
+            source_type: "expert",
+            quality_score: 0.9
+          }
+        ],
+        riskLevel: "low"
+      })
+    );
+    unwrap(
+      await handlers.humanOverrideProposal({
+        proposalId: created.proposal.id,
+        moderatorId: "moderator_social",
+        status: "accepted",
+        reason: "Evidence-backed wording improvement accepted for contributor reputation test."
+      })
+    );
+    unwrap(
+      await handlers.releaseProposal({
+        proposalId: created.proposal.id,
+        releaserId: "release_manager",
+        graphVersion: "graph-v-social-test",
+        notes: "Released contributor quality definition update."
+      })
+    );
+
+    await expect(
+      handlers.createChallenge({
+        userId: demoUser.id,
+        title: "Raw app time contest",
+        challengeType: "raw_time_duel",
+        participantIds: []
+      } as unknown)
+    ).rejects.toThrow();
+
+    const challenge = unwrap(
+      await handlers.createChallenge({
+        userId: demoUser.id,
+        title: "No-scroll recall duel",
+        challengeType: "screen_efficiency",
+        participantIds: [],
+        shareLevel: "friends"
+      })
+    );
+    expect(challenge.scoring_metric).toBe("screen_efficiency");
+    expect(challenge.anti_gaming_policy.join(" ")).toContain("No rewards for raw app time");
+    expect(challenge.scoreboard[0]?.score).toBeGreaterThan(70);
+
+    const badges = unwrap(await handlers.listBadges(demoUser.id));
+    expect(badges.map((badge) => badge.badge_id)).toEqual(
+      expect.arrayContaining([
+        "badge_retention_anchor",
+        "badge_transfer_climber",
+        "badge_screen_efficient",
+        "badge_walk_recaller",
+        "badge_sleep_guardian",
+        "badge_creator_quality"
+      ])
+    );
+
+    const dashboard = unwrap(await handlers.getSocialDashboard(demoUser.id));
+    expect(dashboard.guardrails).toEqual(
+      expect.arrayContaining(["No rewards for raw app time.", "No rewards for raw video minutes."])
+    );
+    expect(dashboard.challenges[0]?.scoreboard[0]?.user_id).toBe(demoUser.id);
+    expect(dashboard.contributor_reputation.reputation_score).toBeGreaterThan(0.5);
+    expect(dashboard.public_profile.visible_badge_count).toBeGreaterThanOrEqual(6);
+
+    const audits = await store.listAuditEvents(demoUser.id);
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "challenge_created",
+          payload: expect.objectContaining({
+            scoring_metric: "screen_efficiency"
+          })
+        })
+      ])
+    );
+  });
 });
 
 function unwrap<T>(envelope: Envelope<T>): T {

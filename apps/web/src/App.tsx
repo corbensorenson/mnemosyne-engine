@@ -69,6 +69,13 @@ import type {
 import { clamp, createId, humanMinutes, nowIso, round, unique } from "@mnemosyne/shared-utils";
 import { buildSleepCuePacket } from "@mnemosyne/sleep-core";
 import {
+  buildSocialDashboard,
+  createChallenge as createSocialChallenge,
+  outcomeBadgeTemplates,
+  type SocialChallenge,
+  type SocialDashboard
+} from "@mnemosyne/social-core";
+import {
   assignExperiments,
   buildPersonalizationProfile,
   createDefaultExperimentSuite,
@@ -84,6 +91,7 @@ import {
 import { rankVideosForUser } from "@mnemosyne/video-core";
 import {
   defaultReadiness,
+  demoBadges,
   demoGoals,
   demoMasterGraph,
   demoProposals,
@@ -103,6 +111,7 @@ type TabId =
   | "lock"
   | "sleep"
   | "stats"
+  | "social"
   | "packs"
   | "court"
   | "lab"
@@ -120,6 +129,7 @@ const tabs: Array<{ id: TabId; label: string; icon: typeof Home }> = [
   { id: "lock", label: "Lock-In", icon: Headphones },
   { id: "sleep", label: "Sleep", icon: Moon },
   { id: "stats", label: "Stats", icon: BarChart3 },
+  { id: "social", label: "Social", icon: Trophy },
   { id: "packs", label: "Packs", icon: BookOpen },
   { id: "court", label: "Court", icon: Gavel },
   { id: "lab", label: "Lab", icon: FlaskConical },
@@ -285,6 +295,44 @@ export default function App() {
       walkCompletedAt,
       walkResponses
     ]
+  );
+  const socialEvidence = useMemo(
+    () => ({
+      user: demoUser,
+      states,
+      events: experimentEvents,
+      proposals: demoProposals,
+      creatorSubmissionCount: 1
+    }),
+    [experimentEvents, states]
+  );
+  const socialChallenges = useMemo<SocialChallenge[]>(
+    () => [
+      createSocialChallenge({
+        creator: demoUser,
+        title: "Recall Without Scroll",
+        challengeType: "screen_efficiency",
+        shareLevel: "friends",
+        evidenceByUser: new Map([[demoUser.id, socialEvidence]])
+      }),
+      createSocialChallenge({
+        creator: demoUser,
+        title: "Sleep Cue Gain Check",
+        challengeType: "sleep_cue_gain",
+        shareLevel: "badges_only",
+        evidenceByUser: new Map([[demoUser.id, socialEvidence]])
+      })
+    ],
+    [socialEvidence]
+  );
+  const socialDashboard = useMemo<SocialDashboard>(
+    () =>
+      buildSocialDashboard({
+        evidence: socialEvidence,
+        badgeTemplates: uniqueBadgeTemplates([...outcomeBadgeTemplates, ...demoBadges]),
+        challenges: socialChallenges
+      }),
+    [socialChallenges, socialEvidence]
   );
   const experimentAssignments = useMemo(
     () =>
@@ -1300,6 +1348,7 @@ export default function App() {
         sleepIntegrity={sleepIntegrity}
       />
     ),
+    social: <SocialView dashboard={socialDashboard} />,
     packs: <PacksView />,
     court: <CourtView verdict={verdict} />,
     lab: (
@@ -3069,6 +3118,99 @@ function StatsView({
   );
 }
 
+function SocialView({ dashboard }: { dashboard: SocialDashboard }) {
+  const topChallenge = dashboard.challenges[0];
+  return (
+    <div className="page-grid social-grid">
+      <section className="panel">
+        <PanelTitle icon={Trophy} title="Social Profile" meta={dashboard.share_level} />
+        <div className="case-grid">
+          <MiniStat label="Visible badges" value={`${dashboard.public_profile.visible_badge_count}`} />
+          <MiniStat label="Challenges" value={`${dashboard.public_profile.visible_challenge_count}`} />
+          <MiniStat
+            label="Contribution"
+            value={`${Math.round(dashboard.contributor_reputation.reputation_score * 100)}%`}
+          />
+          <MiniStat label="Queue" value={dashboard.contributor_reputation.moderation_queue_priority} />
+        </div>
+        <div className="object-list">
+          <ObjectLine label="Handle" value={dashboard.public_profile.handle} />
+          <ObjectLine label="Display" value={dashboard.public_profile.display_name} />
+          <ObjectLine label="Accepted" value={`${dashboard.contributor_reputation.accepted_contributions}`} />
+          <ObjectLine label="Merged" value={`${dashboard.contributor_reputation.merged_contributions}`} />
+        </div>
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={ShieldCheck} title="Anti-Gaming Rules" meta="outcome only" />
+        <div className="guardrail-list">
+          {dashboard.guardrails.map((guardrail) => (
+            <div className="guardrail-line" key={guardrail}>
+              <ShieldCheck size={16} />
+              <span>{guardrail}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={BadgeCheck} title="Outcome Badges" meta={`${dashboard.badges.length} earned`} />
+        <div className="badge-grid">
+          {dashboard.badges.length > 0 ? (
+            dashboard.badges.map((badge) => (
+              <article className="badge-card" key={badge.id}>
+                <BadgeCheck size={22} />
+                <h3>{badge.title}</h3>
+                <p>{badge.evidence.join(" · ")}</p>
+                <div className="tag-row">
+                  <span className="tag">{badge.category}</span>
+                  <span className="tag">{badge.rarity}</span>
+                </div>
+              </article>
+            ))
+          ) : (
+            <article className="badge-card locked">
+              <CircleGauge size={22} />
+              <h3>Outcome locked</h3>
+              <p>
+                Badges unlock from recall, transfer, sleep integrity, screen efficiency, or contribution
+                quality.
+              </p>
+            </article>
+          )}
+        </div>
+      </section>
+
+      <section className="panel">
+        <PanelTitle
+          icon={Footprints}
+          title="Friend Challenges"
+          meta={topChallenge?.scoring_metric.replaceAll("_", " ") ?? "ready"}
+        />
+        <div className="challenge-list">
+          {dashboard.challenges.map((challenge) => (
+            <article className="challenge-card" key={challenge.id}>
+              <header>
+                <span>{challenge.challenge_type.replaceAll("_", " ")}</span>
+                <strong>{challenge.status}</strong>
+              </header>
+              <h3>{challenge.title}</h3>
+              <ObjectLine label="Metric" value={challenge.scoring_metric.replaceAll("_", " ")} />
+              {challenge.scoreboard.map((score) => (
+                <div className="score-row" key={score.user_id}>
+                  <span>#{score.rank}</span>
+                  <strong>{score.display_name}</strong>
+                  <em>{score.score}</em>
+                </div>
+              ))}
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function PacksView() {
   const packs = ["Spanish Travel", "Python Basics", "Linear Algebra", "World History", "AI Systems"];
   return (
@@ -3855,6 +3997,10 @@ function uniqueResponses(responses: Array<AssessmentResponse | null | undefined>
         .map((response) => [response.id, response])
     ).values()
   ];
+}
+
+function uniqueBadgeTemplates(templates: typeof outcomeBadgeTemplates): typeof outcomeBadgeTemplates {
+  return [...new Map(templates.map((template) => [template.id, template])).values()];
 }
 
 function buildLocalExperimentEvents(input: {
