@@ -59,7 +59,7 @@ The dev server runs the PWA at the URL printed by Vite, normally `http://localho
 The API server defaults to `http://localhost:8787` and can use memory or Postgres storage through `.env` settings.
 Set `VITE_MNEMOSYNE_API_URL` and `VITE_MNEMOSYNE_USER_ID` to hydrate the PWA from the first-party app bootstrap route instead of the local demo seed.
 When configured, the PWA uses the bootstrapped persisted goals, daily packet, and sleep audio plan as the primary Today, Forge, GraphFeed, WalkMode, Lock-In, and Sleep plan.
-Morning Forge, GraphFeed, first-party Paced Read, WalkMode, Evening Lock-In, SleepCue, and wearable sleep imports post backend-compatible queued payloads directly to the first-party domain endpoints when API sync is configured, with the offline receipt route retained for legacy and receipt-only payloads.
+Morning Forge, GraphFeed, first-party Paced Read, WalkMode, Evening Lock-In, SleepCue, wearable sleep imports, and incident reports post backend-compatible queued payloads directly to the first-party domain endpoints when API sync is configured, with the offline receipt route retained for legacy and receipt-only payloads.
 `npm run verify` runs lint, typecheck, unit tests, production build, and dependency audit.
 
 ## Roadmap

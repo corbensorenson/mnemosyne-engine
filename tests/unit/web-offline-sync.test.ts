@@ -523,4 +523,60 @@ describe("web offline sync transport", () => {
       })
     );
   });
+
+  it("routes backend-compatible incident report queue items to the ops endpoint", () => {
+    const item = createOfflineQueueItem({
+      userId: "operator_demo",
+      actionType: "incident_report",
+      endpoint: "/api/ops/incidents/reports",
+      method: "POST",
+      payload: {
+        operatorId: "operator_demo",
+        environment: "production",
+        title: "Production release incident drill"
+      },
+      payloadScope: "ops",
+      idempotencyKey: "incident-report-domain-write"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787/", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/ops/incidents/reports",
+        body: item.payload,
+        directDomainWrite: true
+      })
+    );
+  });
+
+  it("keeps local incident report artifacts on the offline receipt route", () => {
+    const item = createOfflineQueueItem({
+      userId: "operator_demo",
+      actionType: "incident_report",
+      endpoint: "/api/ops/incidents/reports",
+      method: "POST",
+      payload: {
+        report: {
+          schema_version: "mnemosyne-incident-response-v0.1",
+          id: "incident_local_preview"
+        },
+        manifest: {
+          key: "incidents/production/incident_local_preview.json"
+        }
+      },
+      payloadScope: "ops",
+      idempotencyKey: "legacy-incident-report-receipt"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/offline/actions/sync",
+        body: { item },
+        directDomainWrite: false
+      })
+    );
+  });
 });

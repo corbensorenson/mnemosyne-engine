@@ -158,6 +158,13 @@ function isDomainWritableOfflineActionItem(item: OfflineQueueItem): boolean {
     typeof item.payload.provider === "string" &&
     typeof item.payload.sleepSession === "object" &&
     item.payload.sleepSession !== null;
+  const isIncidentReport =
+    item.action_type === "incident_report" &&
+    item.method === "POST" &&
+    item.endpoint === "/api/ops/incidents/reports" &&
+    typeof item.payload.operatorId === "string" &&
+    isOpsEnvironment(item.payload.environment) &&
+    (typeof item.payload.title === "string" || item.payload.title === undefined);
   return (
     isMorningForge ||
     isWalkMode ||
@@ -166,7 +173,8 @@ function isDomainWritableOfflineActionItem(item: OfflineQueueItem): boolean {
     isPacedRead ||
     isSleepPlayback ||
     isSleepRecall ||
-    isWearableSleepSync
+    isWearableSleepSync ||
+    isIncidentReport
   );
 }
 
@@ -180,6 +188,10 @@ function domainReceiptId(
       ? session.id
       : undefined;
   return envelope.audit_event_id ?? sessionId ?? createId("domain_sync_receipt", item.id);
+}
+
+function isOpsEnvironment(value: unknown): value is "local" | "staging" | "production" {
+  return value === "local" || value === "staging" || value === "production";
 }
 
 function localCsrfToken(): string {

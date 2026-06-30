@@ -253,6 +253,14 @@ type SessionAssessmentSyncInput = {
 type EveningAssessmentSyncInput = SessionAssessmentSyncInput & {
   phase: EveningPromptPhase;
 };
+type StageOfflineActionInput = {
+  actionType: OfflineActionType;
+  endpoint: string;
+  method: OfflineHttpMethod;
+  payload: Record<string, unknown>;
+  payloadScope?: OfflinePayloadScope;
+  idempotencyKey: string;
+};
 type BackendStatus = "local" | "connecting" | "connected" | "error";
 
 export default function App() {
@@ -854,14 +862,7 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [pacedReadChunkIndex, pacedReadPlan, pacedReadPlaying]);
 
-  function stageOfflineAction(input: {
-    actionType: OfflineActionType;
-    endpoint: string;
-    method: OfflineHttpMethod;
-    payload: Record<string, unknown>;
-    payloadScope?: OfflinePayloadScope;
-    idempotencyKey: string;
-  }) {
+  function stageOfflineAction(input: StageOfflineActionInput) {
     const item = createOfflineQueueItem({
       userId: activeUser.id,
       actionType: input.actionType,
@@ -1979,6 +1980,7 @@ export default function App() {
       <AdminView
         userId={activeUser.id}
         eventLog={eventLog}
+        onStageOfflineAction={stageOfflineAction}
         onAuditEvent={(event) => setEventLog((current) => [event, ...current].slice(0, 8))}
       />
     )
@@ -4484,10 +4486,12 @@ function buildLocalOpsMonitoring(userId: string): OpsMonitoringDashboard {
 function AdminView({
   userId,
   eventLog,
+  onStageOfflineAction,
   onAuditEvent
 }: {
   userId: string;
   eventLog: string[];
+  onStageOfflineAction: (input: StageOfflineActionInput) => void;
   onAuditEvent: (event: string) => void;
 }) {
   const [privacyStatus, setPrivacyStatus] = useState("export ready");
@@ -4591,8 +4595,20 @@ function AdminView({
       sizeBytes: manifest.size_bytes,
       route: "POST /api/ops/incidents/reports"
     });
+    onStageOfflineAction({
+      actionType: "incident_report",
+      endpoint: "/api/ops/incidents/reports",
+      method: "POST",
+      payload: {
+        operatorId: userId,
+        environment: "production",
+        title: "Production release incident drill"
+      },
+      payloadScope: "ops",
+      idempotencyKey: `${userId}:incident_report:production:${report.id}`
+    });
     setIncidentStatus(`${report.severity.toUpperCase()} report staged`);
-    onAuditEvent("ops_incident_report_stored");
+    onAuditEvent("ops_incident_report_queued");
   }
   return (
     <div className="page-grid admin-grid">
