@@ -14,6 +14,7 @@
     "@mnemosyne/audio-core": "*",
     "@mnemosyne/content-court": "*",
     "@mnemosyne/demo-fixtures": "*",
+    "@mnemosyne/media-core": "*",
     "@mnemosyne/offline-core": "*",
     "@mnemosyne/ops-core": "*",
     "@mnemosyne/outcome-core": "*",

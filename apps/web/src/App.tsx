@@ -91,6 +91,13 @@ import {
   type OfflineQueueItem,
   type OfflineQueueSummary
 } from "@mnemosyne/offline-core";
+import {
+  buildPacedReadMediaSessionPlan,
+  buildSleepCueMediaSessionPlan,
+  buildWalkModeMediaSessionPlan,
+  learningMediaSessionActions,
+  type LearningMediaSessionPlan
+} from "@mnemosyne/media-core";
 import { buildDailyLearningPacket, type ScheduledDay } from "@mnemosyne/scheduler-core";
 import type {
   AudioPlan,
@@ -717,6 +724,79 @@ export default function App() {
   const activeWalkPacket = scheduled.packet.walk_packets[0];
   const walkPrompts = activeWalkPacket?.prompts ?? [];
   const activeWalkPrompt = walkPrompts[walkIndex % Math.max(walkPrompts.length, 1)];
+  const activeMediaSessionPlan = useMemo<LearningMediaSessionPlan | null>(() => {
+    if (activeTab === "walk") {
+      return buildWalkModeMediaSessionPlan({
+        promptText: activeWalkPrompt?.prompt,
+        phase: walkPhase,
+        promptIndex: walkPrompts.length > 0 ? walkIndex + 1 : 0,
+        queueLength: walkPrompts.length
+      });
+    }
+    if (activeTab === "pacedRead") {
+      return buildPacedReadMediaSessionPlan({
+        title: activePacedReadAsset?.title,
+        chunkIndex: pacedReadChunkIndex,
+        chunkCount: pacedReadPlan?.chunks.length ?? 0,
+        playing: pacedReadPlaying,
+        rawWpm: pacedReadPlan?.raw_wpm ?? pacedReadRequestedWpm
+      });
+    }
+    if (activeTab === "sleep") {
+      return buildSleepCueMediaSessionPlan({
+        sleepPacketId: scheduled.packet.sleep.id,
+        playbackStatus:
+          sleepPlaybackStatus === "running"
+            ? "playing"
+            : sleepPlaybackStatus === "logged"
+              ? "logged"
+              : "idle",
+        durationSeconds: scheduled.audioPlan.duration_seconds,
+        cueSpacingSeconds: scheduled.packet.sleep.cue_spacing_seconds,
+        maxCuesPerHour: scheduled.packet.sleep.max_cues_per_hour
+      });
+    }
+    return null;
+  }, [
+    activePacedReadAsset?.title,
+    activeTab,
+    activeWalkPrompt?.prompt,
+    pacedReadChunkIndex,
+    pacedReadPlan?.chunks.length,
+    pacedReadPlan?.raw_wpm,
+    pacedReadPlaying,
+    pacedReadRequestedWpm,
+    scheduled.audioPlan.duration_seconds,
+    scheduled.packet.sleep.cue_spacing_seconds,
+    scheduled.packet.sleep.id,
+    scheduled.packet.sleep.max_cues_per_hour,
+    sleepPlaybackStatus,
+    walkIndex,
+    walkPhase,
+    walkPrompts.length
+  ]);
+  useEffect(() => {
+    if (!activeMediaSessionPlan) return undefined;
+    return applyLearningMediaSessionPlan(activeMediaSessionPlan, (command) => {
+      if (activeMediaSessionPlan.surface === "walk_mode") {
+        runWalkCommand(command);
+      } else if (activeMediaSessionPlan.surface === "paced_read") {
+        if (command === "play_paced_read") setPacedReadPlaying(true);
+        else if (command === "pause_paced_read") setPacedReadPlaying(false);
+        else if (command === "previous_paced_read_chunk") {
+          setPacedReadChunkIndex((index) => Math.max(0, index - 1));
+        } else if (command === "next_paced_read_chunk") {
+          setPacedReadChunkIndex((index) => Math.min((pacedReadPlan?.chunks.length ?? 1) - 1, index + 1));
+        } else if (command === "restart_paced_read") {
+          setPacedReadChunkIndex(0);
+        }
+      } else if (activeMediaSessionPlan.surface === "sleep_cue") {
+        if (command === "start_sleep_playback") startSleepPlayback();
+        else if (command === "log_sleep_playback") logSleepPlayback();
+        else if (command === "run_sleep_recall_check") runSleepRecallCheck();
+      }
+    });
+  }, [activeMediaSessionPlan, pacedReadPlan?.chunks.length]);
   const eveningQueue = useMemo<EveningPrompt[]>(
     () => [
       ...scheduled.packet.evening.recall_items.map((item) => ({ phase: "recall" as const, item })),
@@ -5737,6 +5817,70 @@ function tutorModeLabel(mode: TutorMode): string {
     .split("_")
     .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
     .join(" ");
+}
+
+type BrowserMediaSession = {
+  metadata?: MediaMetadata | null;
+  playbackState?: "none" | "paused" | "playing";
+  setActionHandler: (action: string, handler: (() => void) | null) => void;
+  setPositionState?: (state: { duration: number; playbackRate: number; position: number }) => void;
+};
+
+function applyLearningMediaSessionPlan(
+  plan: LearningMediaSessionPlan,
+  runCommand: (command: string) => void
+): (() => void) | undefined {
+  if (typeof navigator === "undefined" || typeof window === "undefined") return undefined;
+  const mediaSession = (navigator as Navigator & { mediaSession?: BrowserMediaSession }).mediaSession;
+  if (!mediaSession) return undefined;
+  const MediaMetadataCtor = (
+    window as Window & {
+      MediaMetadata?: new (init: {
+        title?: string;
+        artist?: string;
+        album?: string;
+        artwork?: Array<{ src: string; sizes?: string; type?: string }>;
+      }) => MediaMetadata;
+    }
+  ).MediaMetadata;
+  if (MediaMetadataCtor) {
+    mediaSession.metadata = new MediaMetadataCtor({
+      title: plan.title,
+      artist: plan.artist,
+      album: plan.album
+    });
+  }
+  mediaSession.playbackState = plan.playback_state;
+  if (plan.position && mediaSession.setPositionState) {
+    try {
+      mediaSession.setPositionState({
+        duration: plan.position.duration_seconds,
+        playbackRate: plan.position.playback_rate,
+        position: Math.min(plan.position.position_seconds, plan.position.duration_seconds)
+      });
+    } catch {
+      // Some browsers reject position state before actual media playback starts.
+    }
+  }
+  for (const mediaAction of learningMediaSessionActions) {
+    try {
+      const planAction = plan.actions.find(
+        (candidate) => candidate.media_action === mediaAction && candidate.enabled
+      );
+      mediaSession.setActionHandler(mediaAction, planAction ? () => runCommand(planAction.command) : null);
+    } catch {
+      // Unsupported Media Session actions should not break the learning surface.
+    }
+  }
+  return () => {
+    for (const mediaAction of learningMediaSessionActions) {
+      try {
+        mediaSession.setActionHandler(mediaAction, null);
+      } catch {
+        // Ignore unsupported cleanup on older browsers.
+      }
+    }
+  };
 }
 
 function avg(values: number[]): number {

@@ -10,6 +10,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/schema`: shared Zod schemas and TypeScript types for graph, user state, sessions, sleep cues, content court, experiments, packs, videos, and events.
 - `packages/accessibility-core`: first-party PWA accessibility release gates for keyboard, focus, labels, reduced motion, contrast, text scaling, and overflow.
 - `packages/auth-core`: session issuance, hashed tokens, CSRF checks, RBAC, consent gates, and object-level authorization.
+- `packages/media-core`: first-party Media Session plans for lock-screen WalkMode, Paced Read, and SleepCue controls.
 - `packages/notification-core`: first-party learning reminder planning for morning, evening, phone-down, and SleepCue recall prompts.
 - `packages/offline-core`: first-party PWA offline action queueing, idempotent sync, stale-lock recovery, and offline release gates.
 - `packages/outcome-core`: immediate, 24h, 7d, and 30d learning outcome rollups with quality gates.

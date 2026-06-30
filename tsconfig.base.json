@@ -22,6 +22,7 @@
       "@mnemosyne/shared-utils": ["packages/shared-utils/src/index.ts"],
       "@mnemosyne/accessibility-core": ["packages/accessibility-core/src/index.ts"],
       "@mnemosyne/auth-core": ["packages/auth-core/src/index.ts"],
+      "@mnemosyne/media-core": ["packages/media-core/src/index.ts"],
       "@mnemosyne/notification-core": ["packages/notification-core/src/index.ts"],
       "@mnemosyne/offline-core": ["packages/offline-core/src/index.ts"],
       "@mnemosyne/outcome-core": ["packages/outcome-core/src/index.ts"],
