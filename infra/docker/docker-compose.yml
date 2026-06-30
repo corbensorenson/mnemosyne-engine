@@ -7,10 +7,24 @@ services:
       POSTGRES_DB: mnemosyne
     ports:
       - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mnemosyne -d mnemosyne"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   redis:
     image: redis:7
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   minio:
     image: minio/minio
     command: server /data --console-address ":9001"
@@ -20,3 +34,86 @@ services:
     ports:
       - "9000:9000"
       - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+    command: ["npm", "run", "api:dev"]
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      MNEMOSYNE_ENV: local
+      MNEMOSYNE_STORAGE: postgres
+      DATABASE_URL: postgres://mnemosyne:mnemosyne@postgres:5432/mnemosyne
+      MNEMOSYNE_RUN_MIGRATIONS: "true"
+      MNEMOSYNE_SEED_DEMO: "true"
+      MNEMOSYNE_OBJECT_STORAGE_ROOT: /var/lib/mnemosyne/objects
+    ports:
+      - "8787:8787"
+    volumes:
+      - object-storage:/var/lib/mnemosyne/objects
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8787/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  worker-scheduler:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+    command: ["npm", "run", "worker:start"]
+    environment:
+      MNEMOSYNE_ENV: local
+      MNEMOSYNE_STORAGE: postgres
+      DATABASE_URL: postgres://mnemosyne:mnemosyne@postgres:5432/mnemosyne
+      MNEMOSYNE_SEED_DEMO: "false"
+      MNEMOSYNE_OBJECT_STORAGE_ROOT: /var/lib/mnemosyne/objects
+      MNEMOSYNE_WORKER_ID: worker-scheduler
+      MNEMOSYNE_WORKER_MODE: loop
+      MNEMOSYNE_WORKER_QUEUES: scheduler
+      MNEMOSYNE_WORKER_POLL_MS: 1000
+    volumes:
+      - object-storage:/var/lib/mnemosyne/objects
+    depends_on:
+      api:
+        condition: service_healthy
+
+  worker-audio:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+    command: ["npm", "run", "worker:start"]
+    environment:
+      MNEMOSYNE_ENV: local
+      MNEMOSYNE_STORAGE: postgres
+      DATABASE_URL: postgres://mnemosyne:mnemosyne@postgres:5432/mnemosyne
+      MNEMOSYNE_SEED_DEMO: "false"
+      MNEMOSYNE_OBJECT_STORAGE_ROOT: /var/lib/mnemosyne/objects
+      MNEMOSYNE_WORKER_ID: worker-audio
+      MNEMOSYNE_WORKER_MODE: loop
+      MNEMOSYNE_WORKER_QUEUES: audio_render
+      MNEMOSYNE_WORKER_POLL_MS: 1000
+      MNEMOSYNE_AUDIO_OUTPUT_FORMAT: m4a
+    volumes:
+      - object-storage:/var/lib/mnemosyne/objects
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  minio-data:
+  object-storage:

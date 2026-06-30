@@ -6,6 +6,7 @@ The API service is executable through the workspace scripts:
 npm run api:migrate
 npm run api:dev
 npm run worker:start
+npm run docker:up
 ```
 
 `npm run api:dev` starts `@mnemosyne/api` on `HOST` and `PORT`, defaulting to `0.0.0.0:8787`. The runtime exposes:
@@ -49,3 +50,16 @@ Worker variables:
 - `MNEMOSYNE_AUDIO_OUTPUT_FORMAT`: render-manifest format hint, `m4a`, `mp3`, or `wav`
 
 The first executable worker handles `scheduler:generate_daily_packet` and `audio_render:render_sleep_audio`. A scheduler job persists the daily packet, sleep packet, and audio plan, then queues the audio render job. The audio worker writes a deterministic render-manifest object through configured object storage and updates the audio plan to `ready`.
+
+## Local Compose
+
+`npm run docker:config` validates the local Compose model. `npm run docker:up` starts Postgres, Redis, MinIO, the API, a scheduler worker, and an audio-render worker. The API listens on `http://127.0.0.1:8787` and uses Postgres with migrations enabled. API and workers share the `object-storage` volume at `/var/lib/mnemosyne/objects`.
+
+Smoke checks:
+
+```bash
+curl http://127.0.0.1:8787/healthz
+curl http://127.0.0.1:8787/readyz
+```
+
+Stop the stack with `npm run docker:down`.

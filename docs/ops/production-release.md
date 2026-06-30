@@ -34,6 +34,8 @@ Required services:
 
 The code-level readiness contract is documented in [`queues-and-object-storage.md`](./queues-and-object-storage.md). Production adapters must preserve the same job lifecycle, idempotency, object manifest, audit, export, and deletion behavior.
 
+The local production-like container contract is `infra/docker/docker-compose.yml`. It starts Postgres, Redis, MinIO, the API, scheduler worker, audio-render worker, and a shared object-storage volume. Staging and production deployment manifests should preserve the same process split even when they replace local volumes with managed services.
+
 ## Required Secrets
 
 - session signing secret
@@ -126,6 +128,7 @@ The system should preserve audit events even when downstream analytics or person
 - Object storage root is mounted durably, and `/api/objects/store` writes bytes, validates SHA-256 integrity, and persists manifests.
 - Scheduler and audio-render workers run `@mnemosyne/worker-core` handlers for `scheduler:generate_daily_packet` and `audio_render:render_sleep_audio`, including audit events, retries, and dead-letter handling.
 - `npm run worker:start` is deployed for worker processes with `MNEMOSYNE_WORKER_QUEUES`, `MNEMOSYNE_WORKER_ID`, and `MNEMOSYNE_OBJECT_STORAGE_ROOT` set per environment.
+- `npm run docker:config` passes for the local deployment manifest.
 - `GET /healthz` and `GET /readyz` return healthy responses from the deployed API runtime.
 - Production secrets are rotated into the target environment.
 - Database migrations are applied in staging first.
