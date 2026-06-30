@@ -64,7 +64,7 @@ async function postOfflineItem(apiBaseUrl: string, item: OfflineQueueItem) {
 
 export function offlineSyncRequestForItem(apiBaseUrl: string, item: OfflineQueueItem): OfflineSyncRequest {
   const baseUrl = apiBaseUrl.replace(/\/$/, "");
-  if (isDomainWritableMorningForgeItem(item)) {
+  if (isDomainWritableSessionCompletionItem(item)) {
     return {
       url: `${baseUrl}${item.endpoint}`,
       body: item.payload,
@@ -78,16 +78,24 @@ export function offlineSyncRequestForItem(apiBaseUrl: string, item: OfflineQueue
   };
 }
 
-function isDomainWritableMorningForgeItem(item: OfflineQueueItem): boolean {
-  return (
+function isDomainWritableSessionCompletionItem(item: OfflineQueueItem): boolean {
+  const hasAssessmentResponses = Array.isArray(item.payload.responses) && item.payload.responses.length > 0;
+  const isMorningForge =
     item.action_type === "morning_forge_response" &&
     item.method === "POST" &&
     item.endpoint === "/api/morning-forge/complete" &&
     typeof item.payload.userId === "string" &&
     typeof item.payload.dailyPacketId === "string" &&
-    Array.isArray(item.payload.responses) &&
-    item.payload.responses.length > 0
-  );
+    hasAssessmentResponses;
+  const isWalkMode =
+    item.action_type === "walk_mode_completion" &&
+    item.method === "POST" &&
+    item.endpoint === "/api/walk-mode/complete" &&
+    typeof item.payload.userId === "string" &&
+    typeof item.payload.dailyPacketId === "string" &&
+    typeof item.payload.walkPacketId === "string" &&
+    hasAssessmentResponses;
+  return isMorningForge || isWalkMode;
 }
 
 function domainReceiptId(

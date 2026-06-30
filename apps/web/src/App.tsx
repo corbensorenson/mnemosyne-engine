@@ -224,6 +224,16 @@ type GraphFeedRecallResult = {
   recallPassed: boolean;
   screenMinutes: number;
 };
+type SessionAssessmentSyncInput = {
+  item: AssessmentItem;
+  rawResponse: string;
+  confidence?: number;
+  latencyMs: number;
+  hintCount?: number;
+  retries?: number;
+  entryMode: AnswerMode;
+  transcript?: string;
+};
 type BackendStatus = "local" | "connecting" | "connected" | "error";
 
 export default function App() {
@@ -265,6 +275,7 @@ export default function App() {
   const [walkStartedAt, setWalkStartedAt] = useState(Date.now());
   const [walkHintCount, setWalkHintCount] = useState(0);
   const [walkResponses, setWalkResponses] = useState<AssessmentResponse[]>([]);
+  const [walkSyncResponses, setWalkSyncResponses] = useState<SessionAssessmentSyncInput[]>([]);
   const [walkLastResponse, setWalkLastResponse] = useState<AssessmentResponse | null>(null);
   const [walkRepairTips, setWalkRepairTips] = useState<string[]>([]);
   const [walkCommandLog, setWalkCommandLog] = useState<string[]>([]);
@@ -1082,15 +1093,27 @@ export default function App() {
   function scoreWalkAnswer() {
     const prompt = activeWalkPrompt;
     if (!prompt || walkAnswer.trim().length === 0) return;
+    const submittedAnswer = walkAnswer;
+    const latencyMs = Math.max(1_000, Date.now() - walkStartedAt);
+    const responseInput: SessionAssessmentSyncInput = {
+      item: prompt,
+      rawResponse: submittedAnswer,
+      confidence: walkConfidence,
+      latencyMs,
+      hintCount: walkHintCount,
+      entryMode: walkAnswerMode,
+      transcript: walkAnswerMode === "voice" && !walkTranscriptDeleted ? submittedAnswer : undefined
+    };
     const response = scoreAssessmentResponse({
       userId: activeUser.id,
       item: prompt,
-      rawResponse: walkAnswer,
+      rawResponse: submittedAnswer,
       confidence: walkConfidence,
-      latencyMs: Math.max(1_000, Date.now() - walkStartedAt),
+      latencyMs,
       hintCount: walkHintCount
     });
     setWalkResponses((current) => [...current, response]);
+    setWalkSyncResponses((current) => [...current, responseInput]);
     setWalkLastResponse(response);
     setWalkRepairTips(repairTipsFor(response));
     setWalkPhase("feedback");
@@ -1151,6 +1174,11 @@ export default function App() {
 
   function completeWalkSession() {
     const completedAt = new Date().toISOString();
+    const transcriptRetention = walkTranscriptDeleted ? "deleted" : "transcript_only";
+    const syncedWalkResponses =
+      transcriptRetention === "deleted"
+        ? walkSyncResponses.map(({ transcript: _transcript, ...response }) => response)
+        : walkSyncResponses;
     try {
       window.localStorage.setItem(
         "mnemosyne.walkMode.v1",
@@ -1165,7 +1193,7 @@ export default function App() {
           voice_used: walkAnswerMode === "voice" || walkCommandLog.length > 0,
           text_used: walkResponses.some((response) => response.raw_response),
           screen_locked: true,
-          transcript_retention: walkTranscriptDeleted ? "deleted" : "transcript_only",
+          transcript_retention: transcriptRetention,
           compatible_assessment_events: true,
           average_correctness: avg(walkResponses.map((response) => response.correctness_score))
         })
@@ -1176,15 +1204,18 @@ export default function App() {
         endpoint: "/api/walk-mode/complete",
         method: "POST",
         payload: {
-          walk_packet_id: activeWalkPacket?.id,
-          prompts_answered: walkResponses.length,
-          skipped_prompt_ids: walkSkippedIds,
-          confusing_prompt_ids: walkConfusingIds,
-          commands: walkCommandLog,
-          voice_used: walkAnswerMode === "voice" || walkCommandLog.length > 0,
-          screen_locked: true,
-          transcript_retention: walkTranscriptDeleted ? "deleted" : "transcript_only",
-          responses: walkResponses.map(assessmentResponseSyncPayload)
+          userId: activeUser.id,
+          dailyPacketId: scheduled.packet.id,
+          packetDate: scheduled.packet.date,
+          walkPacketId: activeWalkPacket?.id,
+          responses: syncedWalkResponses,
+          skippedPromptIds: walkSkippedIds,
+          confusingPromptIds: walkConfusingIds,
+          commandLog: walkCommandLog,
+          screenLocked: true,
+          voiceUsed: walkAnswerMode === "voice" || walkCommandLog.length > 0,
+          transcriptRetention,
+          completedAt
         },
         payloadScope: walkAnswerMode === "voice" ? "voice" : "learning",
         idempotencyKey: `${activeUser.id}:walk_mode:${activeWalkPacket?.id ?? "local"}:${completedAt}`
@@ -1206,6 +1237,7 @@ export default function App() {
   function deleteWalkTranscript() {
     setWalkAnswer("");
     setWalkTranscriptDeleted(true);
+    setWalkSyncResponses((current) => current.map(({ transcript: _transcript, ...response }) => response));
     setWalkCommandLog((current) => ["delete transcript", ...current].slice(0, 24));
     setWalkCacheStatus("pending");
   }
@@ -1593,6 +1625,7 @@ export default function App() {
     setWalkStartedAt(Date.now());
     setWalkHintCount(0);
     setWalkResponses([]);
+    setWalkSyncResponses([]);
     setWalkLastResponse(null);
     setWalkRepairTips([]);
     setWalkCommandLog([]);

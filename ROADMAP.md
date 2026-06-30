@@ -388,6 +388,7 @@ Deliverables:
 Current implementation progress:
 
 - PWA WalkMode now runs a first-party prompt/listen/score/hint/skip/mark-confusing/complete state machine with screen-locked phone controls, text fallback, voice transcript entry, command log, repair feedback, local cache, and transcript deletion controls.
+- PWA WalkMode completion sync now queues backend-compatible raw prompt/answer payloads and posts them directly to `POST /api/walk-mode/complete` when API sync is configured, preserving command logs, skipped/confusing prompts, screen-lock evidence, and transcript deletion choices.
 - First-party WalkMode completion persists voice and text answers through the same assessment response path, logs compatible `assessment_answered` events, records `walk_recall_completed`, marks confusing prompts for repair, and supports deleted transcript retention.
 - First-party `@mnemosyne/tutor-core` now scores rubric semantics, supports Socratic, Examiner, Calm Coach, Debate Opponent, Language Partner, Debugger, Oral Board, Walk Coach, and Sleep Prep Guide modes, and runs deterministic answer-leakage, hallucination-language, high-stakes advice, over-teaching, and assessment-compatibility release gates.
 - API `POST /api/tutor/turn` persists tutor-scored turns as compatible assessment responses, updates graph state only when the tutor release gate passes, records `assessment_answered`, and audits `tutor_turn_scored` with the safety evaluation.
