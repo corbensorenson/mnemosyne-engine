@@ -737,6 +737,59 @@ input[type="range"] {
   background: var(--teal-soft);
 }
 
+.speech-plan-strip {
+  display: grid;
+  grid-template-columns: 40px 40px minmax(0, 1fr) minmax(112px, auto);
+  align-items: center;
+  gap: 8px;
+  min-height: 68px;
+  margin: 0 0 14px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 254, 250, 0.74);
+}
+
+.speech-plan-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.speech-plan-copy div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.speech-plan-copy strong,
+.speech-plan-copy span,
+.speech-plan-copy p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.speech-plan-copy span,
+.speech-plan-copy p,
+.speech-privacy {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.speech-plan-copy p {
+  margin: 0;
+}
+
+.speech-privacy {
+  justify-self: end;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-strong);
+}
+
 .repair-list {
   display: grid;
   gap: 8px;
@@ -2308,6 +2361,16 @@ input[type="range"] {
 
   .walk-command-entry {
     grid-template-columns: 1fr;
+  }
+
+  .speech-plan-strip {
+    grid-template-columns: 40px 40px minmax(0, 1fr);
+  }
+
+  .speech-privacy {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    text-align: center;
   }
 
   .video-card > strong {

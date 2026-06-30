@@ -1,11 +1,185 @@
 import type { AudioPlan, SleepCueTemplate } from "@mnemosyne/schema";
-import { createId, nowIso } from "@mnemosyne/shared-utils";
+import { clamp, createId, nowIso } from "@mnemosyne/shared-utils";
 
 export type RenderCue = {
   cue: SleepCueTemplate;
   label: string;
   bucket: "reactivate" | "stabilize" | "prime" | "control";
 };
+
+export type SessionSpeechSurface =
+  "morning_forge" | "tutor" | "walk_mode" | "evening_lock_in" | "sleep_preview";
+
+export type SessionSpeechPrivacyScope =
+  "prompt_only" | "prompt_and_feedback" | "feedback_only" | "sleep_cue_preview";
+
+export type SessionSpeechUtteranceRole = "prompt" | "instruction" | "feedback" | "hint" | "sleep_cue_preview";
+
+export type SessionSpeechUtterance = {
+  id: string;
+  role: SessionSpeechUtteranceRole;
+  text: string;
+  rate: number;
+  pitch: number;
+  volume: number;
+  priority: number;
+  speakable: boolean;
+};
+
+export type SessionSpeechPlan = {
+  schema_version: "mnemosyne-session-speech-v0.1";
+  id: string;
+  surface: SessionSpeechSurface;
+  title: string;
+  privacy_scope: SessionSpeechPrivacyScope;
+  network_required: false;
+  browser_speech_allowed: boolean;
+  raw_user_answer_included: false;
+  transcript_audio_included: false;
+  quiet_fallback: string[];
+  utterances: SessionSpeechUtterance[];
+  generated_at: string;
+};
+
+export function buildMorningForgeSpeechPlan(input: {
+  promptText?: string;
+  promptIndex: number;
+  queueLength: number;
+  recommendedMode?: string;
+  feedbackText?: string;
+  generatedAt?: string;
+}): SessionSpeechPlan {
+  return buildSessionSpeechPlan({
+    surface: "morning_forge",
+    title: `Morning Forge ${input.promptIndex}/${Math.max(input.queueLength, 1)}`,
+    privacyScope: input.feedbackText ? "prompt_and_feedback" : "prompt_only",
+    seed: `forge:${input.promptIndex}:${input.promptText ?? "none"}:${input.feedbackText ?? "none"}`,
+    generatedAt: input.generatedAt,
+    utterances: [
+      utterance("instruction", `Mode: ${input.recommendedMode ?? "retrieval"}. Answer from memory first.`, {
+        rate: 0.95,
+        priority: 0
+      }),
+      utterance("prompt", input.promptText ?? "No morning prompt is due.", { priority: 1 }),
+      utterance("feedback", input.feedbackText ?? "", { rate: 0.94, priority: 2 })
+    ]
+  });
+}
+
+export function buildTutorSpeechPlan(input: {
+  promptText?: string;
+  modeLabel: string;
+  gateState?: "armed" | "passed" | "held";
+  feedbackText?: string;
+  generatedAt?: string;
+}): SessionSpeechPlan {
+  return buildSessionSpeechPlan({
+    surface: "tutor",
+    title: `Tutor ${input.modeLabel}`,
+    privacyScope: input.feedbackText ? "prompt_and_feedback" : "prompt_only",
+    seed: `tutor:${input.modeLabel}:${input.promptText ?? "none"}:${input.gateState ?? "armed"}`,
+    generatedAt: input.generatedAt,
+    utterances: [
+      utterance(
+        "instruction",
+        `Tutor mode: ${input.modeLabel}. Try the answer before using coaching. Gate: ${input.gateState ?? "armed"}.`,
+        { rate: 0.96, priority: 0 }
+      ),
+      utterance("prompt", input.promptText ?? "No tutor prompt is active.", { priority: 1 }),
+      utterance("feedback", input.feedbackText ?? "", { rate: 0.94, priority: 2 })
+    ]
+  });
+}
+
+export function buildWalkModeSpeechPlan(input: {
+  promptText?: string;
+  phase: "prompt" | "listening" | "feedback" | "complete";
+  promptIndex: number;
+  queueLength: number;
+  feedbackText?: string;
+  generatedAt?: string;
+}): SessionSpeechPlan {
+  const active = input.phase !== "complete" && Boolean(input.promptText);
+  return buildSessionSpeechPlan({
+    surface: "walk_mode",
+    title: active ? `WalkMode ${input.promptIndex}/${Math.max(input.queueLength, 1)}` : "WalkMode complete",
+    privacyScope: input.feedbackText ? "prompt_and_feedback" : "prompt_only",
+    seed: `walk:${input.promptIndex}:${input.phase}:${input.promptText ?? "none"}:${input.feedbackText ?? "none"}`,
+    generatedAt: input.generatedAt,
+    utterances: [
+      utterance("instruction", walkInstructionForPhase(input.phase), { rate: 0.96, priority: 0 }),
+      utterance("prompt", input.promptText ?? "Walk session complete.", { priority: 1 }),
+      utterance("feedback", input.feedbackText ?? "", { rate: 0.94, priority: 2 })
+    ]
+  });
+}
+
+export function buildEveningLockInSpeechPlan(input: {
+  promptText?: string;
+  phase?: string;
+  promptIndex: number;
+  queueLength: number;
+  phoneDownReady: boolean;
+  selectedCueCount: number;
+  feedbackText?: string;
+  generatedAt?: string;
+}): SessionSpeechPlan {
+  return buildSessionSpeechPlan({
+    surface: "evening_lock_in",
+    title: `Evening Lock-In ${input.promptIndex}/${Math.max(input.queueLength, 1)}`,
+    privacyScope: input.feedbackText ? "prompt_and_feedback" : "prompt_only",
+    seed: `evening:${input.promptIndex}:${input.phase ?? "complete"}:${input.promptText ?? "none"}`,
+    generatedAt: input.generatedAt,
+    utterances: [
+      utterance(
+        "instruction",
+        `${input.phase ?? "complete"} prompt. Keep the answer short and low-screen. Phone-down is ${
+          input.phoneDownReady ? "ready" : "not ready"
+        }. ${input.selectedCueCount} cue${input.selectedCueCount === 1 ? "" : "s"} selected.`,
+        { rate: 0.9, priority: 0 }
+      ),
+      utterance("prompt", input.promptText ?? "Sleep handoff ready.", { rate: 0.92, priority: 1 }),
+      utterance("feedback", input.feedbackText ?? "", { rate: 0.9, priority: 2 })
+    ]
+  });
+}
+
+export function buildSleepCuePreviewSpeechPlan(input: {
+  cueLabels: string[];
+  cueSpacingSeconds: number;
+  maxCuesPerHour: number;
+  conservative: boolean;
+  generatedAt?: string;
+}): SessionSpeechPlan {
+  const cueLabels = input.cueLabels
+    .map((label) => clampText(label, 60))
+    .filter(Boolean)
+    .slice(0, 3);
+  return buildSessionSpeechPlan({
+    surface: "sleep_preview",
+    title: "SleepCue preview",
+    privacyScope: "sleep_cue_preview",
+    seed: `sleep:${cueLabels.join("|")}:${input.cueSpacingSeconds}:${input.maxCuesPerHour}`,
+    generatedAt: input.generatedAt,
+    utterances: [
+      utterance(
+        "instruction",
+        `Night Reactivation stays sparse: ${input.cueSpacingSeconds} second spacing, ${input.maxCuesPerHour} cues per hour max${
+          input.conservative ? ", conservative mode" : ""
+        }.`,
+        { rate: 0.86, volume: 0.72, priority: 0 }
+      ),
+      ...cueLabels.map((label, index) =>
+        utterance("sleep_cue_preview", label, {
+          rate: 0.78,
+          pitch: 0.92,
+          volume: 0.56,
+          priority: index + 1
+        })
+      )
+    ]
+  });
+}
 
 export function createNightAudioPlan(input: {
   userId: string;
@@ -91,4 +265,78 @@ function maxVolumeForBucket(bucket: RenderCue["bucket"], maxVolume: number): num
   if (bucket === "control") return maxVolume * 0.45;
   if (bucket === "stabilize") return maxVolume * 0.84;
   return maxVolume;
+}
+
+function buildSessionSpeechPlan(input: {
+  surface: SessionSpeechSurface;
+  title: string;
+  privacyScope: SessionSpeechPrivacyScope;
+  seed: string;
+  utterances: SessionSpeechUtterance[];
+  generatedAt?: string;
+}): SessionSpeechPlan {
+  const utterances = input.utterances
+    .map((item) => ({
+      ...item,
+      text: cleanSpeechText(item.text),
+      speakable: item.speakable && Boolean(cleanSpeechText(item.text))
+    }))
+    .filter((item) => item.text.length > 0)
+    .sort((left, right) => left.priority - right.priority);
+  return {
+    schema_version: "mnemosyne-session-speech-v0.1",
+    id: createId("speech_plan", `${input.surface}:${input.seed}`),
+    surface: input.surface,
+    title: input.title,
+    privacy_scope: input.privacyScope,
+    network_required: false,
+    browser_speech_allowed: true,
+    raw_user_answer_included: false,
+    transcript_audio_included: false,
+    quiet_fallback: utterances.map((item) => item.text),
+    utterances,
+    generated_at: input.generatedAt ?? nowIso()
+  };
+}
+
+function utterance(
+  role: SessionSpeechUtteranceRole,
+  text: string,
+  options: {
+    rate?: number;
+    pitch?: number;
+    volume?: number;
+    priority?: number;
+    speakable?: boolean;
+  } = {}
+): SessionSpeechUtterance {
+  return {
+    id: createId("speech_utterance", `${role}:${text}:${options.priority ?? 0}`),
+    role,
+    text: cleanSpeechText(text),
+    rate: roundSpeechValue(options.rate ?? 0.92, 0.5, 1.25),
+    pitch: roundSpeechValue(options.pitch ?? 1, 0.75, 1.25),
+    volume: roundSpeechValue(options.volume ?? 0.82, 0, 1),
+    priority: options.priority ?? 0,
+    speakable: options.speakable ?? true
+  };
+}
+
+function walkInstructionForPhase(phase: "prompt" | "listening" | "feedback" | "complete"): string {
+  if (phase === "listening") return "Listening. Answer from memory, then say score answer.";
+  if (phase === "feedback") return "Feedback ready. Say next prompt, repeat that, or end session.";
+  if (phase === "complete") return "WalkMode complete.";
+  return "Prompt ready. Keep walking and recall before hints.";
+}
+
+function cleanSpeechText(value: string): string {
+  return clampText(value.replace(/\s+/g, " ").trim(), 220);
+}
+
+function roundSpeechValue(value: number, min: number, max: number): number {
+  return Math.round(clamp(value, min, max) * 100) / 100;
+}
+
+function clampText(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, Math.max(0, maxLength - 1))}...`;
 }

@@ -52,7 +52,15 @@ import {
   type TutorReleaseGate,
   type TutorTurnPlan
 } from "@mnemosyne/tutor-core";
-import { estimateCueDensity } from "@mnemosyne/audio-core";
+import {
+  buildEveningLockInSpeechPlan,
+  buildMorningForgeSpeechPlan,
+  buildSleepCuePreviewSpeechPlan,
+  buildTutorSpeechPlan,
+  buildWalkModeSpeechPlan,
+  estimateCueDensity,
+  type SessionSpeechPlan
+} from "@mnemosyne/audio-core";
 import {
   arbitrateProposal,
   castVote,
@@ -235,6 +243,12 @@ const sampleRawWearableSleep: RawWearableSleepSession = {
 };
 
 type AnswerMode = "text" | "voice";
+type SpeechPlanControls = {
+  plan: SessionSpeechPlan | null;
+  status: string;
+  play: () => void;
+  stop: () => void;
+};
 type PhoneDownKey = "notificationsSilenced" | "screenDimmingEnabled" | "chargerReady" | "alarmSet";
 type EveningPromptPhase = "recall" | "review" | "transfer";
 type EveningPrompt = {
@@ -371,6 +385,7 @@ export default function App() {
   const [lockSleepCacheStatus, setLockSleepCacheStatus] = useState("pending");
   const [lockCompletedAt, setLockCompletedAt] = useState<string | null>(null);
   const [lockAudioPlaying, setLockAudioPlaying] = useState(false);
+  const [speechStatus, setSpeechStatus] = useState("ready");
   const [sleepPlaybackStatus, setSleepPlaybackStatus] = useState<SleepPlaybackStatus>("planned");
   const [sleepPlaybackStartedAt, setSleepPlaybackStartedAt] = useState<string | null>(null);
   const [sleepStopCondition, setSleepStopCondition] = useState<SleepStopCondition>("none");
@@ -867,6 +882,105 @@ export default function App() {
     () => scheduled.packet.sleep.control_concept_ids.slice(0, 3),
     [scheduled.packet.sleep.control_concept_ids]
   );
+  const sleepPreviewCueLabels = useMemo(
+    () =>
+      sleepCuedConceptIds
+        .map((conceptId) => demoMasterGraph.concepts.find((concept) => concept.id === conceptId))
+        .flatMap(
+          (concept) =>
+            concept?.sleep_cues.map((cue) => cue.text).filter((text): text is string => Boolean(text)) ?? []
+        )
+        .slice(0, 3),
+    [sleepCuedConceptIds]
+  );
+  const activeSessionSpeechPlan = useMemo<SessionSpeechPlan | null>(() => {
+    if (activeTab === "forge") {
+      return buildMorningForgeSpeechPlan({
+        promptText: activeForgePrompt?.prompt,
+        promptIndex: forgeQueue.length > 0 ? forgeIndex + 1 : 0,
+        queueLength: forgeQueue.length,
+        recommendedMode: scheduled.packet.morning.recommended_mode,
+        feedbackText: lastResponse?.model_feedback
+      });
+    }
+    if (activeTab === "tutor") {
+      return buildTutorSpeechPlan({
+        promptText: activeTutorItem.prompt,
+        modeLabel: tutorModeLabel(tutorMode),
+        gateState: tutorReleaseGate ? (tutorReleaseGate.passed ? "passed" : "held") : "armed",
+        feedbackText: tutorTurn?.feedback
+      });
+    }
+    if (activeTab === "walk") {
+      return buildWalkModeSpeechPlan({
+        promptText: activeWalkPrompt?.prompt,
+        phase: walkPhase,
+        promptIndex: walkPrompts.length > 0 ? walkIndex + 1 : 0,
+        queueLength: walkPrompts.length,
+        feedbackText: walkLastResponse?.model_feedback
+      });
+    }
+    if (activeTab === "lock") {
+      return buildEveningLockInSpeechPlan({
+        promptText: activeLockPrompt?.item.prompt,
+        phase: activeLockPrompt?.phase,
+        promptIndex: eveningQueue.length > 0 ? lockIndex + 1 : 0,
+        queueLength: eveningQueue.length,
+        phoneDownReady,
+        selectedCueCount: selectedBoundCueIds.length,
+        feedbackText: lockLastResponse?.model_feedback
+      });
+    }
+    if (activeTab === "sleep") {
+      return buildSleepCuePreviewSpeechPlan({
+        cueLabels: sleepPreviewCueLabels,
+        cueSpacingSeconds: scheduled.packet.sleep.cue_spacing_seconds,
+        maxCuesPerHour: scheduled.packet.sleep.max_cues_per_hour,
+        conservative: readiness.dusk_mode || readiness.fatigue > 0.7 || sleepDisruptionReported
+      });
+    }
+    return null;
+  }, [
+    activeForgePrompt?.prompt,
+    activeLockPrompt?.item.prompt,
+    activeLockPrompt?.phase,
+    activeTab,
+    activeTutorItem.prompt,
+    activeWalkPrompt?.prompt,
+    eveningQueue.length,
+    forgeIndex,
+    forgeQueue.length,
+    lastResponse?.model_feedback,
+    lockIndex,
+    lockLastResponse?.model_feedback,
+    phoneDownReady,
+    readiness.dusk_mode,
+    readiness.fatigue,
+    scheduled.packet.morning.recommended_mode,
+    scheduled.packet.sleep.cue_spacing_seconds,
+    scheduled.packet.sleep.max_cues_per_hour,
+    selectedBoundCueIds.length,
+    sleepDisruptionReported,
+    sleepPreviewCueLabels,
+    tutorMode,
+    tutorReleaseGate,
+    tutorTurn?.feedback,
+    walkIndex,
+    walkLastResponse?.model_feedback,
+    walkPhase,
+    walkPrompts.length
+  ]);
+  const speechControls: SpeechPlanControls = {
+    plan: activeSessionSpeechPlan,
+    status: speechStatus,
+    play: playActiveSpeechPlan,
+    stop: stopSessionSpeech
+  };
+
+  useEffect(() => {
+    setSpeechStatus(activeSessionSpeechPlan ? "ready" : "quiet fallback");
+    return () => cancelSessionSpeechPlayback();
+  }, [activeSessionSpeechPlan?.id]);
 
   useEffect(() => {
     if (!apiConfig) return;
@@ -2011,6 +2125,22 @@ export default function App() {
     setEventLog((current) => ["oura connection revoked", "wearable tokens cleared", ...current].slice(0, 6));
   }
 
+  function playActiveSpeechPlan() {
+    const result = speakSessionSpeechPlan(activeSessionSpeechPlan);
+    setSpeechStatus(result.detail);
+    setLockAudioPlaying(
+      activeSessionSpeechPlan?.surface === "evening_lock_in" && result.status === "speaking"
+    );
+    setEventLog((current) => [`speech ${result.status}: ${result.detail}`, ...current].slice(0, 6));
+  }
+
+  function stopSessionSpeech() {
+    cancelSessionSpeechPlayback();
+    setSpeechStatus("stopped");
+    setLockAudioPlaying(false);
+    setEventLog((current) => ["speech stopped", ...current].slice(0, 6));
+  }
+
   const page = {
     onboarding: <OnboardingView onComplete={launchFromOnboarding} />,
     today: (
@@ -2055,6 +2185,7 @@ export default function App() {
         repairTips={repairTips}
         completedCount={forgeResponses}
         offlineCacheStatus={offlineCacheStatus}
+        speech={speechControls}
       />
     ),
     tutor: (
@@ -2077,6 +2208,7 @@ export default function App() {
         releaseGate={tutorReleaseGate}
         response={tutorResponse}
         cacheStatus={tutorCacheStatus}
+        speech={speechControls}
       />
     ),
     cinema: (
@@ -2160,6 +2292,7 @@ export default function App() {
         transcriptDeleted={walkTranscriptDeleted}
         setTranscriptDeleted={setWalkTranscriptDeleted}
         answeredCount={walkResponses.length}
+        speech={speechControls}
       />
     ),
     lock: (
@@ -2190,6 +2323,7 @@ export default function App() {
         completeLockIn={completeLockIn}
         audioPlaying={lockAudioPlaying}
         setAudioPlaying={setLockAudioPlaying}
+        speech={speechControls}
       />
     ),
     sleep: (
@@ -2210,6 +2344,7 @@ export default function App() {
         cuedConceptIds={sleepCuedConceptIds}
         controlConceptIds={sleepControlConceptIds}
         concepts={demoMasterGraph.concepts}
+        speech={speechControls}
       />
     ),
     stats: (
@@ -2306,7 +2441,7 @@ export default function App() {
               onClick={() => setEventLog((log) => ["packet refreshed", ...log])}
             />
             <IconButton title="Search graph" icon={Search} />
-            <IconButton title="Start audio" icon={Volume2} />
+            <IconButton title="Start audio" icon={Volume2} onClick={playActiveSpeechPlan} />
           </div>
         </header>
         {page}
@@ -2898,7 +3033,8 @@ function ForgeView({
   lastResponse,
   repairTips,
   completedCount,
-  offlineCacheStatus
+  offlineCacheStatus,
+  speech
 }: {
   packet: ScheduledDay["packet"];
   prompt: ScheduledDay["packet"]["morning"]["cold_retrieval_items"][number] | undefined;
@@ -2919,6 +3055,7 @@ function ForgeView({
   repairTips: string[];
   completedCount: number;
   offlineCacheStatus: string;
+  speech: SpeechPlanControls;
 }) {
   return (
     <div className="page-grid forge-grid">
@@ -2930,6 +3067,7 @@ function ForgeView({
           <MiniStat label="Completed" value={`${completedCount}`} />
           <MiniStat label="Offline" value={offlineCacheStatus} />
         </div>
+        <SpeechPlanStrip speech={speech} />
         <div className="prompt-box">
           <p className="eyebrow">Prompt</p>
           <h2>{prompt?.prompt ?? "No prompt due"}</h2>
@@ -3047,7 +3185,8 @@ function TutorView({
   turn,
   releaseGate,
   response,
-  cacheStatus
+  cacheStatus,
+  speech
 }: {
   concept: ConceptNode;
   state?: UserConceptState;
@@ -3067,6 +3206,7 @@ function TutorView({
   releaseGate: TutorReleaseGate | null;
   response: AssessmentResponse | null;
   cacheStatus: string;
+  speech: SpeechPlanControls;
 }) {
   const gateState = releaseGate ? (releaseGate.passed ? "passed" : "held") : "armed";
   return (
@@ -3079,6 +3219,7 @@ function TutorView({
           <MiniStat label="Gate" value={gateState} />
           <MiniStat label="Sync" value={cacheStatus} />
         </div>
+        <SpeechPlanStrip speech={speech} />
         <div className="prompt-box">
           <p className="eyebrow">Tutor prompt</p>
           <h2>{item.prompt}</h2>
@@ -3565,7 +3706,8 @@ function WalkView({
   completedAt,
   transcriptDeleted,
   setTranscriptDeleted,
-  answeredCount
+  answeredCount,
+  speech
 }: {
   packet: ScheduledDay["packet"]["walk_packets"][number] | undefined;
   prompt: ScheduledDay["packet"]["walk_packets"][number]["prompts"][number] | undefined;
@@ -3596,6 +3738,7 @@ function WalkView({
   transcriptDeleted: boolean;
   setTranscriptDeleted: (value: boolean) => void;
   answeredCount: number;
+  speech: SpeechPlanControls;
 }) {
   const commands = packet?.voice_commands ?? [...defaultWalkModeVoiceCommands];
   return (
@@ -3613,7 +3756,14 @@ function WalkView({
             ))}
           </div>
           <div className="audio-controls">
-            <IconButton title="Repeat" icon={RefreshCcw} onClick={() => runCommand("repeat that")} />
+            <IconButton
+              title="Repeat"
+              icon={RefreshCcw}
+              onClick={() => {
+                runCommand("repeat that");
+                speech.play();
+              }}
+            />
             <IconButton title="Pause" icon={Pause} onClick={() => runCommand("screen off")} />
             <IconButton title="Listen" icon={Play} onClick={startListening} />
           </div>
@@ -3627,6 +3777,7 @@ function WalkView({
           <MiniStat label="Cache" value={cacheStatus} />
           <MiniStat label="Screen" value="locked" />
         </div>
+        <SpeechPlanStrip speech={speech} />
         <div className="prompt-box walk-prompt-box">
           <p className="eyebrow">Prompt Playback</p>
           <h2>{prompt?.prompt ?? "No walking prompt due"}</h2>
@@ -3764,7 +3915,8 @@ function LockInView({
   completedAt,
   completeLockIn,
   audioPlaying,
-  setAudioPlaying
+  setAudioPlaying,
+  speech
 }: {
   packet: ScheduledDay["packet"];
   prompt: EveningPrompt | undefined;
@@ -3792,6 +3944,7 @@ function LockInView({
   completeLockIn: () => void;
   audioPlaying: boolean;
   setAudioPlaying: (value: boolean) => void;
+  speech: SpeechPlanControls;
 }) {
   const phoneDownItems: Array<{ key: PhoneDownKey; label: string }> = [
     { key: "notificationsSilenced", label: "Notifications silenced" },
@@ -3817,7 +3970,11 @@ function LockInView({
             className="icon-button"
             title={audioPlaying ? "Pause evening audio" : "Play evening audio"}
             aria-label={audioPlaying ? "Pause evening audio" : "Play evening audio"}
-            onClick={() => setAudioPlaying(!audioPlaying)}
+            onClick={() => {
+              setAudioPlaying(!audioPlaying);
+              if (audioPlaying) speech.stop();
+              else speech.play();
+            }}
           >
             {audioPlaying ? <Pause size={18} /> : <Play size={18} />}
           </button>
@@ -3828,6 +3985,7 @@ function LockInView({
           </div>
           <strong>{audioPlaying ? "audio-first" : "ready"}</strong>
         </div>
+        <SpeechPlanStrip speech={speech} />
         <div className="prompt-box lock-prompt">
           <p className="eyebrow">{prompt?.phase ?? "complete"}</p>
           <h2>{prompt?.item.prompt ?? "Sleep handoff ready"}</h2>
@@ -3978,7 +4136,8 @@ function SleepView({
   runRecallCheck,
   cuedConceptIds,
   controlConceptIds,
-  concepts
+  concepts,
+  speech
 }: {
   packet: ScheduledDay["packet"]["sleep"];
   audioPlan: ScheduledDay["audioPlan"];
@@ -3996,6 +4155,7 @@ function SleepView({
   cuedConceptIds: string[];
   controlConceptIds: string[];
   concepts: ConceptNode[];
+  speech: SpeechPlanControls;
 }) {
   const stopOptions: SleepStopCondition[] = [
     "none",
@@ -4039,6 +4199,7 @@ function SleepView({
           <MiniStat label="Cache" value={cacheStatus} />
           <MiniStat label="Max density" value={`${packet.max_cues_per_hour}/hr`} />
         </div>
+        <SpeechPlanStrip speech={speech} />
         <div className="action-row">
           <button className="command primary" onClick={startPlayback}>
             <Play size={18} />
@@ -5396,6 +5557,30 @@ function MetricTile({
   );
 }
 
+function SpeechPlanStrip({ speech }: { speech: SpeechPlanControls }) {
+  if (!speech.plan) return null;
+  const fallback = speech.plan.quiet_fallback[0] ?? "Quiet fallback ready.";
+  const privacy = speech.plan.privacy_scope.replaceAll("_", " ");
+  return (
+    <div className="speech-plan-strip">
+      <button className="icon-button" title="Speak prompt" aria-label="Speak prompt" onClick={speech.play}>
+        <Volume2 size={18} />
+      </button>
+      <button className="icon-button" title="Stop speech" aria-label="Stop speech" onClick={speech.stop}>
+        <Pause size={18} />
+      </button>
+      <div className="speech-plan-copy">
+        <div>
+          <strong>{speech.plan.title}</strong>
+          <span>{speech.status}</span>
+        </div>
+        <p>{fallback}</p>
+      </div>
+      <span className="speech-privacy">{privacy}</span>
+    </div>
+  );
+}
+
 function PanelTitle({ icon: Icon, title, meta }: { icon: typeof Home; title: string; meta?: string }) {
   return (
     <div className="panel-title">
@@ -5881,6 +6066,42 @@ function applyLearningMediaSessionPlan(
       }
     }
   };
+}
+
+type SpeechPlaybackResult = {
+  status: "speaking" | "fallback" | "empty";
+  detail: string;
+};
+
+function speakSessionSpeechPlan(plan: SessionSpeechPlan | null): SpeechPlaybackResult {
+  if (!plan) return { status: "empty", detail: "no active speech plan" };
+  const utterances = plan.utterances.filter((utterance) => utterance.speakable);
+  if (utterances.length === 0) return { status: "empty", detail: "no speakable lines" };
+  if (typeof window === "undefined") return { status: "fallback", detail: "quiet fallback ready" };
+  const speechWindow = window as Window & {
+    speechSynthesis?: SpeechSynthesis;
+    SpeechSynthesisUtterance?: new (text?: string) => SpeechSynthesisUtterance;
+  };
+  if (!speechWindow.speechSynthesis || !speechWindow.SpeechSynthesisUtterance) {
+    return { status: "fallback", detail: "quiet fallback ready" };
+  }
+  speechWindow.speechSynthesis.cancel();
+  for (const item of utterances) {
+    const spoken = new speechWindow.SpeechSynthesisUtterance(item.text);
+    spoken.rate = item.rate;
+    spoken.pitch = item.pitch;
+    spoken.volume = item.volume;
+    speechWindow.speechSynthesis.speak(spoken);
+  }
+  return {
+    status: "speaking",
+    detail: `${utterances.length} local line${utterances.length === 1 ? "" : "s"}`
+  };
+}
+
+function cancelSessionSpeechPlayback(): void {
+  if (typeof window === "undefined") return;
+  window.speechSynthesis?.cancel();
 }
 
 function avg(values: number[]): number {
