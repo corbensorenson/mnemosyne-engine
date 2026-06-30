@@ -4516,10 +4516,22 @@ function AdminView({
   const privacyOps = [
     {
       title: "Data Export",
-      endpoint: "GET /api/privacy/export",
+      endpoint: "POST /api/privacy/export/jobs",
       action: () => {
-        setPrivacyStatus("export bundle prepared");
-        onAuditEvent("privacy_export_staged");
+        const queuedAt = new Date().toISOString();
+        onStageOfflineAction({
+          actionType: "privacy_operation",
+          endpoint: "/api/privacy/export/jobs",
+          method: "POST",
+          payload: {
+            userId,
+            idempotencyKey: `${userId}:privacy_export:${queuedAt}`
+          },
+          payloadScope: "privacy",
+          idempotencyKey: `${userId}:privacy_export:${queuedAt}`
+        });
+        setPrivacyStatus("export job queued");
+        onAuditEvent("privacy_export_queued");
       },
       icon: Database
     },
@@ -4527,8 +4539,20 @@ function AdminView({
       title: "Voice Delete",
       endpoint: "DELETE voice scope",
       action: () => {
-        setPrivacyStatus("voice payloads scrubbed");
-        onAuditEvent("voice_delete_staged");
+        onStageOfflineAction({
+          actionType: "privacy_operation",
+          endpoint: "/api/privacy/data",
+          method: "DELETE",
+          payload: {
+            userId,
+            scope: "voice",
+            confirmation: "DELETE"
+          },
+          payloadScope: "privacy",
+          idempotencyKey: `${userId}:privacy_delete:voice`
+        });
+        setPrivacyStatus("voice deletion queued");
+        onAuditEvent("voice_delete_queued");
       },
       icon: AudioLines
     },
@@ -4536,8 +4560,20 @@ function AdminView({
       title: "Health Delete",
       endpoint: "DELETE health scope",
       action: () => {
-        setPrivacyStatus("health tokens and sleep imports queued");
-        onAuditEvent("health_delete_staged");
+        onStageOfflineAction({
+          actionType: "privacy_operation",
+          endpoint: "/api/privacy/data",
+          method: "DELETE",
+          payload: {
+            userId,
+            scope: "health",
+            confirmation: "DELETE"
+          },
+          payloadScope: "privacy",
+          idempotencyKey: `${userId}:privacy_delete:health`
+        });
+        setPrivacyStatus("health deletion queued");
+        onAuditEvent("health_delete_queued");
       },
       icon: Activity
     },

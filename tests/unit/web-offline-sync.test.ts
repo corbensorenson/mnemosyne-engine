@@ -579,4 +579,83 @@ describe("web offline sync transport", () => {
       })
     );
   });
+
+  it("routes backend-compatible privacy export jobs to the privacy export endpoint", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "privacy_operation",
+      endpoint: "/api/privacy/export/jobs",
+      method: "POST",
+      payload: {
+        userId: "user_demo",
+        idempotencyKey: "user_demo:privacy_export:2026-06-30T20:00:00.000Z"
+      },
+      payloadScope: "privacy",
+      idempotencyKey: "privacy-export-domain-write"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787/", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/privacy/export/jobs",
+        method: "POST",
+        body: item.payload,
+        directDomainWrite: true
+      })
+    );
+  });
+
+  it("routes backend-compatible privacy deletion queue items with DELETE", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "privacy_operation",
+      endpoint: "/api/privacy/data",
+      method: "DELETE",
+      payload: {
+        userId: "user_demo",
+        scope: "voice",
+        confirmation: "DELETE"
+      },
+      payloadScope: "privacy",
+      idempotencyKey: "privacy-delete-domain-write"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787/", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/privacy/data",
+        method: "DELETE",
+        body: item.payload,
+        directDomainWrite: true
+      })
+    );
+  });
+
+  it("keeps legacy privacy operation payloads on the offline receipt route", () => {
+    const item = createOfflineQueueItem({
+      userId: "user_demo",
+      actionType: "privacy_operation",
+      endpoint: "/api/privacy/data",
+      method: "DELETE",
+      payload: {
+        scope: "voice",
+        confirmation_pending: true
+      },
+      payloadScope: "privacy",
+      idempotencyKey: "legacy-privacy-receipt"
+    });
+
+    const request = offlineSyncRequestForItem("http://127.0.0.1:8787", item);
+
+    expect(request).toEqual(
+      expect.objectContaining({
+        url: "http://127.0.0.1:8787/api/offline/actions/sync",
+        method: "POST",
+        body: { item },
+        directDomainWrite: false
+      })
+    );
+  });
 });

@@ -16,6 +16,7 @@ type OfflineReceipt = {
 
 type OfflineSyncRequest = {
   url: string;
+  method: "POST" | "DELETE";
   body: Record<string, unknown>;
   directDomainWrite: boolean;
 };
@@ -35,7 +36,7 @@ export function createBrowserOfflineSyncTransport(): OfflineSyncTransport {
 async function postOfflineItem(apiBaseUrl: string, item: OfflineQueueItem) {
   const request = offlineSyncRequestForItem(apiBaseUrl, item);
   const response = await fetch(request.url, {
-    method: "POST",
+    method: request.method,
     headers: {
       "Content-Type": "application/json",
       "X-CSRF-Token": localCsrfToken(),
@@ -67,12 +68,14 @@ export function offlineSyncRequestForItem(apiBaseUrl: string, item: OfflineQueue
   if (isDomainWritableOfflineActionItem(item)) {
     return {
       url: `${baseUrl}${item.endpoint}`,
+      method: item.method === "DELETE" ? "DELETE" : "POST",
       body: item.payload,
       directDomainWrite: true
     };
   }
   return {
     url: `${baseUrl}/api/offline/actions/sync`,
+    method: "POST",
     body: { item },
     directDomainWrite: false
   };
@@ -165,6 +168,19 @@ function isDomainWritableOfflineActionItem(item: OfflineQueueItem): boolean {
     typeof item.payload.operatorId === "string" &&
     isOpsEnvironment(item.payload.environment) &&
     (typeof item.payload.title === "string" || item.payload.title === undefined);
+  const isPrivacyExportJob =
+    item.action_type === "privacy_operation" &&
+    item.method === "POST" &&
+    item.endpoint === "/api/privacy/export/jobs" &&
+    typeof item.payload.userId === "string" &&
+    (typeof item.payload.idempotencyKey === "string" || item.payload.idempotencyKey === undefined);
+  const isPrivacyDeletion =
+    item.action_type === "privacy_operation" &&
+    item.method === "DELETE" &&
+    item.endpoint === "/api/privacy/data" &&
+    typeof item.payload.userId === "string" &&
+    isPrivacyDeletionScope(item.payload.scope) &&
+    item.payload.confirmation === "DELETE";
   return (
     isMorningForge ||
     isWalkMode ||
@@ -174,7 +190,9 @@ function isDomainWritableOfflineActionItem(item: OfflineQueueItem): boolean {
     isSleepPlayback ||
     isSleepRecall ||
     isWearableSleepSync ||
-    isIncidentReport
+    isIncidentReport ||
+    isPrivacyExportJob ||
+    isPrivacyDeletion
   );
 }
 
@@ -192,6 +210,10 @@ function domainReceiptId(
 
 function isOpsEnvironment(value: unknown): value is "local" | "staging" | "production" {
   return value === "local" || value === "staging" || value === "production";
+}
+
+function isPrivacyDeletionScope(value: unknown): value is "account" | "health" | "sleep" | "voice" {
+  return value === "account" || value === "health" || value === "sleep" || value === "voice";
 }
 
 function localCsrfToken(): string {
