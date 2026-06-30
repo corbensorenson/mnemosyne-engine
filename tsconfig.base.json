@@ -24,6 +24,7 @@
       "@mnemosyne/notification-core": ["packages/notification-core/src/index.ts"],
       "@mnemosyne/outcome-core": ["packages/outcome-core/src/index.ts"],
       "@mnemosyne/ops-core": ["packages/ops-core/src/index.ts"],
+      "@mnemosyne/replay-core": ["packages/replay-core/src/index.ts"],
       "@mnemosyne/graph-core": ["packages/graph-core/src/index.ts"],
       "@mnemosyne/assessment-core": ["packages/assessment-core/src/index.ts"],
       "@mnemosyne/sleep-core": ["packages/sleep-core/src/index.ts"],

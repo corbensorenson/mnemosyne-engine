@@ -14,6 +14,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/ops-core`: first-party queue, job lifecycle, object manifest, ops health, and monitoring alert primitives.
 - `packages/persistence-core`: in-memory and Postgres-backed stores for users, graphs, sessions, events, privacy, ops, and product state.
 - `packages/graph-core`: graph gap analysis, prerequisite debt, pathing, and user graph snapshots.
+- `packages/replay-core`: first-party replay of persisted assessments and learning events into touched personal graph state.
 - `packages/scheduler-core`: daily packet builder joining graph, assessment, video, walk, evening, and sleep planning.
 - `packages/security-core`: CSP, rate-limit, high-stakes-domain, and audit-safety release gates.
 - `packages/storage-core`: first-party local object storage with safe keys, SHA-256 integrity checks, sidecar manifests, and API/runtime wiring.

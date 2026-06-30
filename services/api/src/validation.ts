@@ -188,6 +188,14 @@ export const privacyDeletionRequestSchema = z
   })
   .strict();
 
+export const userGraphReplayRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    dryRun: z.boolean().default(false),
+    resetTouchedConcepts: z.boolean().default(true)
+  })
+  .strict();
+
 export const outcomeDashboardRequestSchema = z
   .object({
     userId: userIdSchema,

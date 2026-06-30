@@ -252,6 +252,7 @@ function createHttpRoutes(handlers: ReturnType<typeof createApiHandlers>): Route
     route("POST", "/api/evening-lock-in/complete", (context) => handlers.completeEveningLockIn(context.body)),
     route("GET", "/api/graph/master", () => handlers.getMasterGraph()),
     route("GET", "/api/graph/user", (context) => handlers.getUserGraph(requiredQuery(context, "userId"))),
+    route("POST", "/api/graph/user/replay", (context) => handlers.replayUserGraph(context.body)),
     route("GET", "/api/videos/recommended", (context) =>
       handlers.recommendVideos({
         userId: requiredQuery(context, "userId"),

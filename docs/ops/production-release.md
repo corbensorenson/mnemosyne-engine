@@ -126,6 +126,7 @@ The system should preserve audit events even when downstream analytics or person
 - The API HTTP adapter is serving CSP/security headers, CSRF enforcement, bounded JSON parsing, and rate-limit responses in the target environment.
 - Postgres migrations through `0003_job_claim_indexes.sql` are applied and the API is constructed with `createPostgresStore`.
 - Object storage root is mounted durably, and `/api/objects/store` writes bytes, validates SHA-256 integrity, and persists manifests.
+- `POST /api/graph/user/replay` can dry-run and persist replayed personal graph state from assessment responses and learning events, auditing `user_graph_replayed`.
 - Scheduler, ingestion, audio-render, notification, local-AI, moderation, analytics, and export workers run `@mnemosyne/worker-core` handlers for `scheduler:generate_daily_packet`, `ingestion:process_creator_submission`, `audio_render:render_sleep_audio`, `notification:deliver_learning_reminder`, `local_ai:review_proposal`, `moderation:triage_proposal`, `analytics:refresh_outcome_dashboard`, and `export:build_privacy_export`, including audit events, retries, and dead-letter handling.
 - `POST /api/creator/ingestions/jobs` queues creator drafts, and ingestion workers audit `creator_ingestion_processed` after creating Content Court proposals.
 - `POST /api/notifications/schedule` queues reminder outbox work, and notification workers audit `notification_outbox_recorded` without fabricating push delivery.

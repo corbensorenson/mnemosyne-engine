@@ -38,6 +38,7 @@ The repository already has the first foundation:
 - Seed master graph layout, schemas, packs, arbiter policy, source rubric, and release notes.
 - API, scheduler, and audio-renderer service skeletons.
 - First-party ops primitives for queues, job lifecycle, object manifests, and release health gates.
+- First-party replay core for rebuilding touched personal graph state from persisted assessment responses and learning events.
 - Docker dev infra and starter unit tests.
 
 ## Operating Principles
@@ -284,6 +285,7 @@ Deliverables:
 Current implementation progress:
 
 - API Morning Forge completion flow scores text/voice-compatible responses, captures confidence, latency, screen minutes, updates graph states, persists assessment responses, completes the session, and records audit/event trails with repair recommendations.
+- API graph replay now exposes `POST /api/graph/user/replay`, rebuilding touched personal graph state from persisted assessment responses plus video, paced-read, and SleepCue recall events, with dry-run support and `user_graph_replayed` audit events.
 - PWA Morning Forge session surface now queues cold retrieval and transfer prompts, captures text or voice-mode answers, tracks confidence and latency, shows repair recommendations, previews frontier/horizon/cue targets, and writes a compact offline packet cache.
 
 Exit criteria:
@@ -514,6 +516,7 @@ Current implementation progress:
 - Content Court moderation now uses first-party queue jobs and `moderation:triage_proposal` workers for high-stakes labels, evidence gaps, counterevidence, dispute signals, and large graph-change review.
 - Security foundation now includes `@mnemosyne/auth-core` for RBAC, object-level authorization, consent-aware analytics access, CSRF verification, session expiry, and API audit trails for auth decisions.
 - Outcome analytics now exposes `GET /api/outcomes/dashboard`, `POST /api/outcomes/refresh`, and queued `analytics:refresh_outcome_dashboard` worker jobs with quality gates for immediate recall, 24h recall, 7d recall, 30d recall, transfer, latency, calibration, screen load, and SleepCue controls.
+- First-party replay core now rebuilds touched personal graph state from persisted assessment responses and learning events, preserving untouched concepts and supporting audited dry runs.
 - Persistence core now exposes a driver-agnostic Postgres `MnemosyneStore` backed by the `mnemosyne_records` JSONB migration, preserving export and deletion semantics while normalized projections continue to mature.
 - First-party ops core now models queue names, job lifecycle, idempotency, retries, dead letters, object manifests, encryption/integrity gates, and an ops health dashboard; API routes persist and audit jobs and object manifests.
 - First-party storage core now writes object bytes to local durable storage, validates SHA-256 and size integrity, records sidecar manifests, blocks unsafe keys, and exposes `POST /api/objects/store` through the API runtime.

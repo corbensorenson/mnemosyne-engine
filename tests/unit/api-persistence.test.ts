@@ -525,6 +525,69 @@ describe("persistence-backed API handlers", () => {
     );
   });
 
+  it("replays persisted learning evidence into personal graph state", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+    const conceptId = "attention_qkv";
+    const graph = await store.getUserGraph(demoUser.id);
+    const staleStates = graph.states.map((state) =>
+      state.concept_id === conceptId
+        ? {
+            ...state,
+            mastery: 0,
+            times_seen: 99,
+            sleep_replays: 0,
+            cue_gain_estimate: 0,
+            updated_at: "2026-06-29T00:00:00.000Z"
+          }
+        : state
+    );
+    await store.saveUserConceptStates(demoUser.id, staleStates);
+    await store.saveAssessmentResponse(
+      outcomeResponse("replay_attention_response", conceptId, "2026-06-30T10:00:00.000Z", 0.82, 0.76)
+    );
+    await store.appendLearningEvent({
+      user_id: demoUser.id,
+      event_type: "graph_updated",
+      created_at: "2026-07-01T07:00:00.000Z",
+      payload: {
+        action: "sleep_cue_recall_completed",
+        cued_concept_ids: [conceptId],
+        cue_gain_delta: 0.2
+      }
+    });
+
+    const replayed = unwrap(
+      await handlers.replayUserGraph({
+        userId: demoUser.id
+      })
+    );
+
+    const replayedState = replayed.graph.states.find((state) => state.concept_id === conceptId);
+    expect(replayed.dry_run).toBe(false);
+    expect(replayed.replay.applied.assessment_response).toBeGreaterThanOrEqual(1);
+    expect(replayed.replay.applied.sleep_cue_event).toBe(1);
+    expect(replayed.replay.touched_concept_ids).toContain(conceptId);
+    expect(replayedState?.times_seen).toBeLessThan(99);
+    expect(replayedState?.sleep_replays).toBe(1);
+    expect(replayedState?.mastery).toBeGreaterThan(0);
+    expect(
+      (await store.getUserGraph(demoUser.id)).states.find((state) => state.concept_id === conceptId)
+    ).toEqual(replayedState);
+    expect(await store.listAuditEvents(demoUser.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "user_graph_replayed",
+          object_id: demoUser.id,
+          payload: expect.objectContaining({
+            dry_run: false,
+            touched_concept_count: expect.any(Number)
+          })
+        })
+      ])
+    );
+  });
+
   it("completes Morning Forge sessions with scoring, graph updates, and audit trail", async () => {
     const store = await createSeededStore();
     const handlers = createApiHandlers(store);

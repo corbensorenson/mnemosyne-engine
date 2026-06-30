@@ -53,6 +53,10 @@ import type {
 } from "@mnemosyne/persistence-core";
 import { buildOutcomeDashboard, type OutcomeDashboard } from "@mnemosyne/outcome-core";
 import {
+  replayUserGraph as replayUserGraphFromEvents,
+  type GraphReplaySummary
+} from "@mnemosyne/replay-core";
+import {
   buildNotificationPlan,
   type NotificationChannel,
   type NotificationPlan
@@ -95,6 +99,7 @@ import type {
   SourceRef,
   User,
   UserConceptState,
+  UserKnowledgeGraph,
   VideoAsset
 } from "@mnemosyne/schema";
 import { buildDailyLearningPacket } from "@mnemosyne/scheduler-core";
@@ -205,6 +210,7 @@ import {
   startSessionRequestSchema,
   tutorTurnRequestSchema,
   updatePreferencesRequestSchema,
+  userGraphReplayRequestSchema,
   validateRequest,
   videoRecommendationRequestSchema,
   walkModeCompleteRequestSchema,
@@ -531,6 +537,18 @@ type PrivacyDeletionRequest = {
   userId: string;
   scope: DataDeletionScope;
   confirmation: "DELETE";
+};
+
+type UserGraphReplayRequest = {
+  userId: string;
+  dryRun: boolean;
+  resetTouchedConcepts: boolean;
+};
+
+type UserGraphReplayResponse = {
+  replay: GraphReplaySummary;
+  graph: UserKnowledgeGraph;
+  dry_run: boolean;
 };
 
 type OutcomeDashboardRequest = {
@@ -1481,6 +1499,44 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
     async getUserGraph(userId: string) {
       await requireUser(store, userId);
       return envelope(await store.getUserGraph(userId));
+    },
+
+    async replayUserGraph(input: unknown): Promise<HandlerEnvelope<UserGraphReplayResponse>> {
+      const request = validateRequest(userGraphReplayRequestSchema, input) as UserGraphReplayRequest;
+      await requireUser(store, request.userId);
+      const [graph, responses, events, masterGraph] = await Promise.all([
+        store.getUserGraph(request.userId),
+        store.listAssessmentResponses(request.userId),
+        store.listLearningEvents(request.userId),
+        store.getMasterGraph()
+      ]);
+      const replay = replayUserGraphFromEvents({
+        userId: request.userId,
+        baselineStates: graph.states,
+        assessmentResponses: responses,
+        learningEvents: events,
+        masterGraph,
+        resetTouchedConcepts: request.resetTouchedConcepts
+      });
+      const { states, ...summary } = replay;
+      const nextGraph = request.dryRun
+        ? { ...graph, states }
+        : await store.saveUserConceptStates(request.userId, states);
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "user_graph_replayed",
+        object_type: "personal_graph",
+        object_id: request.userId,
+        payload: {
+          dry_run: request.dryRun,
+          reset_touched_concepts: request.resetTouchedConcepts,
+          touched_concept_count: summary.touched_concept_ids.length,
+          source_event_count: summary.source_event_ids.length,
+          skipped_event_count: summary.skipped_event_ids.length,
+          applied: summary.applied
+        }
+      });
+      return envelope({ replay: summary, graph: nextGraph, dry_run: request.dryRun }, audit.id);
     },
 
     async getTodayPacket(

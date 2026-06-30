@@ -18,6 +18,7 @@
     "@mnemosyne/ops-core": "*",
     "@mnemosyne/outcome-core": "*",
     "@mnemosyne/persistence-core": "*",
+    "@mnemosyne/replay-core": "*",
     "@mnemosyne/scheduler-core": "*",
     "@mnemosyne/schema": "*",
     "@mnemosyne/security-core": "*",

@@ -71,6 +71,7 @@ export const apiRoutes: ApiRoute[] = [
   },
   { method: "GET", path: "/api/graph/master", service: "Master Graph Service" },
   { method: "GET", path: "/api/graph/user", service: "Personal Graph Service" },
+  { method: "POST", path: "/api/graph/user/replay", service: "Graph Replay Service" },
   { method: "GET", path: "/api/videos/recommended", service: "VideoGraph Service" },
   {
     method: "POST",
