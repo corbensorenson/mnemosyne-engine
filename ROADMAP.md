@@ -506,6 +506,7 @@ Current implementation progress:
 - PWA Admin surface includes Privacy Ops cards for export, voice deletion, health deletion, and account deletion alongside the service map and audit log.
 - Security foundation now includes `@mnemosyne/auth-core` for RBAC, object-level authorization, consent-aware analytics access, CSRF verification, session expiry, and API audit trails for auth decisions.
 - Outcome analytics now exposes `GET /api/outcomes/dashboard` and `POST /api/outcomes/refresh` with quality gates for immediate recall, 24h recall, 7d recall, 30d recall, transfer, latency, calibration, screen load, and SleepCue controls.
+- Persistence core now exposes a driver-agnostic Postgres `MnemosyneStore` backed by the `mnemosyne_records` JSONB migration, preserving export and deletion semantics while normalized projections continue to mature.
 - First-party ops core now models queue names, job lifecycle, idempotency, retries, dead letters, object manifests, encryption/integrity gates, and an ops health dashboard; API routes persist and audit jobs and object manifests.
 - First-party security core now exposes `GET /api/security/release-gate` with CSP/header policy, rate-limit profiles, high-stakes labels, CSRF expectations, and audit-safety checks.
 - The API service now has a first-party Node HTTP adapter that dispatches every route to handlers, attaches security headers, enforces production CSRF headers, bounds JSON bodies, maps route params, and applies the rate-limit profiles before expensive handlers.

@@ -815,6 +815,14 @@ export function createMemoryStore(seed?: MnemosyneSeedData): MnemosyneStore {
   return new InMemoryMnemosyneStore(seed);
 }
 
+export {
+  PostgresMnemosyneStore,
+  createPostgresStore,
+  seedPostgresStore,
+  type SqlExecutor,
+  type SqlQueryResult
+} from "./postgres";
+
 function isDefined<T>(value: T | undefined): value is T {
   return value !== undefined;
 }

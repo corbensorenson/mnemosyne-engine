@@ -11,6 +11,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/auth-core`: session issuance, hashed tokens, CSRF checks, RBAC, consent gates, and object-level authorization.
 - `packages/outcome-core`: immediate, 24h, 7d, and 30d learning outcome rollups with quality gates.
 - `packages/ops-core`: first-party queue, job lifecycle, object manifest, and ops health primitives.
+- `packages/persistence-core`: in-memory and Postgres-backed stores for users, graphs, sessions, events, privacy, ops, and product state.
 - `packages/graph-core`: graph gap analysis, prerequisite debt, pathing, and user graph snapshots.
 - `packages/scheduler-core`: daily packet builder joining graph, assessment, video, walk, evening, and sleep planning.
 - `packages/security-core`: CSP, rate-limit, high-stakes-domain, and audit-safety release gates.
