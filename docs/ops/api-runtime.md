@@ -16,6 +16,7 @@ npm run docker:up
 - all `/api/*` routes from the first-party HTTP adapter
 
 Release-gate routes include `/api/security/release-gate`, `/api/accessibility/release-gate`, `/api/reliability/release-gate`, and `/api/ops/monitoring`.
+The PWA app bootstrap route is `GET /api/app/bootstrap`, which returns the persisted user, goals, readiness profile, personal graph, installed packs, latest outcome dashboard, and today's packet summary for the configured learner.
 The PWA offline sync receipt route is `POST /api/offline/actions/sync`.
 
 `GET /healthz` is a cheap liveness check. `GET /readyz` verifies the configured `MnemosyneStore` and object-storage adapter before returning `200`; dependency failures return `503 service_not_ready` with per-component status details.
@@ -31,6 +32,8 @@ Important variables:
 - `MNEMOSYNE_SEED_DEMO`: set to `true` to seed demo data
 - `MNEMOSYNE_MIGRATIONS_DIR`: optional path to migration files
 - `MNEMOSYNE_OBJECT_STORAGE_ROOT`: local object storage root for audio, transcripts, imports, generated assets, exports, evidence, and backups
+- `VITE_MNEMOSYNE_API_URL`: browser-facing API origin used by the PWA, for example `http://127.0.0.1:8787`
+- `VITE_MNEMOSYNE_USER_ID`: learner id used by the PWA app bootstrap flow during local/dev operation
 
 If `DATABASE_URL` is present and `MNEMOSYNE_STORAGE` is unset, the runtime chooses Postgres. Without `DATABASE_URL`, it falls back to memory storage for local development.
 

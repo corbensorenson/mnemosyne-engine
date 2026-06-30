@@ -47,6 +47,7 @@ import type {
   CreatorSubmissionRecord,
   CreatorSubmissionStatus,
   DataDeletionScope,
+  KnowledgePackRecord,
   MnemosyneStore,
   SessionRecord,
   UserDataDeletionSummary,
@@ -176,6 +177,7 @@ import {
   authAuthorizationRequestSchema,
   authSessionIssueRequestSchema,
   authTokenVerifyRequestSchema,
+  appBootstrapRequestSchema,
   challengeCreateRequestSchema,
   completeOnboardingRequestSchema,
   completeWatchPacketRequestSchema,
@@ -252,6 +254,25 @@ export type ApiHandlerOptions = {
 export type GenerateDailyPacketRequest = {
   userId: string;
   readiness?: ReadinessProfile;
+};
+
+type AppBootstrapRequest = {
+  userId: string;
+  date?: string;
+  generateMissingPacket: boolean;
+};
+
+type AppBootstrapResponse = {
+  user: User;
+  goals: Goal[];
+  readiness: ReadinessProfile;
+  user_graph: UserKnowledgeGraph;
+  daily_packet?: DailyLearningPacket;
+  daily_packet_summary?: ReturnType<typeof packetSummary>;
+  daily_packet_source: "existing" | "generated" | "missing";
+  packs: KnowledgePackRecord[];
+  installed_packs: KnowledgePackRecord[];
+  latest_outcome_dashboard?: OutcomeDashboard;
 };
 
 type NotificationScheduleRequest = {
@@ -986,6 +1007,38 @@ export function createApiHandlers(store: MnemosyneStore, options: ApiHandlerOpti
     async getMe(userId: string) {
       const user = await requireUser(store, userId);
       return envelope(user);
+    },
+
+    async getAppBootstrap(input: unknown): Promise<HandlerEnvelope<AppBootstrapResponse>> {
+      const request = validateRequest(appBootstrapRequestSchema, input) as AppBootstrapRequest;
+      const user = await requireUser(store, request.userId);
+      const date = request.date ?? todayIsoDate();
+      const readiness = (await store.getReadiness(request.userId)) ?? defaultReadinessFallback();
+      const existingPacket = await store.getDailyPacket(request.userId, date);
+      const generated =
+        !existingPacket && request.generateMissingPacket
+          ? await generateAndPersistDailyPacket(store, request.userId, readiness, "app_bootstrap")
+          : undefined;
+      const packet = existingPacket ?? generated?.packet;
+      const [goals, userGraph, packs, latestOutcomeDashboard] = await Promise.all([
+        store.listGoals(request.userId),
+        store.getUserGraph(request.userId),
+        store.listPacks(),
+        store.getLatestOutcomeDashboard(request.userId)
+      ]);
+      const installedPacks = packs.filter((pack) => pack.installed_for_user_ids.includes(request.userId));
+      return envelope({
+        user,
+        goals,
+        readiness,
+        user_graph: userGraph,
+        daily_packet: packet,
+        daily_packet_summary: packet ? packetSummary(packet) : undefined,
+        daily_packet_source: existingPacket ? "existing" : generated ? "generated" : "missing",
+        packs,
+        installed_packs: installedPacks,
+        latest_outcome_dashboard: latestOutcomeDashboard
+      });
     },
 
     async listGoals(userId: string) {

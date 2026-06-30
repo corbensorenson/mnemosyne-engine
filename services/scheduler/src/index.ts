@@ -77,7 +77,9 @@ export async function runDailyPacketWorkerJob(context: WorkerJobContext): Promis
       },
       priority: context.job.priority,
       idempotencyKey: `render_sleep_audio:${audioPlan.id}`,
-      auditSubjectId: userId
+      auditSubjectId: userId,
+      createdAt: context.startedAt,
+      runAfter: context.startedAt
     })
   );
 

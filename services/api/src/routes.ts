@@ -15,6 +15,7 @@ export const apiRoutes: ApiRoute[] = [
     eventType: "graph_updated"
   },
   { method: "GET", path: "/api/me", service: "User Service" },
+  { method: "GET", path: "/api/app/bootstrap", service: "App Bootstrap Service" },
   { method: "POST", path: "/api/auth/session", service: "Auth Service" },
   { method: "POST", path: "/api/auth/verify", service: "Auth Service" },
   { method: "POST", path: "/api/auth/authorize", service: "Auth Service" },

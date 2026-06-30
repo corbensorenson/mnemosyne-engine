@@ -135,6 +135,14 @@ export const generateDailyPacketRequestSchema = z
   })
   .strict();
 
+export const appBootstrapRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    date: z.string().optional(),
+    generateMissingPacket: z.boolean().default(true)
+  })
+  .strict();
+
 const goalDraftSchema = z.object({
   title: z.string().min(3),
   description: z.string().min(8),

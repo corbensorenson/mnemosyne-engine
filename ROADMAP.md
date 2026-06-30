@@ -263,6 +263,7 @@ Deliverables:
 Current implementation progress:
 
 - API onboarding completion flow creates a private-default user, saves the first goal, installs selected packs, seeds baseline graph states, generates diagnostic assessment items, and persists the first daily packet with audit and event records.
+- API app bootstrap now exposes persisted user, goal, readiness, personal graph, pack, latest outcome, and daily packet state through `GET /api/app/bootstrap`; the PWA can hydrate from it with `VITE_MNEMOSYNE_API_URL` and `VITE_MNEMOSYNE_USER_ID`.
 - First-party auth core and API handlers now issue passkey/OAuth/dev sessions with hashed session tokens, hashed CSRF tokens, optional device binding, object-level authorization decisions, security posture summaries, and audit events.
 - PWA onboarding surface starts first-run users in a goal, pack, modality, privacy, device capability, and diagnostic setup flow before handing off to the first daily packet.
 

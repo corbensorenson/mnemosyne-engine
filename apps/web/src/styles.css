@@ -188,6 +188,34 @@ a:focus-visible {
   width: 40px;
 }
 
+.backend-pill {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  text-transform: capitalize;
+}
+
+.backend-pill small {
+  color: var(--muted);
+  text-transform: none;
+}
+
+.backend-pill.connected {
+  border-color: rgba(43, 174, 159, 0.5);
+  background: var(--teal-soft);
+}
+
+.backend-pill.error {
+  border-color: rgba(214, 95, 72, 0.55);
+  background: var(--coral-soft);
+}
+
 .command {
   padding: 0 14px;
 }

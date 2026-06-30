@@ -206,6 +206,13 @@ function createHttpRoutes(handlers: ReturnType<typeof createApiHandlers>): Route
   return [
     route("POST", "/api/onboarding/complete", (context) => handlers.completeOnboarding(context.body)),
     route("GET", "/api/me", (context) => handlers.getMe(requiredQuery(context, "userId"))),
+    route("GET", "/api/app/bootstrap", (context) =>
+      handlers.getAppBootstrap({
+        userId: requiredQuery(context, "userId"),
+        date: optionalQuery(context, "date"),
+        generateMissingPacket: optionalBooleanQuery(context, "generateMissingPacket") ?? true
+      })
+    ),
     route("POST", "/api/auth/session", (context) => handlers.issueAuthSession(context.body), {
       rateLimitKey: "auth_session",
       csrfExempt: true
@@ -617,6 +624,14 @@ function requiredQuery(context: RouteContext, key: string): string {
 
 function optionalQuery(context: RouteContext, key: string): string | undefined {
   return context.query.get(key) ?? undefined;
+}
+
+function optionalBooleanQuery(context: RouteContext, key: string): boolean | undefined {
+  const value = optionalQuery(context, key);
+  if (!value) return undefined;
+  if (["true", "1", "yes"].includes(value)) return true;
+  if (["false", "0", "no"].includes(value)) return false;
+  throw new HttpFailure(400, "invalid_query", `Query parameter ${key} must be a boolean.`);
 }
 
 function optionalNumberQuery(context: RouteContext, key: string): number | undefined {

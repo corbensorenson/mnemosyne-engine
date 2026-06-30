@@ -84,6 +84,31 @@ describe("API HTTP adapter", () => {
     }
   });
 
+  it("serves persisted app bootstrap state through the HTTP adapter", async () => {
+    const { server } = await createSeededDemoApiHttpServer({
+      environment: "local"
+    });
+    const baseUrl = await listen(server);
+
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/app/bootstrap?userId=${demoUser.id}&generateMissingPacket=true`
+      );
+      const body = (await response.json()) as ApiJson;
+
+      expect(response.status).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.data).toEqual(
+        expect.objectContaining({
+          user: expect.objectContaining({ id: demoUser.id }),
+          daily_packet_source: "generated"
+        })
+      );
+    } finally {
+      await close(server);
+    }
+  });
+
   it("enforces CSRF headers on mutating production requests", async () => {
     const { server } = await createSeededDemoApiHttpServer({
       environment: "production",

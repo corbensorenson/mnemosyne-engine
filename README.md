@@ -57,6 +57,7 @@ npm run verify
 
 The dev server runs the PWA at the URL printed by Vite, normally `http://localhost:5173`.
 The API server defaults to `http://localhost:8787` and can use memory or Postgres storage through `.env` settings.
+Set `VITE_MNEMOSYNE_API_URL` and `VITE_MNEMOSYNE_USER_ID` to hydrate the PWA from the first-party app bootstrap route instead of the local demo seed.
 `npm run verify` runs lint, typecheck, unit tests, production build, and dependency audit.
 
 ## Roadmap

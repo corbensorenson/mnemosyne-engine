@@ -141,6 +141,12 @@ import {
 } from "@mnemosyne/demo-fixtures";
 import { clearSyncedOfflineQueueItems, listOfflineQueueItems, putOfflineQueueItem } from "./offlineQueue";
 import { createBrowserOfflineSyncTransport } from "./offlineSync";
+import {
+  fetchAppBootstrap,
+  webApiConfigFromEnv,
+  type AppBootstrapPayload,
+  type WebApiConfig
+} from "./apiClient";
 
 type TabId =
   | "onboarding"
@@ -214,9 +220,16 @@ type GraphFeedRecallResult = {
   recallPassed: boolean;
   screenMinutes: number;
 };
+type BackendStatus = "local" | "connecting" | "connected" | "error";
 
 export default function App() {
+  const apiConfig = useMemo<WebApiConfig | null>(() => webApiConfigFromEnv(), []);
   const [activeTab, setActiveTab] = useState<TabId>("onboarding");
+  const [activeUser, setActiveUser] = useState(demoUser);
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>(apiConfig ? "connecting" : "local");
+  const [backendMeta, setBackendMeta] = useState(apiConfig ? "API pending" : "local demo");
+  const [backendPacketSource, setBackendPacketSource] =
+    useState<AppBootstrapPayload["daily_packet_source"]>("missing");
   const [readiness, setReadiness] = useState<ReadinessProfile>(defaultReadiness);
   const [states, setStates] = useState<UserConceptState[]>(initialUserStates);
   const [selectedNodeId, setSelectedNodeId] = useState("attention_qkv");
@@ -300,20 +313,20 @@ export default function App() {
     "content court policy loaded"
   ]);
 
-  const userGraph = useMemo(() => ({ userId: demoUser.id, states }), [states]);
+  const userGraph = useMemo(() => ({ userId: activeUser.id, states }), [activeUser.id, states]);
   const offlineQueueSummary = useMemo(() => summarizeOfflineQueue(offlineQueue), [offlineQueue]);
   const baselineConstraints = useMemo(() => personalizeSessionConstraints(readiness), [readiness]);
   const baseScheduled = useMemo(
     () =>
       buildDailyLearningPacket({
-        user: demoUser,
+        user: activeUser,
         userGraph,
         masterGraph: demoMasterGraph,
         goals: demoGoals,
         readiness,
         constraints: baselineConstraints
       }),
-    [baselineConstraints, readiness, userGraph]
+    [activeUser, baselineConstraints, readiness, userGraph]
   );
   const experimentSuite = useMemo(() => createDefaultExperimentSuite(), []);
   const experimentResponses = useMemo(
@@ -330,6 +343,7 @@ export default function App() {
   const experimentEvents = useMemo(
     () =>
       buildLocalExperimentEvents({
+        userId: activeUser.id,
         cinemaResult,
         walkCompletedAt,
         walkResponses,
@@ -338,6 +352,7 @@ export default function App() {
         sleepControlConceptIds: baseScheduled.packet.sleep.control_concept_ids
       }),
     [
+      activeUser.id,
       baseScheduled.packet.sleep.control_concept_ids,
       baseScheduled.packet.sleep.reactivate_concept_ids,
       cinemaResult,
@@ -348,32 +363,32 @@ export default function App() {
   );
   const socialEvidence = useMemo(
     () => ({
-      user: demoUser,
+      user: activeUser,
       states,
       events: experimentEvents,
       proposals: demoProposals,
       creatorSubmissionCount: 1
     }),
-    [experimentEvents, states]
+    [activeUser, experimentEvents, states]
   );
   const socialChallenges = useMemo<SocialChallenge[]>(
     () => [
       createSocialChallenge({
-        creator: demoUser,
+        creator: activeUser,
         title: "Recall Without Scroll",
         challengeType: "screen_efficiency",
         shareLevel: "friends",
-        evidenceByUser: new Map([[demoUser.id, socialEvidence]])
+        evidenceByUser: new Map([[activeUser.id, socialEvidence]])
       }),
       createSocialChallenge({
-        creator: demoUser,
+        creator: activeUser,
         title: "Sleep Cue Gain Check",
         challengeType: "sleep_cue_gain",
         shareLevel: "badges_only",
-        evidenceByUser: new Map([[demoUser.id, socialEvidence]])
+        evidenceByUser: new Map([[activeUser.id, socialEvidence]])
       })
     ],
-    [socialEvidence]
+    [activeUser, socialEvidence]
   );
   const socialDashboard = useMemo<SocialDashboard>(
     () =>
@@ -387,17 +402,17 @@ export default function App() {
   const ouraAuthorization = useMemo(
     () =>
       buildOuraAuthorizationRequest({
-        userId: demoUser.id,
+        userId: activeUser.id,
         clientId: "demo_oura_client",
         redirectUri: "https://mnemosyne.local/oauth/oura/callback",
         scopes: ["daily"]
       }),
-    []
+    [activeUser.id]
   );
   const wearableConnection = useMemo<WearableConnection>(() => {
     const base: WearableConnection = {
-      id: createId("wearable_connection", `${demoUser.id}:oura`),
-      user_id: demoUser.id,
+      id: createId("wearable_connection", `${activeUser.id}:oura`),
+      user_id: activeUser.id,
       provider: "oura",
       status: wearableConnectionStatus,
       scopes: ouraAuthorization.scopes,
@@ -410,11 +425,11 @@ export default function App() {
     return wearableConnectionStatus === "revoked"
       ? revokeWearableConnection(base, "2026-06-29T08:12:00.000Z")
       : base;
-  }, [ouraAuthorization, wearableConnectionStatus]);
+  }, [activeUser.id, ouraAuthorization, wearableConnectionStatus]);
   const sampleWearableSleep = useMemo(
     () =>
       normalizeWearableSleepSession({
-        userId: demoUser.id,
+        userId: activeUser.id,
         provider: "oura",
         raw: {
           external_id: "demo_oura_sleep_2026_06_29",
@@ -432,7 +447,7 @@ export default function App() {
         },
         createdAt: "2026-06-29T12:05:00.000Z"
       }),
-    []
+    [activeUser.id]
   );
   const wearableReadiness = useMemo(
     () => (wearableSleep ? readinessFromWearableSleep(wearableSleep, readiness) : readiness),
@@ -441,7 +456,7 @@ export default function App() {
   const wearableDashboard = useMemo<WearableCapabilityDashboard>(
     () =>
       buildWearableCapabilityDashboard({
-        userId: demoUser.id,
+        userId: activeUser.id,
         device: {
           platform: "desktop",
           pwa_installed: false,
@@ -459,17 +474,17 @@ export default function App() {
         latestSleep: wearableSleep ?? undefined,
         readiness: wearableReadiness
       }),
-    [wearableConnection, wearableReadiness, wearableSleep]
+    [activeUser.id, wearableConnection, wearableReadiness, wearableSleep]
   );
   const experimentAssignments = useMemo(
     () =>
       assignExperiments({
-        userId: demoUser.id,
+        userId: activeUser.id,
         states,
         experiments: experimentSuite,
         sleepPacket: baseScheduled.packet.sleep
       }),
-    [baseScheduled.packet.sleep, experimentSuite, states]
+    [activeUser.id, baseScheduled.packet.sleep, experimentSuite, states]
   );
   const experimentRollups = useMemo(
     () =>
@@ -485,7 +500,7 @@ export default function App() {
   const personalizationProfile = useMemo(
     () =>
       buildPersonalizationProfile({
-        userId: demoUser.id,
+        userId: activeUser.id,
         experiments: experimentSuite,
         assignments: experimentAssignments,
         responses: experimentResponses,
@@ -493,7 +508,15 @@ export default function App() {
         states,
         rollups: experimentRollups
       }),
-    [experimentAssignments, experimentEvents, experimentResponses, experimentRollups, experimentSuite, states]
+    [
+      activeUser.id,
+      experimentAssignments,
+      experimentEvents,
+      experimentResponses,
+      experimentRollups,
+      experimentSuite,
+      states
+    ]
   );
   const personalizedConstraints = useMemo(
     () => personalizeSessionConstraints(readiness, personalizationProfile),
@@ -502,14 +525,14 @@ export default function App() {
   const scheduled = useMemo(
     () =>
       buildDailyLearningPacket({
-        user: demoUser,
+        user: activeUser,
         userGraph,
         masterGraph: demoMasterGraph,
         goals: demoGoals,
         readiness,
         constraints: personalizedConstraints
       }),
-    [personalizedConstraints, readiness, userGraph]
+    [activeUser, personalizedConstraints, readiness, userGraph]
   );
   const snapshot = useMemo(() => buildGraphSnapshot(demoMasterGraph, userGraph), [userGraph]);
   const rankedVideos = useMemo(
@@ -628,7 +651,7 @@ export default function App() {
   const lockSleepResult = useMemo(
     () =>
       buildSleepCuePacket({
-        user: demoUser,
+        user: activeUser,
         concepts: demoMasterGraph.concepts,
         states,
         knownIds: unique([
@@ -672,6 +695,11 @@ export default function App() {
   );
 
   useEffect(() => {
+    if (!apiConfig) return;
+    void hydrateFromBackend("initial");
+  }, [apiConfig]);
+
+  useEffect(() => {
     let active = true;
     listOfflineQueueItems()
       .then((items) => {
@@ -686,6 +714,47 @@ export default function App() {
       active = false;
     };
   }, []);
+
+  async function hydrateFromBackend(reason: "initial" | "manual") {
+    if (!apiConfig) {
+      setBackendStatus("local");
+      setBackendMeta("local demo");
+      setEventLog((current) => ["backend not configured", ...current].slice(0, 6));
+      return;
+    }
+    setBackendStatus("connecting");
+    setBackendMeta("loading persisted state");
+    try {
+      const bootstrap = await fetchAppBootstrap(apiConfig, { generateMissingPacket: true });
+      setActiveUser(bootstrap.user);
+      setReadiness(bootstrap.readiness);
+      if (bootstrap.user_graph.states.length > 0) {
+        setStates(bootstrap.user_graph.states);
+      }
+      const firstGoalTarget = bootstrap.goals[0]?.target_concept_ids[0];
+      const firstGraphState = bootstrap.user_graph.states[0]?.concept_id;
+      if (firstGoalTarget || firstGraphState) {
+        setSelectedNodeId(firstGoalTarget ?? firstGraphState ?? selectedNodeId);
+      }
+      setBackendPacketSource(bootstrap.daily_packet_source);
+      setBackendStatus("connected");
+      setBackendMeta(
+        `${bootstrap.daily_packet_source} packet / ${bootstrap.installed_packs.length} installed packs`
+      );
+      setEventLog((current) =>
+        [
+          `backend ${reason} bootstrap: ${bootstrap.daily_packet_source}`,
+          `persisted graph states: ${bootstrap.user_graph.states.length}`,
+          ...current
+        ].slice(0, 6)
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setBackendStatus("error");
+      setBackendMeta(message);
+      setEventLog((current) => [`backend bootstrap failed: ${message}`, ...current].slice(0, 6));
+    }
+  }
 
   useEffect(() => {
     const cachedAt = new Date().toISOString();
@@ -706,7 +775,7 @@ export default function App() {
         endpoint: "/api/daily-packet/today",
         method: "GET",
         payload,
-        idempotencyKey: `${demoUser.id}:daily_packet_cache:${scheduled.packet.id}`
+        idempotencyKey: `${activeUser.id}:daily_packet_cache:${scheduled.packet.id}`
       });
     } catch {
       setOfflineCacheStatus("unavailable");
@@ -744,7 +813,7 @@ export default function App() {
     idempotencyKey: string;
   }) {
     const item = createOfflineQueueItem({
-      userId: demoUser.id,
+      userId: activeUser.id,
       actionType: input.actionType,
       endpoint: input.endpoint,
       method: input.method,
@@ -814,7 +883,7 @@ export default function App() {
     const prompt = activeForgePrompt;
     if (!prompt || answer.trim().length === 0) return;
     const response = scoreAssessmentResponse({
-      userId: demoUser.id,
+      userId: activeUser.id,
       item: prompt,
       rawResponse: answer,
       confidence,
@@ -852,7 +921,7 @@ export default function App() {
         response: assessmentResponseSyncPayload(response)
       },
       payloadScope: answerMode === "voice" ? "voice" : "learning",
-      idempotencyKey: `${demoUser.id}:morning_forge:${prompt.id}:${response.id}`
+      idempotencyKey: `${activeUser.id}:morning_forge:${prompt.id}:${response.id}`
     });
     setAnswer("");
     setForgeIndex((index) => (forgeQueue.length > 0 ? (index + 1) % forgeQueue.length : index));
@@ -882,7 +951,7 @@ export default function App() {
     if (!activeCinemaVideo || !activeCinemaRecallPrompt || cinemaAnswer.trim().length === 0) return;
     const completedAt = new Date().toISOString();
     const response = scoreAssessmentResponse({
-      userId: demoUser.id,
+      userId: activeUser.id,
       item: activeCinemaRecallPrompt,
       rawResponse: cinemaAnswer,
       confidence: cinemaConfidence,
@@ -909,7 +978,7 @@ export default function App() {
         "mnemosyne.graphFeedRecall.v1",
         JSON.stringify({
           cached_at: completedAt,
-          user_id: demoUser.id,
+          user_id: activeUser.id,
           watch_packet_id: activeWatchPacket?.id,
           video_id: activeCinemaVideo.id,
           concept_ids: activeCinemaVideo.concept_ids,
@@ -935,7 +1004,7 @@ export default function App() {
           screen_minutes: screenMinutes,
           response: assessmentResponseSyncPayload(response)
         },
-        idempotencyKey: `${demoUser.id}:graphfeed:${activeCinemaVideo.id}:${completedAt}`
+        idempotencyKey: `${activeUser.id}:graphfeed:${activeCinemaVideo.id}:${completedAt}`
       });
     } catch {
       setCinemaCacheStatus("unavailable");
@@ -968,7 +1037,7 @@ export default function App() {
     const prompt = activeWalkPrompt;
     if (!prompt || walkAnswer.trim().length === 0) return;
     const response = scoreAssessmentResponse({
-      userId: demoUser.id,
+      userId: activeUser.id,
       item: prompt,
       rawResponse: walkAnswer,
       confidence: walkConfidence,
@@ -1041,7 +1110,7 @@ export default function App() {
         "mnemosyne.walkMode.v1",
         JSON.stringify({
           cached_at: completedAt,
-          user_id: demoUser.id,
+          user_id: activeUser.id,
           walk_packet_id: activeWalkPacket?.id,
           prompts_answered: walkResponses.length,
           skipped_prompt_ids: walkSkippedIds,
@@ -1072,7 +1141,7 @@ export default function App() {
           responses: walkResponses.map(assessmentResponseSyncPayload)
         },
         payloadScope: walkAnswerMode === "voice" ? "voice" : "learning",
-        idempotencyKey: `${demoUser.id}:walk_mode:${activeWalkPacket?.id ?? "local"}:${completedAt}`
+        idempotencyKey: `${activeUser.id}:walk_mode:${activeWalkPacket?.id ?? "local"}:${completedAt}`
       });
     } catch {
       setWalkCacheStatus("unavailable");
@@ -1126,7 +1195,7 @@ export default function App() {
         "mnemosyne.pacedRead.v1",
         JSON.stringify({
           cached_at: completedAt,
-          user_id: demoUser.id,
+          user_id: activeUser.id,
           asset_id: activePacedReadAsset.id,
           session_id: pacedReadPlan.id,
           display_unit: pacedReadPlan.display_unit,
@@ -1158,7 +1227,7 @@ export default function App() {
           advance_allowed: result.advanceAllowed,
           concept_ids: activePacedReadAsset.concept_ids
         },
-        idempotencyKey: `${demoUser.id}:paced_read:${pacedReadPlan.id}:${completedAt}`
+        idempotencyKey: `${activeUser.id}:paced_read:${pacedReadPlan.id}:${completedAt}`
       });
     } catch {
       setPacedReadCacheStatus("unavailable");
@@ -1178,7 +1247,7 @@ export default function App() {
     const prompt = activeLockPrompt;
     if (!prompt || lockAnswer.trim().length === 0) return;
     const response = scoreAssessmentResponse({
-      userId: demoUser.id,
+      userId: activeUser.id,
       item: prompt.item,
       rawResponse: lockAnswer,
       confidence: lockConfidence,
@@ -1236,7 +1305,7 @@ export default function App() {
         "mnemosyne.eveningLockIn.v1",
         JSON.stringify({
           cached_at: completedAt,
-          user_id: demoUser.id,
+          user_id: activeUser.id,
           daily_packet_id: scheduled.packet.id,
           screen_policy: scheduled.packet.evening.screen_policy,
           phone_down_ready: phoneDownReady,
@@ -1265,7 +1334,7 @@ export default function App() {
           audio_plan_id: lockSleepResult.audioPlan.id
         },
         payloadScope: lockAnswerMode === "voice" ? "voice" : "sleep",
-        idempotencyKey: `${demoUser.id}:evening_lock_in:${scheduled.packet.id}:${completedAt}`
+        idempotencyKey: `${activeUser.id}:evening_lock_in:${scheduled.packet.id}:${completedAt}`
       });
     } catch {
       setLockSleepCacheStatus("unavailable");
@@ -1313,7 +1382,7 @@ export default function App() {
         "mnemosyne.sleepPlayback.v1",
         JSON.stringify({
           cached_at: loggedAt,
-          user_id: demoUser.id,
+          user_id: activeUser.id,
           sleep_packet_id: scheduled.packet.sleep.id,
           audio_plan_id: scheduled.packet.sleep.audio_plan_id,
           playback_started_at: sleepPlaybackStartedAt ?? loggedAt,
@@ -1339,7 +1408,7 @@ export default function App() {
           cue_events: cueEvents
         },
         payloadScope: "sleep",
-        idempotencyKey: `${demoUser.id}:sleep_playback:${scheduled.packet.sleep.id}:${loggedAt}`
+        idempotencyKey: `${activeUser.id}:sleep_playback:${scheduled.packet.sleep.id}:${loggedAt}`
       });
     } catch {
       setSleepCacheStatus("unavailable");
@@ -1362,7 +1431,7 @@ export default function App() {
       const item = generateAssessmentForConcept(concept, "free_recall");
       return [
         scoreAssessmentResponse({
-          userId: demoUser.id,
+          userId: activeUser.id,
           item,
           rawResponse: item.expected_answer ?? item.prompt,
           confidence: 0.76,
@@ -1376,7 +1445,7 @@ export default function App() {
       const item = generateAssessmentForConcept(concept, "free_recall");
       return [
         scoreAssessmentResponse({
-          userId: demoUser.id,
+          userId: activeUser.id,
           item,
           rawResponse: "not sure yet",
           confidence: 0.34,
@@ -1419,7 +1488,7 @@ export default function App() {
         "mnemosyne.sleepCueRecall.v1",
         JSON.stringify({
           cached_at: completedAt,
-          user_id: demoUser.id,
+          user_id: activeUser.id,
           sleep_packet_id: scheduled.packet.sleep.id,
           controls_revealed: true,
           cued_concept_ids: sleepCuedConceptIds,
@@ -1445,7 +1514,7 @@ export default function App() {
           responses: [...scoredCued, ...scoredControls].map(assessmentResponseSyncPayload)
         },
         payloadScope: "sleep",
-        idempotencyKey: `${demoUser.id}:sleep_recall:${scheduled.packet.sleep.id}:${completedAt}`
+        idempotencyKey: `${activeUser.id}:sleep_recall:${scheduled.packet.sleep.id}:${completedAt}`
       });
     } catch {
       setSleepCacheStatus("unavailable");
@@ -1530,7 +1599,7 @@ export default function App() {
         stage_minutes: sampleWearableSleep.stage_minutes
       },
       payloadScope: "health",
-      idempotencyKey: `${demoUser.id}:wearable_sleep:${sampleWearableSleep.external_id}`
+      idempotencyKey: `${activeUser.id}:wearable_sleep:${sampleWearableSleep.external_id}`
     });
     setEventLog((current) =>
       [
@@ -1743,7 +1812,7 @@ export default function App() {
       />
     ),
     packs: <PacksView />,
-    court: <CourtView verdict={verdict} />,
+    court: <CourtView verdict={verdict} userId={activeUser.id} />,
     lab: (
       <LabView
         techniques={recommendedTechniques}
@@ -1764,6 +1833,7 @@ export default function App() {
     ),
     admin: (
       <AdminView
+        userId={activeUser.id}
         eventLog={eventLog}
         onAuditEvent={(event) => setEventLog((current) => [event, ...current].slice(0, 8))}
       />
@@ -1801,6 +1871,15 @@ export default function App() {
             <h1>{tabs.find((tab) => tab.id === activeTab)?.label}</h1>
           </div>
           <div className="topbar-actions">
+            <button
+              className={`backend-pill ${backendStatus}`}
+              onClick={() => void hydrateFromBackend("manual")}
+              title={backendMeta}
+            >
+              <Database size={16} />
+              <span>{backendStatus}</span>
+              <small>{backendPacketSource}</small>
+            </button>
             <IconButton
               title="Regenerate packet"
               icon={RefreshCcw}
@@ -3840,7 +3919,13 @@ function PacksView() {
   );
 }
 
-function CourtView({ verdict: initialVerdict }: { verdict: ReturnType<typeof arbitrateProposal> }) {
+function CourtView({
+  verdict: initialVerdict,
+  userId
+}: {
+  verdict: ReturnType<typeof arbitrateProposal>;
+  userId: string;
+}) {
   const [proposal, setProposal] = useState<Proposal>(demoProposals[0]);
   const [verdict, setVerdict] = useState(initialVerdict);
   const [comment, setComment] = useState("");
@@ -3874,7 +3959,7 @@ function CourtView({ verdict: initialVerdict }: { verdict: ReturnType<typeof arb
       expert_comments: [
         ...proposal.expert_comments,
         {
-          author_id: demoUser.id,
+          author_id: userId,
           text: comment,
           comment_type: "learner",
           created_at: nowIso()
@@ -4170,7 +4255,7 @@ type LocalIncidentArtifact = {
   route: string;
 };
 
-function buildLocalOpsMonitoring(): OpsMonitoringDashboard {
+function buildLocalOpsMonitoring(userId: string): OpsMonitoringDashboard {
   const deadLetter = failOpsJob(
     startOpsJob(
       createOpsJob({
@@ -4179,7 +4264,7 @@ function buildLocalOpsMonitoring(): OpsMonitoringDashboard {
         payload: { audio_plan_id: "sleep_audio_release_gate" },
         maxAttempts: 1,
         idempotencyKey: "release_audio_render",
-        auditSubjectId: demoUser.id,
+        auditSubjectId: userId,
         createdAt: "2026-06-30T12:00:00.000Z"
       }),
       "worker-audio",
@@ -4194,7 +4279,7 @@ function buildLocalOpsMonitoring(): OpsMonitoringDashboard {
     contentType: "application/json",
     sizeBytes: 12_288,
     sha256: "a".repeat(64),
-    ownerId: demoUser.id,
+    ownerId: userId,
     retentionPolicy: "backup",
     createdAt: "2026-06-30T11:50:00.000Z"
   });
@@ -4227,9 +4312,11 @@ function buildLocalOpsMonitoring(): OpsMonitoringDashboard {
 }
 
 function AdminView({
+  userId,
   eventLog,
   onAuditEvent
 }: {
+  userId: string;
   eventLog: string[];
   onAuditEvent: (event: string) => void;
 }) {
@@ -4290,13 +4377,13 @@ function AdminView({
       icon: ShieldCheck
     }
   ];
-  const monitoring = useMemo(() => buildLocalOpsMonitoring(), []);
+  const monitoring = useMemo(() => buildLocalOpsMonitoring(userId), [userId]);
   const primaryAlerts = monitoring.alerts.slice(0, 4);
   const activeReport =
     incidentReport ??
     buildIncidentResponseReport({
       monitoring,
-      operatorId: demoUser.id,
+      operatorId: userId,
       environment: "production",
       title: "Production release incident preview",
       generatedAt: "2026-06-30T12:30:00.000Z"
@@ -4305,7 +4392,7 @@ function AdminView({
     setIncidentStatus("building report artifact");
     const report = buildIncidentResponseReport({
       monitoring,
-      operatorId: demoUser.id,
+      operatorId: userId,
       environment: "production",
       title: "Production release incident drill"
     });
@@ -4317,7 +4404,7 @@ function AdminView({
       contentType: "application/json",
       sizeBytes: new TextEncoder().encode(body).byteLength,
       sha256,
-      ownerId: demoUser.id,
+      ownerId: userId,
       retentionPolicy: report.severity === "none" ? "product" : "legal_hold",
       metadata: {
         report_id: report.id,
@@ -4888,6 +4975,7 @@ function uniqueBadgeTemplates(templates: typeof outcomeBadgeTemplates): typeof o
 }
 
 function buildLocalExperimentEvents(input: {
+  userId: string;
   cinemaResult: GraphFeedRecallResult | null;
   walkCompletedAt: string | null;
   walkResponses: AssessmentResponse[];
@@ -4899,7 +4987,7 @@ function buildLocalExperimentEvents(input: {
   if (input.cinemaResult) {
     events.push({
       id: createId("learning_event", `local-video:${input.cinemaResult.completedAt}`),
-      user_id: demoUser.id,
+      user_id: input.userId,
       event_type: "video_watched",
       payload: {
         video_ids: [input.cinemaResult.videoId],
@@ -4913,7 +5001,7 @@ function buildLocalExperimentEvents(input: {
   if (input.walkCompletedAt && input.walkResponses.length > 0) {
     events.push({
       id: createId("learning_event", `local-walk:${input.walkCompletedAt}`),
-      user_id: demoUser.id,
+      user_id: input.userId,
       event_type: "walk_recall_completed",
       payload: {
         average_correctness: avg(input.walkResponses.map((response) => response.correctness_score)),
@@ -4926,7 +5014,7 @@ function buildLocalExperimentEvents(input: {
   if (input.sleepRecallResult) {
     events.push({
       id: createId("learning_event", `local-sleep:${input.sleepRecallResult.completedAt}`),
-      user_id: demoUser.id,
+      user_id: input.userId,
       event_type: "graph_updated",
       payload: {
         action: "sleep_cue_recall_completed",

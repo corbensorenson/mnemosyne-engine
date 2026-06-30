@@ -75,6 +75,46 @@ describe("persistence-backed API handlers", () => {
     );
   });
 
+  it("bootstraps persisted app state and generates the first packet when missing", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+
+    const bootstrap = unwrap(
+      await handlers.getAppBootstrap({
+        userId: demoUser.id,
+        generateMissingPacket: true
+      })
+    );
+
+    expect(bootstrap.user.id).toBe(demoUser.id);
+    expect(bootstrap.goals.length).toBeGreaterThan(0);
+    expect(bootstrap.user_graph.states.length).toBeGreaterThan(0);
+    expect(bootstrap.daily_packet_source).toBe("generated");
+    expect(bootstrap.daily_packet?.user_id).toBe(demoUser.id);
+    expect(bootstrap.daily_packet_summary?.morning_items).toBeGreaterThan(0);
+    expect(bootstrap.installed_packs.every((pack) => pack.installed_for_user_ids.includes(demoUser.id))).toBe(
+      true
+    );
+
+    const second = unwrap(
+      await handlers.getAppBootstrap({
+        userId: demoUser.id,
+        date: bootstrap.daily_packet?.date,
+        generateMissingPacket: false
+      })
+    );
+    expect(second.daily_packet_source).toBe("existing");
+    expect(second.daily_packet?.id).toBe(bootstrap.daily_packet?.id);
+    expect(await store.listAuditEvents(demoUser.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "daily_packet_generated",
+          payload: expect.objectContaining({ source: "app_bootstrap" })
+        })
+      ])
+    );
+  });
+
   it("accepts PWA offline sync receipts and audits queued learning actions", async () => {
     const store = await createSeededStore();
     const handlers = createApiHandlers(store);
