@@ -303,6 +303,50 @@ describe("persistence-backed API handlers", () => {
     );
     expect(completedWatch.event_type).toBe("video_watched");
 
+    const flashAsset = demoMasterGraph.flashReads.find((asset) =>
+      asset.concept_ids.includes("attention_qkv")
+    );
+    if (!flashAsset) throw new Error("missing attention FlashRead asset");
+    const flash = unwrap(
+      await handlers.generateFlashRead({
+        userId: demoUser.id,
+        assetId: flashAsset.id,
+        displayUnit: "phrase",
+        requestedWpm: 420
+      })
+    );
+    expect(flash.session.session_type).toBe("flashread");
+    expect(flash.plan.chunks.length).toBeGreaterThan(0);
+    expect(flash.plan.raw_wpm).toBe(420);
+    expect(flash.plan.estimated_effective_wpm).toBeLessThan(flash.plan.raw_wpm);
+    expect(flash.summary.comprehension_gate).toBe(flashAsset.comprehension_gate);
+
+    const flashBeforeState = (await store.getUserGraph(demoUser.id)).states.find(
+      (state) => state.concept_id === "attention_qkv"
+    );
+    const completedFlash = unwrap(
+      await handlers.completeFlashRead({
+        userId: demoUser.id,
+        sessionId: flash.session.id,
+        flashReadSessionId: flash.plan.id,
+        assetId: flash.asset.id,
+        rawWpm: flash.plan.raw_wpm,
+        comprehensionScore: 0.86,
+        retentionScore: 0.8,
+        strainRating: 0.22,
+        screenMinutes: 3
+      })
+    );
+    expect(completedFlash.session.status).toBe("completed");
+    expect(completedFlash.result.advanceAllowed).toBe(true);
+    expect(completedFlash.summary.effective_wpm).toBeLessThan(completedFlash.summary.raw_wpm);
+    expect(completedFlash.summary.screen_minutes).toBe(3);
+    expect(completedFlash.updated_states.map((state) => state.concept_id)).toContain("attention_qkv");
+    const flashAfterState = (await store.getUserGraph(demoUser.id)).states.find(
+      (state) => state.concept_id === "attention_qkv"
+    );
+    expect(flashAfterState?.times_seen).toBeGreaterThan(flashBeforeState?.times_seen ?? 0);
+
     const sleep = unwrap(await handlers.generateSleepPacket({ userId: demoUser.id, conservative: true }));
     expect(sleep.summary.controls).toBeGreaterThan(0);
 
@@ -439,6 +483,10 @@ describe("persistence-backed API handlers", () => {
     const sleepEvents = await store.listLearningEvents(demoUser.id);
     expect(sleepEvents).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          event_type: "flashread_completed",
+          payload: expect.objectContaining({ flashread_asset_id: flash.asset.id })
+        }),
         expect.objectContaining({
           event_type: "sleep_cue_played",
           payload: expect.objectContaining({ sleep_packet_id: sleep.packet.id })

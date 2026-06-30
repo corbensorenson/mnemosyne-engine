@@ -222,6 +222,33 @@ export const completeWatchPacketRequestSchema = z
   })
   .strict();
 
+const flashReadDisplayUnitSchema = z.enum(["word", "phrase", "clause", "concept"]);
+
+export const flashReadGenerateRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    assetId: z.string().min(1).optional(),
+    conceptIds: z.array(z.string().min(1)).default([]),
+    displayUnit: flashReadDisplayUnitSchema.default("phrase"),
+    requestedWpm: z.number().int().min(120).max(1200).optional()
+  })
+  .strict();
+
+export const flashReadCompleteRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    sessionId: z.string().min(1).optional(),
+    flashReadSessionId: z.string().min(1),
+    assetId: z.string().min(1),
+    rawWpm: z.number().int().min(120).max(1200),
+    comprehensionScore: z.number().min(0).max(1),
+    retentionScore: z.number().min(0).max(1),
+    strainRating: z.number().min(0).max(1),
+    screenMinutes: z.number().nonnegative().default(0),
+    completedAt: z.string().optional()
+  })
+  .strict();
+
 export const sleepPacketRequestSchema = z
   .object({
     userId: userIdSchema,

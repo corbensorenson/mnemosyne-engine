@@ -71,7 +71,18 @@ export const apiRoutes: ApiRoute[] = [
     service: "VideoGraph Service",
     eventType: "video_watched"
   },
-  { method: "POST", path: "/api/flashread/generate", service: "FlashRead Service" },
+  {
+    method: "POST",
+    path: "/api/flashread/generate",
+    service: "FlashRead Service",
+    eventType: "session_started"
+  },
+  {
+    method: "POST",
+    path: "/api/flashread/complete",
+    service: "FlashRead Service",
+    eventType: "flashread_completed"
+  },
   { method: "POST", path: "/api/sleep/packet/generate", service: "SleepCue Service", eventType: "cue_bound" },
   { method: "GET", path: "/api/sleep/packet/tonight", service: "SleepCue Service" },
   { method: "POST", path: "/api/sleep/audio/render", service: "Audio Render Service" },

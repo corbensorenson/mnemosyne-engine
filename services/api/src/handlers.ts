@@ -7,6 +7,12 @@ import { buildRenderManifest } from "@mnemosyne/audio-renderer-service";
 import type { RenderManifest } from "@mnemosyne/audio-renderer-service";
 import { arbitrateProposal, createProposal as createCourtProposal } from "@mnemosyne/content-court";
 import {
+  buildFlashReadSession,
+  scoreFlashReadCompletion,
+  type FlashReadDisplayUnit,
+  type FlashReadSessionPlan
+} from "@mnemosyne/flashread-core";
+import {
   computeGoalGap,
   selectFrontierConcepts,
   selectHorizonConcepts,
@@ -50,6 +56,8 @@ import {
   createGoalRequestSchema,
   creatorIngestionRequestSchema,
   eveningLockInCompleteRequestSchema,
+  flashReadCompleteRequestSchema,
+  flashReadGenerateRequestSchema,
   generateDailyPacketRequestSchema,
   humanOverrideRequestSchema,
   morningForgeCompleteRequestSchema,
@@ -181,6 +189,27 @@ type SleepRecallCompleteRequest = {
   completedAt?: string;
 };
 
+type FlashReadGenerateRequest = {
+  userId: string;
+  assetId?: string;
+  conceptIds: string[];
+  displayUnit: FlashReadDisplayUnit;
+  requestedWpm?: number;
+};
+
+type FlashReadCompleteRequest = {
+  userId: string;
+  sessionId?: string;
+  flashReadSessionId: string;
+  assetId: string;
+  rawWpm: number;
+  comprehensionScore: number;
+  retentionScore: number;
+  strainRating: number;
+  screenMinutes: number;
+  completedAt?: string;
+};
+
 type GoalDraftRequest = {
   title: string;
   description: string;
@@ -278,6 +307,21 @@ type SleepCueRecallCompletionResponse = {
   updated_states: UserConceptState[];
   repair_recommendations: string[];
   summary: ReturnType<typeof sleepCueRecallSummary>;
+};
+
+type FlashReadGenerateResponse = {
+  session: SessionRecord;
+  asset: FlashReadAsset;
+  plan: FlashReadSessionPlan;
+  summary: ReturnType<typeof flashReadPlanSummary>;
+};
+
+type FlashReadCompletionResponse = {
+  session: SessionRecord;
+  asset: FlashReadAsset;
+  result: ReturnType<typeof scoreFlashReadCompletion>;
+  updated_states: UserConceptState[];
+  summary: ReturnType<typeof flashReadCompletionSummary>;
 };
 
 type CreatorIngestionResponse = {
@@ -996,6 +1040,140 @@ export function createApiHandlers(store: MnemosyneStore) {
         }
       });
       return envelope(event);
+    },
+
+    async generateFlashRead(input: unknown): Promise<HandlerEnvelope<FlashReadGenerateResponse>> {
+      const request = validateRequest(flashReadGenerateRequestSchema, input) as FlashReadGenerateRequest;
+      const context = await buildPlanningContext(store, request.userId);
+      const asset = selectFlashReadAsset(context.masterGraph, request, [
+        ...context.frontierIds,
+        ...context.knownIds,
+        ...context.horizonIds
+      ]);
+      if (!asset) return notFound<FlashReadGenerateResponse>("flashread_asset_not_found");
+
+      const plan = buildFlashReadSession(asset, request.displayUnit, request.requestedWpm);
+      const session: SessionRecord = {
+        id: createId("session"),
+        user_id: request.userId,
+        session_type: "flashread",
+        status: "running",
+        started_at: nowIso(),
+        event_ids: []
+      };
+      await store.saveSession(session);
+      const event = await store.appendLearningEvent({
+        user_id: request.userId,
+        event_type: "session_started",
+        payload: {
+          session_id: session.id,
+          session_type: "flashread",
+          flashread_session_id: plan.id,
+          flashread_asset_id: asset.id,
+          concept_ids: asset.concept_ids,
+          raw_wpm: plan.raw_wpm,
+          estimated_effective_wpm: plan.estimated_effective_wpm,
+          display_unit: plan.display_unit
+        }
+      });
+      const storedSession = await store.saveSession({ ...session, event_ids: [event.id] });
+      const summary = flashReadPlanSummary(asset, plan);
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "flashread_session_generated",
+        object_type: "flashread_asset",
+        object_id: asset.id,
+        payload: {
+          session_id: storedSession.id,
+          ...summary
+        }
+      });
+      return envelope({ session: storedSession, asset, plan, summary }, audit.id);
+    },
+
+    async completeFlashRead(input: unknown): Promise<HandlerEnvelope<FlashReadCompletionResponse>> {
+      const request = validateRequest(flashReadCompleteRequestSchema, input) as FlashReadCompleteRequest;
+      await requireUser(store, request.userId);
+      const masterGraph = await store.getMasterGraph();
+      const asset = allFlashReadAssets(masterGraph).find((candidate) => candidate.id === request.assetId);
+      if (!asset) return notFound<FlashReadCompletionResponse>("flashread_asset_not_found");
+      let session = request.sessionId ? await store.getSession(request.sessionId) : undefined;
+      if (
+        request.sessionId &&
+        (!session || session.user_id !== request.userId || session.session_type !== "flashread")
+      ) {
+        return notFound<FlashReadCompletionResponse>("session_not_found");
+      }
+      const eventIds = session?.event_ids ? [...session.event_ids] : [];
+      if (!session) {
+        session = {
+          id: createId("session"),
+          user_id: request.userId,
+          session_type: "flashread",
+          status: "running",
+          started_at: nowIso(),
+          event_ids: []
+        };
+        await store.saveSession(session);
+      }
+
+      const result = scoreFlashReadCompletion({
+        rawWpm: request.rawWpm,
+        comprehensionScore: request.comprehensionScore,
+        retentionScore: request.retentionScore,
+        strainRating: request.strainRating
+      });
+      const updatedGraph = await store.saveUserConceptStates(
+        request.userId,
+        applyFlashReadCompletionToStates(
+          (await store.getUserGraph(request.userId)).states,
+          asset,
+          result,
+          request.completedAt ?? nowIso(),
+          request.userId
+        )
+      );
+      const updatedStates = updatedGraph.states.filter((state) =>
+        asset.concept_ids.includes(state.concept_id)
+      );
+      const summary = flashReadCompletionSummary(asset, request, result);
+      const event = await store.appendLearningEvent({
+        user_id: request.userId,
+        event_type: "flashread_completed",
+        payload: {
+          session_id: session.id,
+          ...summary
+        }
+      });
+      eventIds.push(event.id);
+      const completedSession = await store.saveSession({
+        ...session,
+        status: "completed",
+        completed_at: request.completedAt ?? nowIso(),
+        event_ids: Array.from(new Set(eventIds))
+      });
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "flashread_completed",
+        object_type: "flashread_asset",
+        object_id: asset.id,
+        payload: {
+          session_id: completedSession.id,
+          event_id: event.id,
+          ...summary
+        }
+      });
+
+      return envelope(
+        {
+          session: completedSession,
+          asset,
+          result,
+          updated_states: updatedStates,
+          summary
+        },
+        audit.id
+      );
     },
 
     async generateSleepPacket(input: unknown): Promise<HandlerEnvelope<SleepPacketResponse>> {
@@ -2078,6 +2256,113 @@ function playbackMinutes(startedAt: string | undefined, endedAt: string | undefi
   const ended = Date.parse(endedAt);
   if (!Number.isFinite(started) || !Number.isFinite(ended) || ended <= started) return 0;
   return Number(((ended - started) / 60_000).toFixed(1));
+}
+
+function allFlashReadAssets(masterGraph: MasterGraph): FlashReadAsset[] {
+  return [
+    ...masterGraph.flashReads,
+    ...masterGraph.concepts.flatMap((concept) => concept.flashread_assets)
+  ].filter((asset, index, assets) => assets.findIndex((candidate) => candidate.id === asset.id) === index);
+}
+
+function selectFlashReadAsset(
+  masterGraph: MasterGraph,
+  request: FlashReadGenerateRequest,
+  planningConceptIds: string[]
+): FlashReadAsset | undefined {
+  const assets = allFlashReadAssets(masterGraph);
+  if (request.assetId) return assets.find((asset) => asset.id === request.assetId);
+  const requestedConceptIds = new Set(request.conceptIds);
+  const planningIds = new Set(planningConceptIds);
+  const candidates =
+    request.conceptIds.length > 0
+      ? assets.filter((asset) => asset.concept_ids.some((conceptId) => requestedConceptIds.has(conceptId)))
+      : assets;
+  return candidates
+    .map((asset) => ({
+      asset,
+      score:
+        asset.concept_ids.filter((conceptId) => requestedConceptIds.has(conceptId)).length * 3 +
+        asset.concept_ids.filter((conceptId) => planningIds.has(conceptId)).length * 1.5 +
+        (asset.mode === "review" ? 0.4 : 0) -
+        asset.cognitive_load_score
+    }))
+    .sort((left, right) => right.score - left.score)[0]?.asset;
+}
+
+function flashReadPlanSummary(asset: FlashReadAsset, plan: FlashReadSessionPlan) {
+  return {
+    flashread_asset_id: asset.id,
+    flashread_session_id: plan.id,
+    concept_ids: asset.concept_ids,
+    chunks: plan.chunks.length,
+    display_unit: plan.display_unit,
+    raw_wpm: plan.raw_wpm,
+    estimated_effective_wpm: plan.estimated_effective_wpm,
+    comprehension_gate: plan.comprehension_gate,
+    cognitive_load_score: asset.cognitive_load_score
+  };
+}
+
+function flashReadCompletionSummary(
+  asset: FlashReadAsset,
+  request: FlashReadCompleteRequest,
+  result: ReturnType<typeof scoreFlashReadCompletion>
+) {
+  return {
+    flashread_asset_id: asset.id,
+    flashread_session_id: request.flashReadSessionId,
+    concept_ids: asset.concept_ids,
+    raw_wpm: request.rawWpm,
+    effective_wpm: result.effectiveWpm,
+    comprehension_score: request.comprehensionScore,
+    retention_score: request.retentionScore,
+    strain_rating: request.strainRating,
+    screen_load_score: result.screenLoadScore,
+    advance_allowed: result.advanceAllowed,
+    screen_minutes: request.screenMinutes
+  };
+}
+
+function applyFlashReadCompletionToStates(
+  states: UserConceptState[],
+  asset: FlashReadAsset,
+  result: ReturnType<typeof scoreFlashReadCompletion>,
+  updatedAt: string,
+  userId: string
+): UserConceptState[] {
+  const conceptIds = new Set(asset.concept_ids);
+  const next = [...states];
+  for (const conceptId of conceptIds) {
+    const index = next.findIndex((state) => state.concept_id === conceptId);
+    const state = index >= 0 ? next[index] : initialConceptState(userId, conceptId);
+    const masteryDelta = result.advanceAllowed ? 0.045 : -0.015;
+    const recallDelta = result.advanceAllowed ? 0.05 : 0.005;
+    const strainFailure = result.screenLoadScore > 0.58 ? ["flashread_strain"] : [];
+    const gateFailure = result.advanceAllowed ? [] : ["comprehension_gate_missed"];
+    const updated: UserConceptState = {
+      ...state,
+      mastery: clamp(state.mastery + masteryDelta),
+      recall_strength: clamp(state.recall_strength + recallDelta),
+      recall_stability: clamp(state.recall_stability + (result.advanceAllowed ? 0.025 : 0)),
+      failure_modes: Array.from(new Set([...state.failure_modes, ...strainFailure, ...gateFailure])).slice(
+        -6
+      ),
+      last_seen_at: updatedAt,
+      times_seen: state.times_seen + 1,
+      times_recalled: result.advanceAllowed ? state.times_recalled + 1 : state.times_recalled,
+      times_failed: result.advanceAllowed ? state.times_failed : state.times_failed + 1,
+      modality_response_profile: {
+        ...state.modality_response_profile,
+        flashread_effective_wpm: result.effectiveWpm,
+        flashread_screen_load: result.screenLoadScore
+      },
+      updated_at: updatedAt
+    };
+    if (index >= 0) next[index] = updated;
+    else next.push(updated);
+  }
+  return next;
 }
 
 async function buildPlanningContext(

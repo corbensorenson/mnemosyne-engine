@@ -346,6 +346,11 @@ Deliverables:
 - FlashRead player with comprehension gate.
 - WalkMode handoff after video.
 
+Current implementation progress:
+
+- API FlashRead generation selects graph-aligned FlashRead assets, builds chunked session plans with display-unit controls, starts a persisted session, and reports estimated effective WPM with the comprehension gate.
+- API FlashRead completion records effective WPM, comprehension, retention, strain, screen load, and gated advancement; it completes the session, logs `flashread_completed`, audits the result, and updates concept graph state only when the comprehension/strain gate allows progress.
+
 Exit criteria:
 
 - Video only counts toward progress after recall.
