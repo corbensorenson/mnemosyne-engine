@@ -98,6 +98,80 @@ describe("persistence-backed API handlers", () => {
     expect(after?.false_confidence_risk).toBeGreaterThan(before?.false_confidence_risk ?? 0);
   });
 
+  it("completes Morning Forge sessions with scoring, graph updates, and audit trail", async () => {
+    const store = await createSeededStore();
+    const handlers = createApiHandlers(store);
+    const generated = unwrap(await handlers.generateDailyPacket({ userId: demoUser.id }));
+    const prompts = generated.packet.morning.cold_retrieval_items.slice(0, 2);
+    expect(prompts.length).toBeGreaterThan(0);
+
+    const started = unwrap(
+      await handlers.startSession({
+        userId: demoUser.id,
+        dailyPacketId: generated.packet.id,
+        sessionType: "morning_forge"
+      })
+    );
+    const before = await store.getUserGraph(demoUser.id);
+    const targetConceptId = prompts[0]?.concept_ids[0];
+    if (!targetConceptId) throw new Error("missing morning target concept");
+    const beforeState = before.states.find((state) => state.concept_id === targetConceptId);
+
+    const completed = unwrap(
+      await handlers.completeMorningForge({
+        userId: demoUser.id,
+        dailyPacketId: generated.packet.id,
+        packetDate: generated.packet.date,
+        sessionId: started.session.id,
+        screenMinutes: 4,
+        voiceUsed: false,
+        responses: prompts.map((item, index) => ({
+          item,
+          rawResponse: index === 0 ? (item.expected_answer ?? item.prompt) : "not sure yet",
+          confidence: index === 0 ? 0.72 : 0.41,
+          latencyMs: index === 0 ? 18_000 : 52_000,
+          entryMode: "text"
+        }))
+      })
+    );
+
+    expect(completed.session.status).toBe("completed");
+    expect(completed.session.completed_at).toBeDefined();
+    expect(completed.responses).toHaveLength(prompts.length);
+    expect(completed.summary.answered).toBe(prompts.length);
+    expect(completed.summary.screen_minutes).toBe(4);
+    expect(completed.updated_states.map((state) => state.concept_id)).toContain(targetConceptId);
+
+    const responses = await store.listAssessmentResponses(demoUser.id);
+    expect(responses.length).toBeGreaterThanOrEqual(prompts.length);
+    const after = await store.getUserGraph(demoUser.id);
+    const afterState = after.states.find((state) => state.concept_id === targetConceptId);
+    expect(afterState?.times_seen).toBeGreaterThan(beforeState?.times_seen ?? 0);
+
+    const sessions = await store.listSessions(demoUser.id);
+    expect(sessions.find((session) => session.id === started.session.id)?.status).toBe("completed");
+
+    const events = await store.listLearningEvents(demoUser.id);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event_type: "graph_updated",
+          payload: expect.objectContaining({ action: "morning_forge_completed" })
+        })
+      ])
+    );
+
+    const audits = await store.listAuditEvents(demoUser.id);
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "morning_forge_completed",
+          object_id: started.session.id
+        })
+      ])
+    );
+  });
+
   it("supports video packet, sleep packet, audio render, wearable, and governance API flows", async () => {
     const store = await createSeededStore();
     const handlers = createApiHandlers(store);

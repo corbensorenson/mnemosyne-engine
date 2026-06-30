@@ -147,6 +147,35 @@ export const assessmentSubmitRequestSchema = z
   })
   .strict();
 
+export const morningForgeCompleteRequestSchema = z
+  .object({
+    userId: userIdSchema,
+    dailyPacketId: z.string().min(1),
+    packetDate: z.string().optional(),
+    sessionId: z.string().min(1).optional(),
+    responses: z
+      .array(
+        z
+          .object({
+            item: assessmentItemSchema,
+            rawResponse: z.string().min(1),
+            confidence: z.number().min(0).max(1).optional(),
+            latencyMs: z.number().int().nonnegative(),
+            hintCount: z.number().int().nonnegative().optional(),
+            retries: z.number().int().nonnegative().optional(),
+            entryMode: z.enum(["text", "voice"]).default("text"),
+            transcript: z.string().optional()
+          })
+          .strict()
+      )
+      .min(1)
+      .max(12),
+    screenMinutes: z.number().nonnegative().default(0),
+    voiceUsed: z.boolean().default(false),
+    completedAt: z.string().optional()
+  })
+  .strict();
+
 export const videoRecommendationRequestSchema = z
   .object({
     userId: userIdSchema,

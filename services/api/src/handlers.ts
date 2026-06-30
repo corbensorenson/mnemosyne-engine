@@ -20,6 +20,7 @@ import type {
 } from "@mnemosyne/persistence-core";
 import type {
   AssessmentItem,
+  AssessmentResponse,
   ArbiterVerdict,
   ConceptNode,
   DailyLearningPacket,
@@ -49,6 +50,7 @@ import {
   creatorIngestionRequestSchema,
   generateDailyPacketRequestSchema,
   humanOverrideRequestSchema,
+  morningForgeCompleteRequestSchema,
   proposalCreateRequestSchema,
   proposalReviewRequestSchema,
   renderSleepAudioRequestSchema,
@@ -96,6 +98,28 @@ export type AssessmentSubmitRequest = {
   latencyMs: number;
   hintCount?: number;
   retries?: number;
+};
+
+type MorningForgeResponseInput = {
+  item: AssessmentItem;
+  rawResponse: string;
+  confidence?: number;
+  latencyMs: number;
+  hintCount?: number;
+  retries?: number;
+  entryMode: "text" | "voice";
+  transcript?: string;
+};
+
+type MorningForgeCompleteRequest = {
+  userId: string;
+  dailyPacketId: string;
+  packetDate?: string;
+  sessionId?: string;
+  responses: MorningForgeResponseInput[];
+  screenMinutes: number;
+  voiceUsed: boolean;
+  completedAt?: string;
 };
 
 type GoalDraftRequest = {
@@ -196,6 +220,20 @@ type OnboardingResponse = {
   diagnostic_items: AssessmentItem[];
   first_packet: DailyLearningPacket;
   summary: ReturnType<typeof packetSummary>;
+};
+
+type MorningForgeCompletionResponse = {
+  session: SessionRecord;
+  responses: AssessmentResponse[];
+  updated_states: UserConceptState[];
+  repair_recommendations: string[];
+  summary: {
+    answered: number;
+    average_correctness: number;
+    average_confidence: number;
+    screen_minutes: number;
+    voice_used: boolean;
+  };
 };
 
 export function createApiHandlers(store: MnemosyneStore) {
@@ -480,6 +518,133 @@ export function createApiHandlers(store: MnemosyneStore) {
       });
 
       return envelope({ response, event });
+    },
+
+    async completeMorningForge(input: unknown): Promise<HandlerEnvelope<MorningForgeCompletionResponse>> {
+      const request = validateRequest(
+        morningForgeCompleteRequestSchema,
+        input
+      ) as MorningForgeCompleteRequest;
+      await requireUser(store, request.userId);
+      const packet = await store.getDailyPacket(request.userId, request.packetDate ?? todayIsoDate());
+      if (!packet || packet.id !== request.dailyPacketId) {
+        return notFound<MorningForgeCompletionResponse>("daily_packet_not_found");
+      }
+
+      let session = request.sessionId ? await store.getSession(request.sessionId) : undefined;
+      if (request.sessionId && (!session || session.user_id !== request.userId)) {
+        return notFound<MorningForgeCompletionResponse>("session_not_found");
+      }
+      const eventIds = session?.event_ids ? [...session.event_ids] : [];
+      if (!session) {
+        session = {
+          id: createId("session"),
+          user_id: request.userId,
+          daily_packet_id: request.dailyPacketId,
+          session_type: "morning_forge",
+          status: "running",
+          started_at: nowIso(),
+          event_ids: []
+        };
+        await store.saveSession(session);
+        const startEvent = await store.appendLearningEvent({
+          user_id: request.userId,
+          event_type: "session_started",
+          payload: {
+            session_id: session.id,
+            daily_packet_id: request.dailyPacketId,
+            session_type: "morning_forge",
+            source: "morning_forge_completion"
+          }
+        });
+        eventIds.push(startEvent.id);
+      }
+
+      let states = (await store.getUserGraph(request.userId)).states;
+      const responses: AssessmentResponse[] = [];
+      for (const responseInput of request.responses) {
+        const response = scoreAssessmentResponse({
+          userId: request.userId,
+          item: responseInput.item,
+          rawResponse: responseInput.rawResponse,
+          confidence: responseInput.confidence,
+          latencyMs: responseInput.latencyMs,
+          hintCount: responseInput.hintCount,
+          retries: responseInput.retries
+        });
+        responses.push(await store.saveAssessmentResponse(response));
+        states = applyResponseToStates(states, response, request.userId);
+        const event = await store.appendLearningEvent({
+          user_id: request.userId,
+          event_type: "assessment_answered",
+          payload: {
+            session_id: session.id,
+            daily_packet_id: request.dailyPacketId,
+            assessment_item_id: responseInput.item.id,
+            response_id: response.id,
+            correctness_score: response.correctness_score,
+            confidence_reported: response.confidence_reported,
+            latency_ms: response.latency_ms,
+            entry_mode: responseInput.entryMode,
+            voice_used: responseInput.entryMode === "voice" || request.voiceUsed,
+            transcript_stored: Boolean(responseInput.transcript),
+            detected_failure_modes: response.detected_failure_modes
+          }
+        });
+        eventIds.push(event.id);
+      }
+
+      const updatedGraph = await store.saveUserConceptStates(request.userId, states);
+      const touchedConceptIds = new Set(
+        responses
+          .flatMap((response) => response.graph_updates.map((update) => update.concept_id))
+          .filter((conceptId): conceptId is string => typeof conceptId === "string")
+      );
+      const updatedStates = updatedGraph.states.filter((state) => touchedConceptIds.has(state.concept_id));
+      const summary = morningForgeSummary(responses, request);
+      const completionEvent = await store.appendLearningEvent({
+        user_id: request.userId,
+        event_type: "graph_updated",
+        payload: {
+          session_id: session.id,
+          daily_packet_id: request.dailyPacketId,
+          action: "morning_forge_completed",
+          ...summary,
+          updated_concept_ids: [...touchedConceptIds]
+        }
+      });
+      eventIds.push(completionEvent.id);
+
+      const completedSession = await store.saveSession({
+        ...session,
+        status: "completed",
+        completed_at: request.completedAt ?? nowIso(),
+        event_ids: Array.from(new Set(eventIds))
+      });
+      const repairRecommendations = repairRecommendationsFor(responses);
+      const audit = await store.appendAuditEvent({
+        actor_id: request.userId,
+        action: "morning_forge_completed",
+        object_type: "session",
+        object_id: completedSession.id,
+        payload: {
+          daily_packet_id: request.dailyPacketId,
+          response_ids: responses.map((response) => response.id),
+          repair_recommendations: repairRecommendations,
+          ...summary
+        }
+      });
+
+      return envelope(
+        {
+          session: completedSession,
+          responses,
+          updated_states: updatedStates,
+          repair_recommendations: repairRecommendations,
+          summary
+        },
+        audit.id
+      );
     },
 
     async recommendVideos(input: unknown) {
@@ -834,6 +999,93 @@ async function requireUser(store: MnemosyneStore, userId: string) {
   const user = await store.getUser(userId);
   if (!user) throw new Error(`Unknown user: ${userId}`);
   return user;
+}
+
+function applyResponseToStates(
+  states: UserConceptState[],
+  response: AssessmentResponse,
+  userId: string
+): UserConceptState[] {
+  const next = [...states];
+  for (const update of response.graph_updates) {
+    const conceptId = typeof update.concept_id === "string" ? update.concept_id : undefined;
+    if (!conceptId) continue;
+    const index = next.findIndex((state) => state.concept_id === conceptId);
+    const current = index >= 0 ? next[index] : initialConceptState(userId, conceptId);
+    const updated = applyAssessmentToUserState(current, response);
+    if (index >= 0) next[index] = updated;
+    else next.push(updated);
+  }
+  return next;
+}
+
+function initialConceptState(userId: string, conceptId: string): UserConceptState {
+  const now = nowIso();
+  return {
+    user_id: userId,
+    concept_id: conceptId,
+    mastery: 0.08,
+    recall_strength: 0.05,
+    recall_stability: 0.04,
+    transfer_score: 0.04,
+    answer_latency_ms: null,
+    confidence_calibration: 0.5,
+    false_confidence_risk: 0.18,
+    prerequisite_health: 0.5,
+    failure_modes: [],
+    misconception_ids: [],
+    next_due_at: now,
+    times_seen: 0,
+    times_recalled: 0,
+    times_failed: 0,
+    hints_used: 0,
+    sleep_replays: 0,
+    cue_gain_estimate: 0,
+    modality_response_profile: {},
+    status: "unknown",
+    updated_at: now
+  };
+}
+
+function morningForgeSummary(
+  responses: AssessmentResponse[],
+  request: MorningForgeCompleteRequest
+): MorningForgeCompletionResponse["summary"] {
+  return {
+    answered: responses.length,
+    average_correctness: average(responses.map((response) => response.correctness_score)),
+    average_confidence: average(responses.map((response) => response.confidence_reported ?? 0.5)),
+    screen_minutes: request.screenMinutes,
+    voice_used: request.voiceUsed || request.responses.some((response) => response.entryMode === "voice")
+  };
+}
+
+function repairRecommendationsFor(responses: AssessmentResponse[]): string[] {
+  const failures = new Set(responses.flatMap((response) => response.detected_failure_modes));
+  const recommendations: string[] = [];
+  if (failures.has("false_confidence") || failures.has("dangerous_misconception")) {
+    recommendations.push("Run prerequisite repair before advancing the concept window.");
+  }
+  if (failures.has("missing_core_claim")) {
+    recommendations.push("Schedule one worked example, then repeat cold retrieval.");
+  }
+  if (failures.has("slow_fragile_recall")) {
+    recommendations.push("Repeat the prompt tomorrow with a lower latency target.");
+  }
+  if (failures.has("hint_dependent")) {
+    recommendations.push("Remove hints on the next attempt and require a complete recall pass.");
+  }
+  if (failures.has("shallow_transfer")) {
+    recommendations.push("Add a transfer drill in a different context before marking stable.");
+  }
+  return recommendations.length > 0
+    ? recommendations
+    : ["Advance one frontier item and keep normal review cadence."];
+}
+
+function average(values: number[]): number {
+  if (values.length === 0) return 0;
+  return Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(3));
 }
 
 function buildGoal(userId: string, request: GoalDraftRequest): Goal {
