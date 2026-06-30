@@ -62,6 +62,7 @@ type TabId =
   | "packs"
   | "court"
   | "lab"
+  | "workbench"
   | "admin";
 
 const tabs: Array<{ id: TabId; label: string; icon: typeof Home }> = [
@@ -76,6 +77,7 @@ const tabs: Array<{ id: TabId; label: string; icon: typeof Home }> = [
   { id: "packs", label: "Packs", icon: BookOpen },
   { id: "court", label: "Court", icon: Gavel },
   { id: "lab", label: "Lab", icon: FlaskConical },
+  { id: "workbench", label: "Workbench", icon: ClipboardCheck },
   { id: "admin", label: "Admin", icon: ShieldCheck }
 ];
 
@@ -225,6 +227,7 @@ export default function App() {
     packs: <PacksView />,
     court: <CourtView verdict={verdict} />,
     lab: <LabView techniques={recommendedTechniques} />,
+    workbench: <WorkbenchView />,
     admin: <AdminView eventLog={eventLog} />
   }[activeTab];
 
@@ -921,6 +924,133 @@ function AdminView({ eventLog }: { eventLog: string[] }) {
           {eventLog.map((event, index) => (
             <ObjectLine key={`${event}-${index}`} label={`#${index + 1}`} value={event} />
           ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function WorkbenchView() {
+  return (
+    <div className="page-grid workbench-grid">
+      <section className="metric-strip">
+        <MetricTile icon={GitBranch} label="Known" value="ready" tone="teal" />
+        <MetricTile icon={CircleGauge} label="Frontier" value="active" tone="amber" />
+        <MetricTile icon={Activity} label="Blocked" value="hold" tone="coral" />
+        <MetricTile icon={Moon} label="Sleep" value="safe" tone="indigo" />
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={ClipboardCheck} title="Core States" meta="surface set" />
+        <div className="state-grid">
+          <article className="state-card empty">
+            <Database size={24} />
+            <h3>Empty graph</h3>
+            <p>No goals, packs, or concept states.</p>
+            <button className="command">
+              <BookOpen size={18} />
+              Add pack
+            </button>
+          </article>
+          <article className="state-card loading">
+            <Activity size={24} />
+            <h3>Packet loading</h3>
+            <div className="loading-lines">
+              <i />
+              <i />
+              <i />
+            </div>
+          </article>
+          <article className="state-card error">
+            <ShieldCheck size={24} />
+            <h3>Safety hold</h3>
+            <p>High-risk content needs human review.</p>
+            <span className="tag">human_review_required</span>
+          </article>
+          <article className="state-card success">
+            <CheckCircle2 size={24} />
+            <h3>Review saved</h3>
+            <p>Audit event and proposal case file linked.</p>
+            <span className="tag">audit-ready</span>
+          </article>
+        </div>
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={SunMedium} title="Session Rows" meta="dense states" />
+        <div className="session-stack">
+          <SessionRow
+            icon={SunMedium}
+            title="Morning Forge"
+            time="30 min"
+            details={["retrieval", "frontier", "voice"]}
+          />
+          <SessionRow
+            icon={Video}
+            title="GraphFeed"
+            time="18 min"
+            details={["bounded", "transcript", "recall gate"]}
+          />
+          <SessionRow
+            icon={Moon}
+            title="Night Reactivation"
+            time="8 hr"
+            details={["sparse cues", "controls", "NREM estimate"]}
+          />
+        </div>
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={CircleGauge} title="Controls" meta="form states" />
+        <Slider label="Readiness" value={0.64} onChange={() => undefined} />
+        <Slider label="Screen budget" value={0.38} onChange={() => undefined} suffix="23m" />
+        <label className="switch-row">
+          <input type="checkbox" checked readOnly />
+          <span>Dusk guard</span>
+        </label>
+        <div className="action-row">
+          <IconButton title="Play" icon={Play} />
+          <IconButton title="Pause" icon={Pause} />
+          <button className="command primary">
+            <CheckCircle2 size={18} />
+            Save
+          </button>
+        </div>
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={Video} title="Content Cards" meta="ranking states" />
+        <article className="video-card workbench-video">
+          <div className="video-thumb">
+            <Video size={28} />
+            <span>18m</span>
+          </div>
+          <div>
+            <h3>Queries, keys, values in one worked trace</h3>
+            <p>Creator Studio</p>
+            <div className="tag-row">
+              <span className="tag">frontier</span>
+              <span className="tag">low load</span>
+              <span className="tag">recall gate</span>
+            </div>
+          </div>
+          <strong>91</strong>
+        </article>
+        <div className="case-grid">
+          <MiniStat label="Quality" value="84%" />
+          <MiniStat label="Risk" value="low" />
+          <MiniStat label="Transfer" value="66%" />
+          <MiniStat label="Efficiency" value="76%" />
+        </div>
+      </section>
+
+      <section className="panel">
+        <PanelTitle icon={Gavel} title="Case Lines" meta="moderation" />
+        <div className="object-list">
+          <ObjectLine label="Proposal" value="add_video" />
+          <ObjectLine label="Evidence" value="expert transcript packet, quality 0.84" />
+          <ObjectLine label="Decision" value="needs_more_evidence" />
+          <ObjectLine label="Audit" value="creator_ingestion_submitted" />
         </div>
       </section>
     </div>

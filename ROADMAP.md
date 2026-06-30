@@ -211,7 +211,7 @@ Deliverables:
 - [x] Lint rules.
 - [x] Test data fixtures separated from app code.
 - [x] Formatting rules.
-- [ ] Storybook or component workbench for core UI states.
+- [x] Storybook or component workbench for core UI states.
 - [x] Issue templates and contribution labels.
 - [x] Architecture decision records.
 
