@@ -26,7 +26,7 @@ This repository is MIT licensed so the code can be used, forked, modified, and c
 - `packages/assessment-core`: answer scoring, false-confidence detection, failure modes, and user graph updates.
 - `packages/sleep-core`: sleep cue packet selection with matched controls and rendered audio-plan metadata.
 - `packages/video-core`: bounded GraphFeed ranking and watch packet generation.
-- `packages/paced-reader-core`: graph-aware chunking and effective WPM calculations.
+- `packages/paced-reader-core`: graph-aware chunking, first-party ORP/highlight focus frames, and effective WPM calculations.
 - `packages/technique-lab`: evidence registry and experiment templates for learning techniques.
 - `packages/tutor-core`: first-party rubric semantics, tutor modes, and safety gates for feedback.
 - `packages/voice-core`: first-party WalkMode command parsing, wake-safety checks, and compact command audit summaries.

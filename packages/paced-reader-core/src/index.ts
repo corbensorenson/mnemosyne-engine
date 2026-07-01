@@ -2,6 +2,23 @@ import type { PacedReadAsset } from "@mnemosyne/schema";
 import { clamp, createId, nowIso, round } from "@mnemosyne/shared-utils";
 
 export type PacedReadDisplayUnit = "word" | "phrase" | "clause" | "concept";
+export type PacedReadFocusMode = "plain" | "orp" | "highlight";
+
+export type PacedReadFocusToken = {
+  text: string;
+  lead: string;
+  focus: string;
+  tail: string;
+  focus_index: number;
+  highlight: boolean;
+};
+
+export type PacedReadFocusFrame = {
+  mode: PacedReadFocusMode;
+  plain_text: string;
+  tokens: PacedReadFocusToken[];
+  focused_token_index: number;
+};
 
 export type PacedReadSessionPlan = {
   id: string;
@@ -55,6 +72,36 @@ export function chunkPacedReadText(text: string, displayUnit: PacedReadDisplayUn
   return chunks;
 }
 
+export function buildPacedReadFocusFrame(
+  chunk: string,
+  mode: PacedReadFocusMode = "plain"
+): PacedReadFocusFrame {
+  const clean = chunk.replace(/\s+/g, " ").trim();
+  const words = clean ? clean.split(" ") : [];
+  const denseIndexes = mode === "highlight" ? denseTokenIndexes(words) : new Set<number>();
+  const focusedTokenIndex =
+    mode === "highlight" && denseIndexes.size > 0
+      ? [...denseIndexes][0]
+      : words.length > 0
+        ? Math.floor((words.length - 1) / 2)
+        : -1;
+
+  return {
+    mode,
+    plain_text: clean,
+    tokens: words.map((word, index) => {
+      const split = splitOrpToken(word);
+      return {
+        text: word,
+        ...split,
+        highlight:
+          mode === "highlight" ? denseIndexes.has(index) : mode === "orp" && index === focusedTokenIndex
+      };
+    }),
+    focused_token_index: focusedTokenIndex
+  };
+}
+
 export function effectiveWpm(rawWpm: number, comprehensionScore: number, retentionScore: number): number {
   return Math.round(rawWpm * clamp(comprehensionScore) * clamp(retentionScore));
 }
@@ -76,3 +123,100 @@ export function scorePacedReadCompletion(input: {
     advanceAllowed: input.comprehensionScore >= 0.72 && input.strainRating <= 0.55
   };
 }
+
+function splitOrpToken(word: string): Omit<PacedReadFocusToken, "text" | "highlight"> {
+  const firstAlnum = word.search(/[A-Za-z0-9]/);
+  if (firstAlnum < 0) {
+    return { lead: "", focus: word, tail: "", focus_index: 0 };
+  }
+  let lastAlnum = firstAlnum;
+  for (let index = word.length - 1; index >= firstAlnum; index -= 1) {
+    if (/[A-Za-z0-9]/.test(word[index] ?? "")) {
+      lastAlnum = index;
+      break;
+    }
+  }
+
+  const body = word.slice(firstAlnum, lastAlnum + 1);
+  const targetAlnumIndex = orpIndexForLength(alnumLength(body));
+  let seen = -1;
+  let bodyFocusOffset = 0;
+  for (let index = 0; index < body.length; index += 1) {
+    if (!/[A-Za-z0-9]/.test(body[index] ?? "")) continue;
+    seen += 1;
+    if (seen === targetAlnumIndex) {
+      bodyFocusOffset = index;
+      break;
+    }
+  }
+
+  const focusIndex = firstAlnum + bodyFocusOffset;
+  return {
+    lead: word.slice(0, focusIndex),
+    focus: word[focusIndex] ?? word,
+    tail: word.slice(focusIndex + 1),
+    focus_index: focusIndex
+  };
+}
+
+function orpIndexForLength(length: number): number {
+  if (length <= 1) return 0;
+  if (length <= 5) return 1;
+  if (length <= 9) return 2;
+  if (length <= 13) return 3;
+  return 4;
+}
+
+function denseTokenIndexes(words: string[]): Set<number> {
+  const candidates = words
+    .map((word, index) => ({ word, index, normalized: normalizeToken(word) }))
+    .filter(({ normalized }) => normalized.length >= 5 && !pacedReadStopwords.has(normalized))
+    .sort((left, right) => {
+      const densityDelta =
+        tokenDensityScore(right.word, right.normalized) - tokenDensityScore(left.word, left.normalized);
+      return densityDelta === 0 ? left.index - right.index : densityDelta;
+    })
+    .slice(0, 4);
+  return new Set(candidates.map((candidate) => candidate.index));
+}
+
+function tokenDensityScore(word: string, normalized: string): number {
+  return normalized.length + (/[/-]/.test(word) ? 3 : 0) + (/[A-Z]{2,}/.test(word) ? 2 : 0);
+}
+
+function normalizeToken(word: string): string {
+  return word.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function alnumLength(word: string): number {
+  return word.replace(/[^A-Za-z0-9]/g, "").length;
+}
+
+const pacedReadStopwords = new Set([
+  "about",
+  "after",
+  "again",
+  "against",
+  "before",
+  "being",
+  "between",
+  "could",
+  "every",
+  "from",
+  "into",
+  "more",
+  "should",
+  "that",
+  "their",
+  "there",
+  "these",
+  "they",
+  "this",
+  "through",
+  "when",
+  "where",
+  "which",
+  "while",
+  "with",
+  "would"
+]);

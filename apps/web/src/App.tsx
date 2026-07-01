@@ -74,9 +74,11 @@ import {
   type VoteType
 } from "@mnemosyne/content-court";
 import {
+  buildPacedReadFocusFrame,
   buildPacedReadSession,
   scorePacedReadCompletion,
   type PacedReadDisplayUnit,
+  type PacedReadFocusMode,
   type PacedReadSessionPlan
 } from "@mnemosyne/paced-reader-core";
 import { buildGraphSnapshot } from "@mnemosyne/graph-core";
@@ -405,6 +407,7 @@ export default function App() {
       ""
   );
   const [pacedReadDisplayUnit, setPacedReadDisplayUnit] = useState<PacedReadDisplayUnit>("phrase");
+  const [pacedReadFocusMode, setPacedReadFocusMode] = useState<PacedReadFocusMode>("plain");
   const [pacedReadRequestedWpm, setPacedReadRequestedWpm] = useState(420);
   const [pacedReadChunkIndex, setPacedReadChunkIndex] = useState(0);
   const [pacedReadPlaying, setPacedReadPlaying] = useState(false);
@@ -2363,6 +2366,8 @@ export default function App() {
         selectAsset={selectPacedReadAsset}
         displayUnit={pacedReadDisplayUnit}
         setDisplayUnit={setPacedReadDisplayUnit}
+        focusMode={pacedReadFocusMode}
+        setFocusMode={setPacedReadFocusMode}
         requestedWpm={pacedReadRequestedWpm}
         setRequestedWpm={setPacedReadRequestedWpm}
         previousChunk={() => setPacedReadChunkIndex((index) => Math.max(0, index - 1))}
@@ -3652,6 +3657,8 @@ function PacedReadView({
   selectAsset,
   displayUnit,
   setDisplayUnit,
+  focusMode,
+  setFocusMode,
   requestedWpm,
   setRequestedWpm,
   previousChunk,
@@ -3679,6 +3686,8 @@ function PacedReadView({
   selectAsset: (assetId: string) => void;
   displayUnit: PacedReadDisplayUnit;
   setDisplayUnit: (unit: PacedReadDisplayUnit) => void;
+  focusMode: PacedReadFocusMode;
+  setFocusMode: (mode: PacedReadFocusMode) => void;
   requestedWpm: number;
   setRequestedWpm: (wpm: number) => void;
   previousChunk: () => void;
@@ -3696,6 +3705,7 @@ function PacedReadView({
   concepts: ConceptNode[];
 }) {
   const displayUnits: PacedReadDisplayUnit[] = ["word", "phrase", "clause", "concept"];
+  const focusModes: PacedReadFocusMode[] = ["plain", "orp", "highlight"];
   const activeConcepts = activeAsset?.concept_ids.map((id) => conceptTitle(concepts, id)) ?? [];
   const gateState = result ? (result.advanceAllowed ? "passed" : "held") : "armed";
   return (
@@ -3713,7 +3723,7 @@ function PacedReadView({
         </div>
         <div className="paced-read-stage" aria-live={playing ? "polite" : "off"}>
           <p className="eyebrow">{activeAsset?.title ?? "No paced read asset"}</p>
-          <div className="paced-read-chunk">{chunk || "Select a graph asset to begin."}</div>
+          <PacedReadChunkDisplay chunk={chunk} focusMode={focusMode} />
           <div className="paced-read-progress-track" aria-label="Paced read progress">
             <i style={{ width: `${progress * 100}%` }} />
           </div>
@@ -3735,6 +3745,17 @@ function PacedReadView({
               onClick={() => setDisplayUnit(unit)}
             >
               <span>{unit}</span>
+            </button>
+          ))}
+        </div>
+        <div className="segmented-control paced-read-focus-control" aria-label="Focus mode">
+          {focusModes.map((mode) => (
+            <button
+              className={focusMode === mode ? "is-active" : ""}
+              key={mode}
+              onClick={() => setFocusMode(mode)}
+            >
+              <span>{mode}</span>
             </button>
           ))}
         </div>
@@ -3814,6 +3835,7 @@ function PacedReadView({
             <MiniStat label="Network" value="none" />
             <MiniStat label="Cache" value={cacheStatus} />
             <MiniStat label="Display" value={displayUnit} />
+            <MiniStat label="Focus" value={focusMode} />
           </div>
           <div className="tag-row">
             {activeConcepts.map((title) => (
@@ -4001,6 +4023,36 @@ function SpeedListenView({
           </div>
         </div>
       </section>
+    </div>
+  );
+}
+
+function PacedReadChunkDisplay({ chunk, focusMode }: { chunk: string; focusMode: PacedReadFocusMode }) {
+  const fallback = "Select a graph asset to begin.";
+  const frame = buildPacedReadFocusFrame(chunk, focusMode);
+  const accessibleText = frame.plain_text || fallback;
+  if (!frame.plain_text || focusMode === "plain") {
+    return (
+      <div className="paced-read-chunk" aria-label={accessibleText}>
+        <span>{accessibleText}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="paced-read-chunk" aria-label={accessibleText}>
+      <span className={`paced-read-token-line is-${frame.mode}`} aria-hidden="true">
+        {frame.tokens.map((token, index) => (
+          <span
+            className={`paced-read-token ${token.highlight ? "is-highlight" : ""}`}
+            key={`${token.text}-${index}`}
+          >
+            <span>{token.lead}</span>
+            <span className="paced-read-token-focus">{token.focus}</span>
+            <span>{token.tail}</span>
+          </span>
+        ))}
+      </span>
     </div>
   );
 }

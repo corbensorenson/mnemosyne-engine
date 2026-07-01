@@ -1125,6 +1125,34 @@ input[type="range"] {
   overflow-wrap: anywhere;
 }
 
+.paced-read-token-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 0.14em 0.32em;
+  max-width: 100%;
+}
+
+.paced-read-token {
+  display: inline-flex;
+  align-items: baseline;
+  min-height: 1.08em;
+  padding: 0.02em 0.05em;
+  border-radius: 6px;
+  line-height: 1.08;
+  white-space: nowrap;
+}
+
+.paced-read-token.is-highlight {
+  background: rgba(235, 181, 90, 0.2);
+}
+
+.paced-read-token-focus {
+  color: var(--amber);
+  border-bottom: 3px solid var(--amber);
+}
+
 .paced-read-progress-track {
   height: 10px;
   border-radius: 999px;
@@ -1149,6 +1177,12 @@ input[type="range"] {
 
 .paced-read-unit-control {
   grid-template-columns: repeat(4, minmax(76px, 1fr));
+  width: 100%;
+  margin: 0 0 12px;
+}
+
+.paced-read-focus-control {
+  grid-template-columns: repeat(3, minmax(86px, 1fr));
   width: 100%;
   margin: 0 0 12px;
 }
@@ -2375,7 +2409,8 @@ input[type="range"] {
   .state-grid,
   .incident-summary,
   .incident-actions,
-  .paced-read-unit-control {
+  .paced-read-unit-control,
+  .paced-read-focus-control {
     grid-template-columns: 1fr;
   }
 
