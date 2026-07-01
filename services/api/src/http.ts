@@ -287,7 +287,9 @@ function createHttpRoutes(handlers: ReturnType<typeof createApiHandlers>): Route
     ),
     route("POST", "/api/paced-read/generate", (context) => handlers.generatePacedRead(context.body)),
     route("POST", "/api/paced-read/complete", (context) => handlers.completePacedRead(context.body)),
-    route("POST", "/api/speed-listen/complete", (context) => handlers.completeSpeedListen(context.body)),
+    route("POST", "/api/speed-listen/complete", (context) => handlers.completeSpeedListen(context.body), {
+      rateLimitKey: "speed_listen_completion"
+    }),
     route("POST", "/api/sleep/packet/generate", (context) => handlers.generateSleepPacket(context.body)),
     route("GET", "/api/sleep/packet/tonight", (context) =>
       handlers.getTonightSleepPacket(requiredQuery(context, "userId"), optionalQuery(context, "nightDate"))

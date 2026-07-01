@@ -19,6 +19,7 @@ The core evaluator lives in `@mnemosyne/reliability-core`. It can evaluate real 
 - Sleep audio render manifest generation and queue drain.
 - Bounded GraphFeed recall completion.
 - First-party Paced Read completion.
+- First-party SpeedListen gated completion and graph replay.
 - Content Court proposal release.
 - Privacy export and scoped deletion.
 - Worker queue drain across scheduler, audio, analytics, and export work.

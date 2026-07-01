@@ -10,6 +10,7 @@ export const reliabilityScenarioIds = [
   "sleep_audio_render",
   "graphfeed_recall",
   "paced_read_completion",
+  "speed_listen_completion",
   "content_court_release",
   "privacy_export_delete",
   "worker_queue_drain",
@@ -201,6 +202,16 @@ export function defaultReliabilityScenarios(
     }),
     scenario("paced_read_completion", "First-party Paced Read completion", "pwa", {
       journey: ["POST /api/paced-read/generate", "POST /api/paced-read/complete"],
+      targetRps: 12 * scale,
+      targetConcurrency: Math.ceil(12 * scale),
+      maxP95Ms: 650,
+      maxP99Ms: 1200,
+      audit: true,
+      integrity: true,
+      replay: true
+    }),
+    scenario("speed_listen_completion", "First-party SpeedListen completion", "pwa", {
+      journey: ["local speech playback", "POST /api/speed-listen/complete", "POST /api/graph/user/replay"],
       targetRps: 12 * scale,
       targetConcurrency: Math.ceil(12 * scale),
       maxP95Ms: 650,

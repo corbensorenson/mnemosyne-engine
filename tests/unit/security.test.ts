@@ -36,6 +36,15 @@ describe("security-core", () => {
   it("evaluates rate limits and release gates", () => {
     const policy = defaultRateLimitPolicies().find((candidate) => candidate.key === "tutor_turn");
     if (!policy) throw new Error("missing tutor_turn policy");
+    expect(defaultRateLimitPolicies()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "speed_listen_completion",
+          scope: "user",
+          expensive: true
+        })
+      ])
+    );
     const timestamps = Array.from({ length: policy.max_requests + policy.burst }, (_, index) =>
       new Date(Date.parse("2026-06-30T12:00:00.000Z") + index * 100).toISOString()
     );

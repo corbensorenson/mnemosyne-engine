@@ -125,6 +125,8 @@ The system should preserve audit events even when downstream analytics or person
 
 `GET /api/reliability/release-gate` returns the first-party reliability release report and audits `reliability_release_gate_checked`. The underlying `@mnemosyne/reliability-core` evaluator covers target request rate, concurrency, p95/p99 latency, error and timeout rates, audit coverage, integrity checks, graph replay verification, and queue-drain budgets for the core learning journeys. See [`reliability-release-gate.md`](./reliability-release-gate.md).
 
+The reliability scenario inventory must include the first-party SpeedListen completion path: local playback evidence, `POST /api/speed-listen/complete`, and replay verification from `speed_listen_completed` events.
+
 ## Offline Sync Gate
 
 Before production release, the PWA must register its service worker, expose a valid manifest, persist learning actions to IndexedDB, attach idempotency keys, avoid secrets in queued payloads, recover stale sync locks, and cover the core daily actions: packet cache, Morning Forge, Tutor, GraphFeed, Paced Read, SpeedListen gated completion, WalkMode, Evening Lock-In, SleepCue playback, and SleepCue recall.

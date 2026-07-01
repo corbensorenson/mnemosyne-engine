@@ -93,6 +93,7 @@ export function defaultRateLimitPolicies(): RateLimitPolicy[] {
   return [
     policy("auth_session", "ip", 60, 20, 5, true),
     policy("tutor_turn", "user", 60, 60, 10, true),
+    policy("speed_listen_completion", "user", 60, 90, 20, true),
     policy("proposal_create", "user", 300, 20, 4, true),
     policy("creator_ingestion", "user", 900, 10, 2, true),
     policy("offline_sync", "user", 60, 240, 60, true),

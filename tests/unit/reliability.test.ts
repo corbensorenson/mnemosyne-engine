@@ -24,9 +24,18 @@ describe("reliability-core", () => {
         "tutor_turn",
         "walk_mode_complete",
         "sleep_audio_render",
+        "paced_read_completion",
+        "speed_listen_completion",
         "privacy_export_delete",
         "worker_queue_drain"
       ])
+    );
+    expect(gate.required_scenarios.find((scenario) => scenario.id === "speed_listen_completion")).toEqual(
+      expect.objectContaining({
+        journey: expect.arrayContaining(["POST /api/speed-listen/complete"]),
+        requires_audit_events: true,
+        requires_replay_check: true
+      })
     );
   });
 
